@@ -1,17 +1,8 @@
-import { int, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { int, json, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import type { MarketplaceCategory } from "../shared/marketplace";
 
-/**
- * Core user table backing auth flow.
- * Extend this file with additional tables as your product grows.
- * Columns use camelCase to match both database fields and generated types.
- */
 export const users = mysqlTable("users", {
-  /**
-   * Surrogate primary key. Auto-incremented numeric value managed by the database.
-   * Use this for relations between tables.
-   */
   id: int("id").autoincrement().primaryKey(),
-  /** Manus OAuth identifier (openId) returned from the OAuth callback. Unique per user. */
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
   email: varchar("email", { length: 320 }),
@@ -22,7 +13,75 @@ export const users = mysqlTable("users", {
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
+export type StoredOrderLine = {
+  productId: string;
+  title: string;
+  quantity: number;
+  unitPrice: number;
+  lineTotal: number;
+};
+
+export const orders = mysqlTable("orders", {
+  reference: varchar("reference", { length: 40 }).primaryKey(),
+  buyerUserId: int("buyerUserId"),
+  buyerName: varchar("buyerName", { length: 120 }).notNull(),
+  buyerPhone: varchar("buyerPhone", { length: 32 }).notNull(),
+  deliveryAddress: text("deliveryAddress").notNull(),
+  paymentMethod: mysqlEnum("paymentMethod", ["delivery", "paystack", "flutterwave"]).notNull(),
+  paymentStatus: mysqlEnum("paymentStatus", ["pending", "paid", "cod_pending"]).notNull(),
+  subtotal: int("subtotal").notNull(),
+  referralDiscount: int("referralDiscount").notNull().default(0),
+  deliveryFee: int("deliveryFee").notNull(),
+  total: int("total").notNull(),
+  referralCode: varchar("referralCode", { length: 32 }),
+  discountType: mysqlEnum("discountType", ["none", "referral", "reward"]).notNull().default("none"),
+  orderLines: json("orderLines").$type<StoredOrderLine[]>().notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const referralShares = mysqlTable("referralShares", {
+  id: int("id").autoincrement().primaryKey(),
+  sharerUserId: int("sharerUserId").notNull(),
+  shareCode: varchar("shareCode", { length: 32 }).notNull().unique(),
+  channel: mysqlEnum("channel", ["whatsapp", "tiktok", "instagram", "other"]).notNull(),
+  status: mysqlEnum("status", ["shared", "qualified", "rewarded"]).notNull().default("shared"),
+  rewardValue: int("rewardValue").notNull().default(500),
+  rewardCode: varchar("rewardCode", { length: 32 }).unique(),
+  rewardStatus: mysqlEnum("rewardStatus", ["none", "issued", "redeemed"]).notNull().default("none"),
+  referredOrderReference: varchar("referredOrderReference", { length: 40 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const vendorApplications = mysqlTable("vendorApplications", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  name: varchar("name", { length: 120 }).notNull(),
+  storeName: varchar("storeName", { length: 160 }).notNull(),
+  whatsapp: varchar("whatsapp", { length: 32 }).notNull(),
+  category: mysqlEnum("category", ["Fashion", "Phones", "Beauty", "Home"]).notNull(),
+  status: mysqlEnum("status", ["pending", "approved", "rejected"]).notNull().default("pending"),
+  commissionRate: int("commissionRate").notNull().default(12),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const vendorProducts = mysqlTable("vendorProducts", {
+  id: int("id").autoincrement().primaryKey(),
+  vendorApplicationId: int("vendorApplicationId").notNull(),
+  title: varchar("title", { length: 180 }).notNull(),
+  category: mysqlEnum("category", ["Fashion", "Phones", "Beauty", "Home"]).$type<MarketplaceCategory>().notNull(),
+  price: int("price").notNull(),
+  description: text("description").notNull(),
+  status: mysqlEnum("status", ["draft", "active"]).notNull().default("draft"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
-
-// TODO: Add your tables here
+export type Order = typeof orders.$inferSelect;
+export type InsertOrder = typeof orders.$inferInsert;
+export type ReferralShare = typeof referralShares.$inferSelect;
+export type InsertReferralShare = typeof referralShares.$inferInsert;
+export type VendorApplication = typeof vendorApplications.$inferSelect;
+export type InsertVendorApplication = typeof vendorApplications.$inferInsert;
+export type VendorProduct = typeof vendorProducts.$inferSelect;
+export type InsertVendorProduct = typeof vendorProducts.$inferInsert;

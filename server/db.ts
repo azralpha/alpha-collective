@@ -1,11 +1,21 @@
-import { eq } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
-import { InsertUser, users } from "../drizzle/schema";
-import { ENV } from './_core/env';
+import {
+  type InsertOrder,
+  type InsertReferralShare,
+  type InsertUser,
+  type InsertVendorApplication,
+  type InsertVendorProduct,
+  orders,
+  referralShares,
+  users,
+  vendorApplications,
+  vendorProducts,
+} from "../drizzle/schema";
+import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -18,10 +28,14 @@ export async function getDb() {
   return _db;
 }
 
+async function requireDb() {
+  const db = await getDb();
+  if (!db) throw new Error("The marketplace database is not available.");
+  return db;
+}
+
 export async function upsertUser(user: InsertUser): Promise<void> {
-  if (!user.openId) {
-    throw new Error("User openId is required for upsert");
-  }
+  if (!user.openId) throw new Error("User openId is required for upsert");
 
   const db = await getDb();
   if (!db) {
@@ -29,64 +43,134 @@ export async function upsertUser(user: InsertUser): Promise<void> {
     return;
   }
 
-  try {
-    const values: InsertUser = {
-      openId: user.openId,
-    };
-    const updateSet: Record<string, unknown> = {};
+  const values: InsertUser = { openId: user.openId };
+  const updateSet: Record<string, unknown> = {};
+  const textFields = ["name", "email", "loginMethod"] as const;
 
-    const textFields = ["name", "email", "loginMethod"] as const;
-    type TextField = (typeof textFields)[number];
-
-    const assignNullable = (field: TextField) => {
-      const value = user[field];
-      if (value === undefined) return;
-      const normalized = value ?? null;
-      values[field] = normalized;
-      updateSet[field] = normalized;
-    };
-
-    textFields.forEach(assignNullable);
-
-    if (user.lastSignedIn !== undefined) {
-      values.lastSignedIn = user.lastSignedIn;
-      updateSet.lastSignedIn = user.lastSignedIn;
+  textFields.forEach(field => {
+    if (user[field] !== undefined) {
+      const value = user[field] ?? null;
+      values[field] = value;
+      updateSet[field] = value;
     }
-    if (user.role !== undefined) {
-      values.role = user.role;
-      updateSet.role = user.role;
-    } else if (user.openId === ENV.ownerOpenId) {
-      values.role = 'admin';
-      updateSet.role = 'admin';
-    }
+  });
 
-    if (!values.lastSignedIn) {
-      values.lastSignedIn = new Date();
-    }
-
-    if (Object.keys(updateSet).length === 0) {
-      updateSet.lastSignedIn = new Date();
-    }
-
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
-      set: updateSet,
-    });
-  } catch (error) {
-    console.error("[Database] Failed to upsert user:", error);
-    throw error;
+  if (user.lastSignedIn !== undefined) {
+    values.lastSignedIn = user.lastSignedIn;
+    updateSet.lastSignedIn = user.lastSignedIn;
   }
+
+  if (user.role !== undefined) {
+    values.role = user.role;
+    updateSet.role = user.role;
+  } else if (user.openId === ENV.ownerOpenId) {
+    values.role = "admin";
+    updateSet.role = "admin";
+  }
+
+  values.lastSignedIn ??= new Date();
+  if (Object.keys(updateSet).length === 0) updateSet.lastSignedIn = new Date();
+
+  await db.insert(users).values(values).onDuplicateKeyUpdate({ set: updateSet });
 }
 
 export async function getUserByOpenId(openId: string) {
   const db = await getDb();
-  if (!db) {
-    console.warn("[Database] Cannot get user: database not available");
-    return undefined;
-  }
-
+  if (!db) return undefined;
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
-
-  return result.length > 0 ? result[0] : undefined;
+  return result[0];
 }
 
-// TODO: add feature queries here as your schema grows.
+export async function createOrder(order: InsertOrder) {
+  const db = await requireDb();
+  await db.insert(orders).values(order);
+  return order.reference;
+}
+
+export async function getReferralShareByCode(shareCode: string) {
+  const db = await requireDb();
+  const result = await db
+    .select()
+    .from(referralShares)
+    .where(eq(referralShares.shareCode, shareCode.toUpperCase()))
+    .limit(1);
+  return result[0];
+}
+
+export async function getReferralShareByRewardCode(rewardCode: string) {
+  const db = await requireDb();
+  const result = await db
+    .select()
+    .from(referralShares)
+    .where(eq(referralShares.rewardCode, rewardCode.toUpperCase()))
+    .limit(1);
+  return result[0];
+}
+
+export async function listReferralSharesForUser(userId: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(referralShares)
+    .where(eq(referralShares.sharerUserId, userId))
+    .orderBy(desc(referralShares.createdAt));
+}
+
+export async function createReferralShare(share: InsertReferralShare) {
+  const db = await requireDb();
+  await db.insert(referralShares).values(share);
+  return share.shareCode;
+}
+
+export async function qualifyReferralShare(shareCode: string, reference: string, rewardCode: string) {
+  const db = await requireDb();
+  await db
+    .update(referralShares)
+    .set({ status: "qualified", referredOrderReference: reference, rewardCode, rewardStatus: "issued" })
+    .where(and(eq(referralShares.shareCode, shareCode.toUpperCase()), eq(referralShares.status, "shared")));
+}
+
+export async function redeemReferralReward(rewardCode: string, userId: number) {
+  const db = await requireDb();
+  await db
+    .update(referralShares)
+    .set({ rewardStatus: "redeemed" })
+    .where(
+      and(
+        eq(referralShares.rewardCode, rewardCode.toUpperCase()),
+        eq(referralShares.sharerUserId, userId),
+        eq(referralShares.rewardStatus, "issued"),
+      ),
+    );
+}
+
+export async function getVendorApplicationForUser(userId: number) {
+  const db = await requireDb();
+  const result = await db
+    .select()
+    .from(vendorApplications)
+    .where(eq(vendorApplications.userId, userId))
+    .limit(1);
+  return result[0];
+}
+
+export async function createVendorApplication(application: InsertVendorApplication) {
+  const db = await requireDb();
+  const result = await db.insert(vendorApplications).values(application);
+  return Number(result[0].insertId);
+}
+
+export async function listVendorProducts(vendorApplicationId: number) {
+  const db = await requireDb();
+  return db
+    .select()
+    .from(vendorProducts)
+    .where(eq(vendorProducts.vendorApplicationId, vendorApplicationId))
+    .orderBy(desc(vendorProducts.createdAt));
+}
+
+export async function createVendorProduct(product: InsertVendorProduct) {
+  const db = await requireDb();
+  const result = await db.insert(vendorProducts).values(product);
+  return Number(result[0].insertId);
+}

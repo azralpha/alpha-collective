@@ -1,0 +1,16 @@
+# Project TODO
+
+- [x] Inspect the copied marketplace implementation, database schema, migrations, and task tracker before changing behavior
+- [x] Reconcile marketplace persistence and tRPC procedures for orders, referrals, vendor applications, and vendor products
+- [x] Replace advertised local-only marketplace workflows with persistent flows and explicit loading, error, empty, and confirmation states
+- [x] Correct trust, payment, referral, ratings, and WordPress handoff claims to match implemented functionality
+- [x] Add marketplace-focused automated coverage and validate critical desktop and mobile routes
+- [x] Save the first independent checkpoint after all completed work is verified
+- [x] Define typed marketplace fixtures, cart, Naira, commission, and order-reference utilities
+- [x] Build responsive buyer routes for home, shop, product detail, cart, and checkout
+- [x] Make Pay on Delivery prominent and retain Paystack and Flutterwave as integration-ready payment options without overstating live processing
+- [x] Build the exact “Sell on Alpha Collective” seller acquisition route and persistent vendor product dashboard
+- [x] Add referral attribution and the exact “Share and get ₦500 off” acquisition journey with truthful eligibility messaging
+- [x] Publish an accurate WordPress, WooCommerce, Dokan, Astra, Elementor, LiteSpeed Cache, and Yoast SEO deployment handoff
+- [x] Implement sharer attribution, self-referral prevention, and a distinct ₦500 reward code after a qualifying referred order
+- [x] Audit referral and ratings wording across the storefront and launch handoff so it only describes the implemented behavior
