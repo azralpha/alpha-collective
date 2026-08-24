@@ -28,4 +28,6 @@
 - [x] Store the supplied Paystack live key in secure server configuration without exposing it in source or the browser
 - [x] Confirm seller application and product forms use the shared expanded category list and display the updated marketplace shell
 - [x] Validate the branding, category flows, and secret configuration
-- [ ] Save a checkpoint containing the wolf brand, category, and secure Paystack update
+- [x] Save a checkpoint containing the wolf brand, category, and secure Paystack update
+- [x] Verify the seller heading uses “Tell us what you are selling.”
+- [ ] Save a checkpoint containing the verified seller-heading update
