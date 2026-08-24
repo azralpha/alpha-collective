@@ -19,4 +19,6 @@
 - [x] Redesign the homepage hero around bolder green/orange deal surfaces, action hierarchy, and delivery trust cues
 - [x] Apply the refreshed theme consistently to shop, product, cart, checkout, and seller routes
 - [x] Verify the refreshed experience on mobile and desktop
-- [ ] Save a visual-refresh checkpoint
+- [x] Save a visual-refresh checkpoint
+- [x] Verify the top announcement copy uses “Fresh finds for African products”
+- [ ] Save a checkpoint containing the verified announcement-copy update

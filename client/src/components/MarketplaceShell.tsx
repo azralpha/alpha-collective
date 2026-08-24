@@ -28,7 +28,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
   return (
     <div className="marketplace-app">
       <div className="announcement-bar">
-        <span>Fresh finds from independent Nigerian sellers</span>
+        <span>Fresh finds for African products</span>
         <span className="announcement-dot" aria-hidden="true" />
         <span><strong>Pay on Delivery</strong> available at checkout</span>
       </div>
