@@ -85,4 +85,4 @@
 - [x] Implement server-side zone, weight, and delivery-tier shipping calculation with validated inputs
 - [x] Replace the free-text address with locked Nigeria, state, LGA, and street-detail fields and persist a standardized address string
 - [x] Add checkout delivery-service selection, pricing breakdown, seller-contact note, and full automated and visual validation
-- [ ] Save a checkpoint containing the verified cart, delivery, address, and movable support update
+- [x] Save a checkpoint containing the verified cart, delivery, address, and movable support update
