@@ -387,6 +387,8 @@ export async function releaseWalletEscrowOrder(reference: string) {
     const order = orderResult[0];
     if (!order) throw new Error("Order was not found.");
     if (order.paymentMethod !== "wallet" || order.paymentStatus !== "wallet_escrow") throw new Error("This order does not have held wallet escrow.");
+    const releaseClaim = await tx.update(orders).set({ fulfillmentStatus: "delivered", paymentStatus: "wallet_released" }).where(and(eq(orders.reference, reference), eq(orders.paymentMethod, "wallet"), eq(orders.paymentStatus, "wallet_escrow")));
+    if (affectedRows(releaseClaim) !== 1) throw new Error("This order does not have held wallet escrow.");
     const buyerWalletResult = await tx.select().from(wallets).where(eq(wallets.userId, order.buyerUserId ?? -1)).limit(1);
     const buyerWallet = buyerWalletResult[0];
     if (!buyerWallet) throw new Error("Buyer wallet was not found.");
@@ -418,7 +420,6 @@ export async function releaseWalletEscrowOrder(reference: string) {
       });
       releasedVendors.push({ userId: allocation.vendorUserId, amount: allocation.netAmount });
     }
-    await tx.update(orders).set({ fulfillmentStatus: "delivered", paymentStatus: "wallet_released" }).where(eq(orders.reference, reference));
     return { order, releasedVendors };
   });
 }
