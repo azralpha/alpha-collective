@@ -30,4 +30,6 @@
 - [x] Validate the branding, category flows, and secret configuration
 - [x] Save a checkpoint containing the wolf brand, category, and secure Paystack update
 - [x] Verify the seller heading uses “Tell us what you are selling.”
-- [ ] Save a checkpoint containing the verified seller-heading update
+- [x] Save a checkpoint containing the verified seller-heading update
+- [x] Verify the vendor product-description label notes bulk products
+- [ ] Save a checkpoint containing the verified vendor form-label update
