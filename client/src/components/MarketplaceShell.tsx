@@ -1,7 +1,7 @@
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { MARKETPLACE_CATEGORIES } from "@shared/marketplace";
-import { Gift, Grid2X2, Home, Search, ShieldCheck, ShoppingCart, Store, X } from "lucide-react";
+import { Gift, Grid2X2, Home, Search, ShieldCheck, ShoppingCart, Store, WalletCards, X } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import DraggableSupportBubble from "./DraggableSupportBubble";
 
@@ -43,6 +43,8 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
           </Link>
           <div className="header-actions">
             {user?.role === "admin" ? <Link href="/admin/products" className="admin-link" aria-label="Review vendor products"><ShieldCheck size={20} /><span>Review</span></Link> : null}
+            {user?.role === "admin" ? <Link href="/admin/wallet-orders" className="admin-link" aria-label="Review wallet escrow orders"><ShieldCheck size={20} /><span>Escrow</span></Link> : null}
+            {user ? <Link href="/wallet" className="admin-link" aria-label="Open Alpha Wallet"><WalletCards size={20} /><span>Wallet</span></Link> : null}
             <Link href="/cart" className="cart-link" aria-label={`Open cart with ${itemCount} items`}>
               <ShoppingCart size={23} />
               {itemCount > 0 ? <span className="cart-count">{itemCount}</span> : null}
@@ -61,7 +63,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
         <Link href="/shop" className={location === "/shop" ? "active" : ""}><Grid2X2 size={21} /><span>Categories</span></Link>
         <a href="/#rewards"><Gift size={21} /><span>Rewards</span></a>
         <Link href="/sell" className={location === "/sell" ? "active" : ""}><Store size={21} /><span>Sell</span></Link>
-        <Link href="/cart" className={location === "/cart" ? "active" : ""}><ShoppingCart size={21} /><span>Cart</span></Link>
+        <Link href="/wallet" className={location === "/wallet" ? "active" : ""}><WalletCards size={21} /><span>Wallet</span></Link>
       </nav>
       <footer className="site-footer">
         <div>

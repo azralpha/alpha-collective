@@ -16,23 +16,52 @@ import { formatNigerianDeliveryAddress, isNigerianLga, isNigerianState } from ".
 import {
   createOrder,
   createReferralShare,
+  createWalletEscrowOrder,
   createVendorApplication,
   createVendorProduct,
+  createPendingWalletWithdrawal,
+  createWalletFundingAttempt,
+  ensureWalletForUser,
+  failWalletWithdrawalBeforeTransfer,
   getReferralShareByCode,
   getReferralShareByRewardCode,
   getVendorApplicationForUser,
   getVendorProductForApplication,
+  getWalletBankRecipientForUser,
+  getWalletForUser,
   listAdminReviewProducts,
   listApprovedVendorProducts,
+  listWalletFundingAttemptsForUser,
+  listHeldWalletOrders,
   listReferralSharesForUser,
   listVendorProducts,
+  listWalletTransactionsForUser,
+  listWithdrawalRequestsForUser,
+  markWalletFundingAttemptFailed,
+  markWalletWithdrawalProcessing,
   qualifyReferralShare,
+  recordWalletPinFailure,
   redeemReferralReward,
+  releaseWalletEscrowOrder,
+  resetWalletPinFailures,
+  saveWalletBankRecipient,
   updateVendorProductStatus,
   updateVendorDraftProduct,
+  updateWalletPin,
 } from "../db";
 import { storagePut } from "../storage";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { hashTransactionPin, validateTransactionPin, verifyTransactionPin } from "../walletSecurity";
+import {
+  PaystackProviderError,
+  createPaystackTransferRecipient,
+  initializePaystackFunding,
+  initiatePaystackTransfer,
+  isDefinitivePaystackRequestFailure,
+  listPaystackNigerianBanks,
+  maskNigerianAccountNumber,
+  resolvePaystackNigerianAccount,
+} from "../paystack";
 
 const cartLineSchema = z.object({ productId: z.string().min(1), quantity: z.number().int().min(1).max(10) });
 const shareCodeAlphabet = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 8);
@@ -43,15 +72,52 @@ const deliveryQuoteInputSchema = z.object({
   weightKg: z.number().positive().max(5000),
   serviceTier: z.enum(DELIVERY_SERVICE_TIERS),
 });
+const walletPinSchema = z.string().regex(/^\d{4}$/, "Enter your four-digit transaction PIN.");
+const walletAmountSchema = z.number().int().min(100, "Enter at least ₦100.").max(5_000_000, "Enter an amount up to ₦5,000,000.");
+const paystackFundingReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
+const paystackWithdrawalReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
+const walletCheckoutInputSchema = z.object({
+  buyerName: z.string().trim().min(2).max(120),
+  buyerPhone: z.string().trim().min(7).max(32),
+  deliveryAddress: z.object({ country: z.literal("Nigeria"), state: z.string().trim().min(2).max(80), lga: z.string().trim().min(2).max(120), streetDetails: z.string().trim().min(8).max(350) }),
+  packageWeightKg: z.number().positive().max(5000),
+  deliveryTier: z.enum(DELIVERY_SERVICE_TIERS),
+  items: z.array(cartLineSchema).min(1).max(12),
+  transactionPin: walletPinSchema,
+});
 
 function newShareCode() { return `ALPHA-${shareCodeAlphabet()}`; }
 function newOrderReference() { return `AC-${orderReferenceAlphabet()}`; }
 function newRewardCode() { return `THANKS-${rewardCodeAlphabet()}`; }
+function newPaystackFundingReference() { return `acwfund_${paystackFundingReferenceAlphabet()}`; }
+function newPaystackWithdrawalReference() { return `acwwith_${paystackWithdrawalReferenceAlphabet()}`; }
+
+function paystackErrorToTrpc(error: unknown, fallback: string) {
+  if (error instanceof PaystackProviderError) {
+    const code = error.statusCode === 503 ? "PRECONDITION_FAILED" : "BAD_REQUEST";
+    return new TRPCError({ code, message: error.statusCode >= 500 ? fallback : error.message });
+  }
+  return new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: fallback });
+}
 
 function validateNigerianState(state: string) {
   if (!isNigerianState(state)) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a valid Nigerian state or the FCT." });
   }
+}
+
+async function authorizeWalletPin(userId: number, pin: string) {
+  const wallet = await getWalletForUser(userId);
+  if (!wallet?.pinHash) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Set your four-digit transaction PIN before using Alpha Wallet." });
+  if (wallet.pinLockedUntil && wallet.pinLockedUntil > new Date()) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Wallet PIN is temporarily locked. Please try again later." });
+  if (await verifyTransactionPin(pin, wallet.pinHash)) {
+    await resetWalletPinFailures(userId);
+    return wallet;
+  }
+  const failedAttempts = wallet.pinFailedAttempts + 1;
+  const lockedUntil = failedAttempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+  await recordWalletPinFailure(userId, failedAttempts, lockedUntil);
+  throw new TRPCError({ code: "UNAUTHORIZED", message: lockedUntil ? "Wallet PIN is locked for 15 minutes after repeated failed attempts." : "Incorrect transaction PIN." });
 }
 
 function createVendorCatalog(products: Awaited<ReturnType<typeof listApprovedVendorProducts>>): MarketplaceProduct[] {
@@ -62,6 +128,8 @@ function createVendorCatalog(products: Awaited<ReturnType<typeof listApprovedVen
       id: `vendor-${product.id}`,
       title: product.title,
       vendor: product.vendor,
+      vendorUserId: product.vendorUserId,
+      vendorCommissionRate: product.commissionRate,
       category: product.category,
       price: product.price,
       formerPrice: undefined,
@@ -100,13 +168,161 @@ export const marketplaceRouter = router({
       validateNigerianState(input.destinationState);
       return calculateDeliveryQuote(input);
     }),
+  wallet: router({
+    dashboard: protectedProcedure.query(async ({ ctx }) => {
+      const wallet = await getWalletForUser(ctx.user.id);
+      if (!wallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet is being provisioned. Refresh and try again." });
+      const [transactions, recipient, withdrawals, fundingAttempts] = await Promise.all([
+        listWalletTransactionsForUser(ctx.user.id),
+        getWalletBankRecipientForUser(ctx.user.id),
+        listWithdrawalRequestsForUser(ctx.user.id),
+        listWalletFundingAttemptsForUser(ctx.user.id),
+      ]);
+      return {
+        availableBalance: wallet.availableBalance,
+        escrowBalance: wallet.escrowBalance,
+        hasPin: Boolean(wallet.pinHash),
+        recipient: recipient ? { bankName: recipient.bankName, accountNumberMasked: recipient.accountNumberMasked, accountName: recipient.accountName, verifiedAt: recipient.verifiedAt } : null,
+        withdrawals: withdrawals.map(request => ({ id: request.id, amount: request.amount, status: request.status, createdAt: request.createdAt })),
+        fundingAttempts: fundingAttempts.map(attempt => ({ reference: attempt.reference, amount: attempt.amount, status: attempt.status, createdAt: attempt.createdAt })),
+        transactions,
+      };
+    }),
+    setPin: protectedProcedure
+      .input(z.object({ pin: walletPinSchema, confirmation: walletPinSchema }))
+      .mutation(async ({ ctx, input }) => {
+        if (input.pin !== input.confirmation) throw new TRPCError({ code: "BAD_REQUEST", message: "Your PIN confirmation does not match." });
+        try { validateTransactionPin(input.pin); } catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Invalid transaction PIN." }); }
+        await updateWalletPin(ctx.user.id, await hashTransactionPin(input.pin));
+        return { hasPin: true };
+      }),
+    listBanks: protectedProcedure.query(async () => {
+      try {
+        return await listPaystackNigerianBanks();
+      } catch (error) {
+        throw paystackErrorToTrpc(error, "Nigerian banks are temporarily unavailable. Please try again.");
+      }
+    }),
+    verifyBankAccount: protectedProcedure
+      .input(z.object({ bankCode: z.string().trim().min(2).max(24), accountNumber: z.string().regex(/^\d{10}$/, "Enter a valid 10-digit Nigerian account number.") }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const banks = await listPaystackNigerianBanks();
+          const bank = banks.find(candidate => candidate.code === input.bankCode);
+          if (!bank) throw new TRPCError({ code: "BAD_REQUEST", message: "Select a Nigerian bank from the provided list." });
+          const resolved = await resolvePaystackNigerianAccount(input.accountNumber, input.bankCode);
+          if (resolved.accountNumber !== input.accountNumber) throw new TRPCError({ code: "BAD_REQUEST", message: "The resolved bank account did not match the account number entered." });
+          const recipientCode = await createPaystackTransferRecipient({ accountName: resolved.accountName, accountNumber: input.accountNumber, bankCode: input.bankCode });
+          await ensureWalletForUser(ctx.user.id);
+          await saveWalletBankRecipient({
+            userId: ctx.user.id,
+            bankCode: bank.code,
+            bankName: bank.name,
+            accountNumberMasked: maskNigerianAccountNumber(input.accountNumber),
+            accountName: resolved.accountName,
+            paystackRecipientCode: recipientCode,
+          });
+          return { bankName: bank.name, accountNumberMasked: maskNigerianAccountNumber(input.accountNumber), accountName: resolved.accountName };
+        } catch (error) {
+          if (error instanceof TRPCError) throw error;
+          throw paystackErrorToTrpc(error, "Your bank account could not be verified right now. Please try again.");
+        }
+      }),
+    initializeFunding: protectedProcedure
+      .input(z.object({ amount: walletAmountSchema, email: z.string().trim().email("Enter the email address you use for payment receipts.").max(320) }))
+      .mutation(async ({ ctx, input }) => {
+        const wallet = await ensureWalletForUser(ctx.user.id);
+        const reference = newPaystackFundingReference();
+        await createWalletFundingAttempt({ walletId: wallet.id, userId: ctx.user.id, reference, amount: input.amount });
+        try {
+          const payment = await initializePaystackFunding({ email: input.email.toLowerCase(), reference, amountNaira: input.amount });
+          return { reference: payment.reference, authorizationUrl: payment.authorizationUrl };
+        } catch (error) {
+          if (isDefinitivePaystackRequestFailure(error)) await markWalletFundingAttemptFailed(reference);
+          throw paystackErrorToTrpc(error, "Funding could not be initialized. Please try again.");
+        }
+      }),
+    requestWithdrawal: protectedProcedure
+      .input(z.object({ amount: walletAmountSchema, transactionPin: walletPinSchema, confirmed: z.literal(true) }))
+      .mutation(async ({ ctx, input }) => {
+        const wallet = await authorizeWalletPin(ctx.user.id, input.transactionPin);
+        const recipient = await getWalletBankRecipientForUser(ctx.user.id);
+        if (!recipient) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Verify your Nigerian bank account before requesting a withdrawal." });
+        const reference = newPaystackWithdrawalReference();
+        let pending;
+        try {
+          pending = await createPendingWalletWithdrawal({ walletId: wallet.id, userId: ctx.user.id, recipientId: recipient.id, amount: input.amount, transferReference: reference });
+        } catch (error) {
+          if (error instanceof Error && error.message === "INSUFFICIENT_WALLET_BALANCE") {
+            throw new TRPCError({ code: "BAD_REQUEST", message: "Your available Alpha Wallet balance is not enough for this withdrawal." });
+          }
+          throw error;
+        }
+        try {
+          const transfer = await initiatePaystackTransfer({ recipientCode: recipient.paystackRecipientCode, reference, amountNaira: input.amount });
+          await markWalletWithdrawalProcessing({ reference, providerTransferCode: transfer.transferCode });
+          return { id: pending.id, reference, status: "processing" as const };
+        } catch (error) {
+          if (isDefinitivePaystackRequestFailure(error)) {
+            await failWalletWithdrawalBeforeTransfer(reference);
+            throw paystackErrorToTrpc(error, "Paystack could not start this withdrawal. Your wallet balance has been restored.");
+          }
+          await markWalletWithdrawalProcessing({ reference, providerTransferCode: "pending-provider-confirmation" });
+          return { id: pending.id, reference, status: "processing" as const, pendingProviderConfirmation: true };
+        }
+      }),
+    checkout: protectedProcedure
+      .input(walletCheckoutInputSchema)
+      .mutation(async ({ ctx, input }) => {
+        await authorizeWalletPin(ctx.user.id, input.transactionPin);
+        validateNigerianState(input.deliveryAddress.state);
+        if (!isNigerianLga(input.deliveryAddress.state, input.deliveryAddress.lga)) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a valid local government area for the selected state." });
+        const deliveryQuote = calculateDeliveryQuote({ destinationState: input.deliveryAddress.state, weightKg: input.packageWeightKg, serviceTier: input.deliveryTier });
+        const catalog = [...MARKETPLACE_PRODUCTS, ...createVendorCatalog(await listApprovedVendorProducts())];
+        const resolvedLines = resolveCartLines(input.items, catalog);
+        if (resolvedLines.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Your cart does not contain a valid product." });
+        if (resolvedLines.some(line => !line.product.vendorUserId)) throw new TRPCError({ code: "BAD_REQUEST", message: "Alpha Wallet currently supports approved vendor listings only." });
+        if (resolvedLines.some(line => line.product.vendorUserId === ctx.user.id)) throw new TRPCError({ code: "FORBIDDEN", message: "Use Alpha Wallet to purchase from other vendors, not your own listing." });
+        const subtotal = getCartSubtotal(input.items, catalog);
+        const reference = newOrderReference();
+        const total = subtotal + deliveryQuote.deliveryFee;
+        const allocations = resolvedLines.flatMap(line => line.product.vendorUserId ? [{ vendorUserId: line.product.vendorUserId, grossAmount: line.lineTotal, commissionAmount: 0, netAmount: line.lineTotal }] : []);
+        try {
+          await createWalletEscrowOrder({
+            buyerUserId: ctx.user.id,
+            order: {
+              reference, buyerUserId: ctx.user.id, buyerName: input.buyerName, buyerPhone: input.buyerPhone,
+              deliveryAddress: formatNigerianDeliveryAddress(input.deliveryAddress), paymentMethod: "wallet", paymentStatus: "wallet_escrow", fulfillmentStatus: "pending",
+              subtotal, referralDiscount: 0, deliveryFee: deliveryQuote.deliveryFee, total, discountType: "none",
+              orderLines: resolvedLines.map(line => ({ productId: line.product.id, title: line.product.title, quantity: line.quantity, unitPrice: line.product.price, lineTotal: line.lineTotal, vendorUserId: line.product.vendorUserId })),
+            },
+            allocations,
+          });
+        } catch (error) {
+          if (error instanceof Error && error.message === "INSUFFICIENT_WALLET_BALANCE") throw new TRPCError({ code: "BAD_REQUEST", message: "Your available Alpha Wallet balance is not enough for this order." });
+          throw error;
+        }
+        return { reference, paymentStatus: "wallet_escrow" as const, subtotal, deliveryFee: deliveryQuote.deliveryFee, total, deliveryQuote };
+      }),
+  }),
   admin: router({
     reviewProducts: adminProcedure.query(() => listAdminReviewProducts()),
+    walletOrders: adminProcedure.query(() => listHeldWalletOrders()),
     setProductStatus: adminProcedure
       .input(z.object({ id: z.number().int().positive(), status: z.enum(["active", "rejected"]) }))
       .mutation(async ({ input }) => {
         await updateVendorProductStatus(input.id, input.status);
         return { id: input.id, status: input.status };
+      }),
+    markWalletOrderDelivered: adminProcedure
+      .input(z.object({ reference: z.string().trim().min(8).max(40) }))
+      .mutation(async ({ input }) => {
+        try {
+          const result = await releaseWalletEscrowOrder(input.reference);
+          return { reference: input.reference, releasedVendors: result.releasedVendors };
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not release wallet escrow." });
+        }
       }),
   }),
   createReferralShare: protectedProcedure

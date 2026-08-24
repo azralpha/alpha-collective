@@ -19,6 +19,7 @@ export type StoredOrderLine = {
   quantity: number;
   unitPrice: number;
   lineTotal: number;
+  vendorUserId?: number;
 };
 
 export const orders = mysqlTable("orders", {
@@ -27,8 +28,9 @@ export const orders = mysqlTable("orders", {
   buyerName: varchar("buyerName", { length: 120 }).notNull(),
   buyerPhone: varchar("buyerPhone", { length: 32 }).notNull(),
   deliveryAddress: text("deliveryAddress").notNull(),
-  paymentMethod: mysqlEnum("paymentMethod", ["delivery", "paystack", "flutterwave"]).notNull(),
-  paymentStatus: mysqlEnum("paymentStatus", ["pending", "paid", "cod_pending"]).notNull(),
+  paymentMethod: mysqlEnum("paymentMethod", ["delivery", "paystack", "flutterwave", "wallet"]).notNull(),
+  paymentStatus: mysqlEnum("paymentStatus", ["pending", "paid", "cod_pending", "wallet_escrow", "wallet_released", "refunded"]).notNull(),
+  fulfillmentStatus: mysqlEnum("fulfillmentStatus", ["pending", "delivered", "cancelled"]).notNull().default("pending"),
   subtotal: int("subtotal").notNull(),
   referralDiscount: int("referralDiscount").notNull().default(0),
   deliveryFee: int("deliveryFee").notNull(),
@@ -64,6 +66,87 @@ export const vendorApplications = mysqlTable("vendorApplications", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const wallets = mysqlTable("wallets", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  availableBalance: int("availableBalance").notNull().default(0),
+  escrowBalance: int("escrowBalance").notNull().default(0),
+  pinHash: varchar("pinHash", { length: 255 }),
+  pinFailedAttempts: int("pinFailedAttempts").notNull().default(0),
+  pinLockedUntil: timestamp("pinLockedUntil"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const walletTransactions = mysqlTable("walletTransactions", {
+  id: int("id").autoincrement().primaryKey(),
+  walletId: int("walletId").notNull(),
+  userId: int("userId").notNull(),
+  type: mysqlEnum("type", ["deposit", "withdrawal", "purchase_escrow", "refund", "sale_earning"]).notNull(),
+  direction: mysqlEnum("direction", ["in", "out"]).notNull(),
+  status: mysqlEnum("status", ["pending", "completed", "held", "released", "failed", "reversed"]).notNull(),
+  amount: int("amount").notNull(),
+  balanceAfter: int("balanceAfter").notNull(),
+  reference: varchar("reference", { length: 64 }).notNull(),
+  idempotencyKey: varchar("idempotencyKey", { length: 120 }).notNull().unique(),
+  orderReference: varchar("orderReference", { length: 40 }),
+  description: varchar("description", { length: 255 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const escrowAllocations = mysqlTable("escrowAllocations", {
+  id: int("id").autoincrement().primaryKey(),
+  orderReference: varchar("orderReference", { length: 40 }).notNull(),
+  buyerWalletId: int("buyerWalletId").notNull(),
+  vendorUserId: int("vendorUserId").notNull(),
+  grossAmount: int("grossAmount").notNull(),
+  commissionAmount: int("commissionAmount").notNull(),
+  netAmount: int("netAmount").notNull(),
+  status: mysqlEnum("status", ["held", "released", "refunded"]).notNull().default("held"),
+  releasedAt: timestamp("releasedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const withdrawalRequests = mysqlTable("withdrawalRequests", {
+  id: int("id").autoincrement().primaryKey(),
+  walletId: int("walletId").notNull(),
+  userId: int("userId").notNull(),
+  recipientId: int("recipientId"),
+  amount: int("amount").notNull(),
+  status: mysqlEnum("status", ["pending", "processing", "paid", "rejected", "failed", "reversed", "cancelled"]).notNull().default("pending"),
+  transferReference: varchar("transferReference", { length: 64 }).unique(),
+  providerReference: varchar("providerReference", { length: 64 }),
+  providerTransferCode: varchar("providerTransferCode", { length: 64 }),
+  reversedAt: timestamp("reversedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const walletBankRecipients = mysqlTable("walletBankRecipients", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  bankCode: varchar("bankCode", { length: 24 }).notNull(),
+  bankName: varchar("bankName", { length: 120 }).notNull(),
+  accountNumberMasked: varchar("accountNumberMasked", { length: 24 }).notNull(),
+  accountName: varchar("accountName", { length: 160 }).notNull(),
+  paystackRecipientCode: varchar("paystackRecipientCode", { length: 64 }).notNull(),
+  verifiedAt: timestamp("verifiedAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const walletFundingAttempts = mysqlTable("walletFundingAttempts", {
+  id: int("id").autoincrement().primaryKey(),
+  walletId: int("walletId").notNull(),
+  userId: int("userId").notNull(),
+  reference: varchar("reference", { length: 64 }).notNull().unique(),
+  amount: int("amount").notNull(),
+  status: mysqlEnum("status", ["pending", "succeeded", "failed"]).notNull().default("pending"),
+  providerTransactionId: varchar("providerTransactionId", { length: 64 }),
+  paidAt: timestamp("paidAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const vendorProducts = mysqlTable("vendorProducts", {
   id: int("id").autoincrement().primaryKey(),
   vendorApplicationId: int("vendorApplicationId").notNull(),
@@ -87,3 +170,15 @@ export type VendorApplication = typeof vendorApplications.$inferSelect;
 export type InsertVendorApplication = typeof vendorApplications.$inferInsert;
 export type VendorProduct = typeof vendorProducts.$inferSelect;
 export type InsertVendorProduct = typeof vendorProducts.$inferInsert;
+export type Wallet = typeof wallets.$inferSelect;
+export type InsertWallet = typeof wallets.$inferInsert;
+export type WalletTransaction = typeof walletTransactions.$inferSelect;
+export type InsertWalletTransaction = typeof walletTransactions.$inferInsert;
+export type EscrowAllocation = typeof escrowAllocations.$inferSelect;
+export type InsertEscrowAllocation = typeof escrowAllocations.$inferInsert;
+export type WithdrawalRequest = typeof withdrawalRequests.$inferSelect;
+export type InsertWithdrawalRequest = typeof withdrawalRequests.$inferInsert;
+export type WalletBankRecipient = typeof walletBankRecipients.$inferSelect;
+export type InsertWalletBankRecipient = typeof walletBankRecipients.$inferInsert;
+export type WalletFundingAttempt = typeof walletFundingAttempts.$inferSelect;
+export type InsertWalletFundingAttempt = typeof walletFundingAttempts.$inferInsert;

@@ -6,6 +6,8 @@ export type MarketplaceProduct = {
   id: string;
   title: string;
   vendor: string;
+  vendorUserId?: number;
+  vendorCommissionRate?: number;
   category: MarketplaceCategory;
   price: number;
   formerPrice?: number;

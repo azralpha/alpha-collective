@@ -86,3 +86,30 @@
 - [x] Replace the free-text address with locked Nigeria, state, LGA, and street-detail fields and persist a standardized address string
 - [x] Add checkout delivery-service selection, pricing breakdown, seller-contact note, and full automated and visual validation
 - [x] Save a checkpoint containing the verified cart, delivery, address, and movable support update
+- [x] Review unexpected preview visitor signals and distinguish normal public-preview traffic from suspicious activity
+- [x] Report preview privacy and access-control findings without changing visibility settings unless approved
+- [x] Inspect current user creation, order delivery status, payment configuration, and role-specific navigation
+- [x] Define wallet, transaction-ledger, PIN, escrow, payout, and reconciliation controls
+- [x] Add wallet, transaction, escrow, PIN, and withdrawal data structures with non-destructive migrations
+- [x] Provision a zero-balance wallet for every account and implement secure PIN setup and verification
+- [x] Add wallet-funded checkout authorization, escrow holding, and vendor earning release on delivered orders
+- [x] Build buyer and vendor wallet access, dashboard balance, ledger, funding, withdrawal, and PIN flows
+- [x] Add an administrator wallet-order view that can mark held wallet orders delivered and release vendor escrow end to end
+- [x] Restrict Alpha Wallet checkout to vendor-backed listings until all catalogue items have a complete escrow allocation path
+- [x] Prevent Alpha Wallet selection in checkout when any cart item is not an approved vendor listing and explain why
+- [ ] Add integration-style automated coverage for wallet escrow release idempotency and document an end-to-end held-order release verification
+- [x] Connect provider-backed funding and withdrawal only after valid credentials and payout requirements are supplied
+- [x] Confirm Paystack or Flutterwave as the live provider and approve the bank-account, webhook, and payout controls required for funding and withdrawals
+- [x] Securely update and validate the selected Paystack credential without exposing it
+- [x] Implement webhook-verified Paystack wallet funding and verified Nigerian bank payout recipient workflows
+- [x] Add direct Nigerian bank-account verification, recipient storage, and PIN-authorized withdrawal requests in Wallet
+- [ ] Complete authenticated validation for wallet security, ledger integrity, checkout, and escrow release
+- [ ] Save a checkpoint containing the verified unified wallet implementation
+- [x] Add durable Paystack funding-attempt and withdrawal transfer-reference records with a safe migration
+- [x] Implement server-only Paystack banking, transaction, transfer, and webhook-signature helpers without exposing credentials
+- [x] Add protected wallet procedures for bank listing, account resolution, recipient creation, funding initialization, and confirmed PIN-authorized withdrawals
+- [x] Reconcile verified Paystack funding and transfer webhooks idempotently into the wallet ledger and balances
+- [x] Replace Wallet funding and withdrawal placeholders with explicit Paystack, verified-bank, and confirmation flows
+- [x] Add direct duplicate-reconciliation coverage for Paystack wallet credits and withdrawal reversals
+- [ ] Authenticate a non-production test account to validate PIN setup, bank-recipient UI, wallet checkout, ledger updates, and administrator escrow release without initiating a real payment or bank transfer
+- [ ] Register the published `/api/paystack/webhook` URL in the Paystack dashboard and perform a controlled live-money verification before relying on funding or withdrawals in production
