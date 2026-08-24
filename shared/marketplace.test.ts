@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   REFERRAL_DISCOUNT,
+  LAUNCH_PROMO_COMMISSION_RATE,
   calculateVendorCommission,
   createOrderReference,
   formatNaira,
@@ -37,6 +38,10 @@ describe("marketplace money and cart rules", () => {
     expect(calculateVendorCommission(10000, 8)).toBe(1000);
     expect(calculateVendorCommission(10000, 12)).toBe(1200);
     expect(calculateVendorCommission(10000, 20)).toBe(1500);
+  });
+
+  it("applies the 0% launch commission promotion without changing later guidance", () => {
+    expect(calculateVendorCommission(4500, LAUNCH_PROMO_COMMISSION_RATE)).toBe(0);
   });
 
   it("generates readable Alpha Collective order references", () => {

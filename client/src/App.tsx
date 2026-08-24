@@ -1,6 +1,7 @@
 import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import Cart from "@/pages/Cart";
+import AdminProductReview from "@/pages/AdminProductReview";
 import Checkout from "@/pages/Checkout";
 import Home from "@/pages/Home";
 import NotFound from "@/pages/NotFound";
@@ -23,6 +24,7 @@ function Router() {
       <Route path="/checkout" component={Checkout} />
       <Route path="/sell" component={Sell} />
       <Route path="/vendor/dashboard" component={VendorDashboard} />
+      <Route path="/admin/products" component={AdminProductReview} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

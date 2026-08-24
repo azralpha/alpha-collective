@@ -71,7 +71,9 @@ export const vendorProducts = mysqlTable("vendorProducts", {
   category: mysqlEnum("category", ["Fashion", "Gadgets", "Beauty", "Home & Furniture", "Vehicles", "Animals & Pets"]).$type<MarketplaceCategory>().notNull(),
   price: int("price").notNull(),
   description: text("description").notNull(),
-  status: mysqlEnum("status", ["draft", "active"]).notNull().default("draft"),
+  imageUrl: text("imageUrl"),
+  imageUrls: json("imageUrls").$type<string[]>(),
+  status: mysqlEnum("status", ["draft", "active", "rejected"]).notNull().default("draft"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

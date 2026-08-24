@@ -1,6 +1,7 @@
 import { useCart } from "@/contexts/CartContext";
+import { useAuth } from "@/_core/hooks/useAuth";
 import { MARKETPLACE_CATEGORIES } from "@shared/marketplace";
-import { Gift, Grid2X2, Home, Search, ShoppingCart, Store, X } from "lucide-react";
+import { Gift, Grid2X2, Home, Search, ShieldCheck, ShoppingCart, Store, X } from "lucide-react";
 import { Link, useLocation } from "wouter";
 
 export const WHATSAPP_SUPPORT_URL =
@@ -23,6 +24,7 @@ export function AlphaMark({ compact = false }: { compact?: boolean }) {
 export default function MarketplaceShell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
   const { itemCount } = useCart();
+  const { user } = useAuth();
 
   return (
     <div className="marketplace-app">
@@ -39,6 +41,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
             <span>Search gadgets, ankara, serum</span>
           </Link>
           <div className="header-actions">
+            {user?.role === "admin" ? <Link href="/admin/products" className="admin-link" aria-label="Review vendor products"><ShieldCheck size={20} /><span>Review</span></Link> : null}
             <Link href="/cart" className="cart-link" aria-label={`Open cart with ${itemCount} items`}>
               <ShoppingCart size={23} />
               {itemCount > 0 ? <span className="cart-count">{itemCount}</span> : null}

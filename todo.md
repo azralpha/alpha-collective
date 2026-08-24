@@ -32,4 +32,33 @@
 - [x] Verify the seller heading uses “Tell us what you are selling.”
 - [x] Save a checkpoint containing the verified seller-heading update
 - [x] Verify the vendor product-description label notes bulk products
-- [ ] Save a checkpoint containing the verified vendor form-label update
+- [x] Save a checkpoint containing the verified vendor form-label update
+- [x] Add a stored primary-image field to vendor product drafts and safely migrate the database
+- [x] Implement authenticated product-image uploads through server-side storage and persist the returned URL with each draft
+- [x] Show persisted vendor product thumbnails in the seller catalogue and approved public product presentation
+- [x] Add the WhatsApp “Request Admin Validation” action below saved products for pending seller applications
+- [x] Apply a 0% Launch Promo commission rate and explanatory two-week note across dashboard metrics and saved-product estimates
+- [x] Add automated coverage and verify the enhanced vendor dashboard flow
+- [x] Save a checkpoint containing the verified vendor-dashboard enhancement
+- [x] Add focused tests for vendor image upload validation, image persistence, and active public product mapping
+- [x] Verify the signed-in dashboard, real server-side image upload, WhatsApp validation action, and public active-listing behavior
+- [x] Confirm the authenticated dashboard’s saved-draft image and WhatsApp validation link against the live vendor data
+- [x] Confirm a genuinely active vendor product with a persisted image is present on the public shop and product pages
+- [x] Investigate why the vendor sign-in action is not completing in the project preview
+- [x] Fix any application-side sign-in entry issue and verify vendors can reach the authenticated dashboard
+- [x] Add persisted multiple-image gallery URLs to vendor products while retaining a lead thumbnail image
+- [x] Implement secure multi-file image uploads with draft previews, removal controls, and server-side ownership validation
+- [x] Display vendor product galleries in the seller catalogue and approved public product-detail view
+- [x] Add automated coverage and verify multiple images survive draft save and public active-product display
+- [x] Show multiple persisted draft images directly in the seller catalogue rather than only a lead-image count badge
+- [x] Confirm an authenticated vendor saves a multi-image draft and sees its gallery in Saved products
+- [x] Confirm an active vendor product with a persisted gallery appears on public shop and product pages
+- [x] Diagnose the reported “product image could not be read” error during draft submission
+- [x] Make multi-image reading resilient in the preview browser and verify a real image-backed draft save
+- [x] Verify the Range Rover draft stores its complete persisted image gallery
+- [x] Add protected administrator procedures to list drafts and approve or reject vendor products
+- [x] Build an administrator review dashboard with vendor details, gallery inspection, and approval controls
+- [x] Reliably confirm the Range Rover draft’s persisted image gallery and lead thumbnail data
+- [x] Correct direct `/shop?category=…` routing so approved listings appear in the requested category view
+- [x] Verify the approved Range Rover listing appears with its gallery on public shop and product pages
+- [x] Save a checkpoint containing the verified vendor gallery and administrator approval workflow

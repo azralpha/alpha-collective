@@ -5,6 +5,7 @@ import { Link } from "wouter";
 
 export default function ProductCard({ product }: { product: MarketplaceProduct }) {
   const { addItem } = useCart();
+  const isVendorFind = product.id.startsWith("vendor-");
 
   return (
     <article className="product-card">
@@ -21,9 +22,7 @@ export default function ProductCard({ product }: { product: MarketplaceProduct }
             <strong>{formatNaira(product.price)}</strong>
             {product.formerPrice ? <s>{formatNaira(product.formerPrice)}</s> : null}
           </div>
-          <button onClick={() => addItem(product.id)} className="add-to-cart-icon" aria-label={`Add ${product.title} to cart`}>
-            <Plus size={18} />
-          </button>
+          {isVendorFind ? <Link href={`/product/${product.id}`} className="product-view-link">View</Link> : <button onClick={() => addItem(product.id)} className="add-to-cart-icon" aria-label={`Add ${product.title} to cart`}><Plus size={18} /></button>}
         </div>
       </div>
     </article>

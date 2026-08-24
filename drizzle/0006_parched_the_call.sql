@@ -1,0 +1,1 @@
+ALTER TABLE `vendorProducts` MODIFY COLUMN `status` enum('draft','active','rejected') NOT NULL DEFAULT 'draft';

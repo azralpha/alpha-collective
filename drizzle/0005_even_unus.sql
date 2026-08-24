@@ -1,0 +1,1 @@
+ALTER TABLE `vendorProducts` ADD `imageUrls` json;

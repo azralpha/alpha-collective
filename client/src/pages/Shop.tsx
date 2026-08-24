@@ -1,27 +1,30 @@
 import MarketplaceShell from "@/components/MarketplaceShell";
 import ProductCard from "@/components/ProductCard";
+import { trpc } from "@/lib/trpc";
 import { MARKETPLACE_CATEGORIES, MARKETPLACE_PRODUCTS, type MarketplaceCategory } from "@shared/marketplace";
 import { Search, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { Link, useLocation } from "wouter";
+import { Link, useLocation, useSearch } from "wouter";
 
 type CategoryFilter = "All" | MarketplaceCategory;
 
-function categoryFromLocation(location: string): CategoryFilter {
-  const value = new URLSearchParams(location.split("?")[1]).get("category");
+function categoryFromSearch(search: string): CategoryFilter {
+  const value = new URLSearchParams(search).get("category");
   return MARKETPLACE_CATEGORIES.includes(value as MarketplaceCategory) ? (value as MarketplaceCategory) : "All";
 }
 
-function referralFromLocation(location: string) {
-  const value = new URLSearchParams(location.split("?")[1]).get("ref");
+function referralFromSearch(search: string) {
+  const value = new URLSearchParams(search).get("ref");
   return value?.toUpperCase().startsWith("ALPHA-") ? value.toUpperCase() : null;
 }
 
 export default function Shop() {
   const [location, setLocation] = useLocation();
+  const searchParams = useSearch();
   const [search, setSearch] = useState("");
-  const selectedCategory = categoryFromLocation(location);
-  const referralCode = referralFromLocation(location);
+  const selectedCategory = categoryFromSearch(searchParams);
+  const referralCode = referralFromSearch(searchParams);
+  const approvedProducts = trpc.marketplace.publicProducts.useQuery();
 
   useEffect(() => {
     if (referralCode) window.localStorage.setItem("alpha-collective-referral-code", referralCode);
@@ -29,12 +32,12 @@ export default function Shop() {
 
   const products = useMemo(() => {
     const query = search.trim().toLowerCase();
-    return MARKETPLACE_PRODUCTS.filter(product => {
+    return [...MARKETPLACE_PRODUCTS, ...(approvedProducts.data ?? [])].filter(product => {
       const matchesCategory = selectedCategory === "All" || product.category === selectedCategory;
       const matchesSearch = !query || [product.title, product.category, product.vendor].join(" ").toLowerCase().includes(query);
       return matchesCategory && matchesSearch;
     });
-  }, [search, selectedCategory]);
+  }, [approvedProducts.data, search, selectedCategory]);
 
   const setCategory = (category: CategoryFilter) => setLocation(category === "All" ? "/shop" : `/shop?category=${category}`);
 

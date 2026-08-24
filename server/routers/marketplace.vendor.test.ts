@@ -1,0 +1,103 @@
+import { describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  createOrder: vi.fn(),
+  createReferralShare: vi.fn(),
+  createVendorApplication: vi.fn(),
+  createVendorProduct: vi.fn(),
+  getReferralShareByCode: vi.fn(),
+  getReferralShareByRewardCode: vi.fn(),
+  getVendorApplicationForUser: vi.fn(),
+  listAdminReviewProducts: vi.fn(),
+  listApprovedVendorProducts: vi.fn(),
+  listReferralSharesForUser: vi.fn(),
+  listVendorProducts: vi.fn(),
+  qualifyReferralShare: vi.fn(),
+  redeemReferralReward: vi.fn(),
+  storagePut: vi.fn(),
+  updateVendorProductStatus: vi.fn(),
+}));
+
+vi.mock("../db", () => mocks);
+vi.mock("../storage", () => ({ storagePut: mocks.storagePut }));
+
+import { marketplaceRouter } from "./marketplace";
+
+const application = {
+  id: 31,
+  userId: 7,
+  name: "Vendor",
+  storeName: "Test Store",
+  whatsapp: "08000000000",
+  category: "Fashion" as const,
+  status: "pending" as const,
+  commissionRate: 12,
+  createdAt: new Date(),
+};
+
+function caller() {
+  return marketplaceRouter.createCaller({ user: { id: 7 } } as never);
+}
+
+function adminCaller() {
+  return marketplaceRouter.createCaller({ user: { id: 1, role: "admin" } } as never);
+}
+
+describe("marketplace vendor image workflow", () => {
+  it("rejects unsupported primary-image payloads before storage", async () => {
+    await expect(caller().vendor.uploadProductImage({ dataUrl: "data:text/plain;base64,SGVsbG8=" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+    expect(mocks.storagePut).not.toHaveBeenCalled();
+  });
+
+  it("stores uploaded product images and persists their ordered gallery with the draft", async () => {
+    mocks.getVendorApplicationForUser.mockResolvedValue(application);
+    mocks.storagePut.mockResolvedValue({ key: "vendor-products/7/product_123.jpg", url: "/manus-storage/vendor-products/7/product_123.jpg" });
+    mocks.createVendorProduct.mockResolvedValue(91);
+    const dataUrl = `data:image/png;base64,${Buffer.from("image-bytes").toString("base64")}`;
+
+    const uploaded = await caller().vendor.uploadProductImage({ dataUrl });
+    const additionalImage = "/manus-storage/vendor-products/7/product_456.jpg";
+    await caller().vendor.createProduct({
+      title: "Image-backed draft",
+      category: "Fashion",
+      price: 4500,
+      description: "A product draft with a primary image.",
+      imageUrls: [uploaded.imageUrl, additionalImage],
+    });
+
+    expect(mocks.storagePut).toHaveBeenCalledWith(expect.stringMatching(/^vendor-products\/7\//), expect.any(Buffer), "image/png");
+    expect(mocks.createVendorProduct).toHaveBeenCalledWith(expect.objectContaining({
+      vendorApplicationId: 31,
+      imageUrl: "/manus-storage/vendor-products/7/product_123.jpg",
+      imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg", "/manus-storage/vendor-products/7/product_456.jpg"],
+      status: "draft",
+    }));
+  });
+
+  it("maps active vendor products with persisted galleries for the public catalogue", async () => {
+    mocks.listApprovedVendorProducts.mockResolvedValue([{
+      id: 91,
+      title: "Approved image find",
+      category: "Fashion",
+      price: 4500,
+      description: "Approved for public category pages.",
+      imageUrl: "/manus-storage/vendor-products/7/product_123.jpg",
+      imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg", "/manus-storage/vendor-products/7/product_456.jpg"],
+      vendor: "Test Store",
+    }]);
+
+    await expect(caller().publicProducts()).resolves.toEqual([expect.objectContaining({
+      id: "vendor-91",
+      imageUrl: "/manus-storage/vendor-products/7/product_123.jpg",
+      imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg", "/manus-storage/vendor-products/7/product_456.jpg"],
+      badge: "Verified seller find",
+    })]);
+  });
+
+  it("allows administrators to review and publish a vendor draft", async () => {
+    mocks.listAdminReviewProducts.mockResolvedValue([{ id: 91, productStatus: "draft" }]);
+    await expect(adminCaller().admin.reviewProducts()).resolves.toEqual([{ id: 91, productStatus: "draft" }]);
+    await expect(adminCaller().admin.setProductStatus({ id: 91, status: "active" })).resolves.toEqual({ id: 91, status: "active" });
+    expect(mocks.updateVendorProductStatus).toHaveBeenCalledWith(91, "active");
+  });
+});

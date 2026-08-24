@@ -11,6 +11,7 @@ export type MarketplaceProduct = {
   formerPrice?: number;
   badge?: string;
   imageUrl: string;
+  imageUrls?: string[];
   description: string;
   detail: string;
 };
@@ -119,6 +120,8 @@ export type ResolvedCartLine = CartLine & {
 export const REFERRAL_DISCOUNT = 500;
 export const REFERRAL_MINIMUM_SUBTOTAL = 5000;
 export const DELIVERY_FEE = 1500;
+export const LAUNCH_PROMO_COMMISSION_RATE = 0;
+export const LAUNCH_PROMO_NOTE = "0% commission active for the first two weeks to help you grow!";
 
 export function formatNaira(value: number) {
   return new Intl.NumberFormat("en-NG", {
@@ -162,6 +165,7 @@ export function getCheckoutTotals(lines: CartLine[], hasValidReferralCode = fals
 }
 
 export function calculateVendorCommission(amount: number, rate = 12) {
+  if (rate === LAUNCH_PROMO_COMMISSION_RATE) return 0;
   const clampedRate = Math.min(15, Math.max(10, rate));
   return Math.round((amount * clampedRate) / 100);
 }

@@ -169,8 +169,55 @@ export async function listVendorProducts(vendorApplicationId: number) {
     .orderBy(desc(vendorProducts.createdAt));
 }
 
+export async function listApprovedVendorProducts() {
+  const db = await requireDb();
+  return db
+    .select({
+      id: vendorProducts.id,
+      title: vendorProducts.title,
+      category: vendorProducts.category,
+      price: vendorProducts.price,
+      description: vendorProducts.description,
+      imageUrl: vendorProducts.imageUrl,
+      imageUrls: vendorProducts.imageUrls,
+      vendor: vendorApplications.storeName,
+    })
+    .from(vendorProducts)
+    .innerJoin(vendorApplications, eq(vendorProducts.vendorApplicationId, vendorApplications.id))
+    .where(eq(vendorProducts.status, "active"))
+    .orderBy(desc(vendorProducts.createdAt));
+}
+
+export async function listAdminReviewProducts() {
+  const db = await requireDb();
+  return db
+    .select({
+      id: vendorProducts.id,
+      title: vendorProducts.title,
+      category: vendorProducts.category,
+      price: vendorProducts.price,
+      description: vendorProducts.description,
+      imageUrl: vendorProducts.imageUrl,
+      imageUrls: vendorProducts.imageUrls,
+      productStatus: vendorProducts.status,
+      createdAt: vendorProducts.createdAt,
+      vendorName: vendorApplications.name,
+      storeName: vendorApplications.storeName,
+      whatsapp: vendorApplications.whatsapp,
+      applicationStatus: vendorApplications.status,
+    })
+    .from(vendorProducts)
+    .innerJoin(vendorApplications, eq(vendorProducts.vendorApplicationId, vendorApplications.id))
+    .orderBy(desc(vendorProducts.createdAt));
+}
+
 export async function createVendorProduct(product: InsertVendorProduct) {
   const db = await requireDb();
   const result = await db.insert(vendorProducts).values(product);
   return Number(result[0].insertId);
+}
+
+export async function updateVendorProductStatus(id: number, status: "draft" | "active" | "rejected") {
+  const db = await requireDb();
+  await db.update(vendorProducts).set({ status }).where(eq(vendorProducts.id, id));
 }

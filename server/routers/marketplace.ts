@@ -18,12 +18,16 @@ import {
   getReferralShareByCode,
   getReferralShareByRewardCode,
   getVendorApplicationForUser,
+  listAdminReviewProducts,
+  listApprovedVendorProducts,
   listReferralSharesForUser,
   listVendorProducts,
   qualifyReferralShare,
   redeemReferralReward,
+  updateVendorProductStatus,
 } from "../db";
-import { protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { storagePut } from "../storage";
+import { adminProcedure, protectedProcedure, publicProcedure, router } from "../_core/trpc";
 
 const cartLineSchema = z.object({ productId: z.string().min(1), quantity: z.number().int().min(1).max(10) });
 const shareCodeAlphabet = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 8);
@@ -34,7 +38,49 @@ function newShareCode() { return `ALPHA-${shareCodeAlphabet()}`; }
 function newOrderReference() { return `AC-${orderReferenceAlphabet()}`; }
 function newRewardCode() { return `THANKS-${rewardCodeAlphabet()}`; }
 
+const productImageDataUrlSchema = z.string().max(7_000_000);
+
+function decodeProductImage(dataUrl: string) {
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+  if (!match) throw new TRPCError({ code: "BAD_REQUEST", message: "Upload a JPG, PNG, or WebP image." });
+  const [, contentType, base64] = match;
+  const data = Buffer.from(base64, "base64");
+  if (data.length === 0 || data.length > 5 * 1024 * 1024) {
+    throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "Product images must be 5 MB or smaller." });
+  }
+  const extension = contentType === "image/jpeg" ? "jpg" : contentType.split("/")[1];
+  return { contentType, data, extension };
+}
+
 export const marketplaceRouter = router({
+  publicProducts: publicProcedure.query(async () => {
+    const products = await listApprovedVendorProducts();
+    return products.flatMap(product => {
+      const imageUrls = (product.imageUrls?.length ? product.imageUrls : product.imageUrl ? [product.imageUrl] : []).filter(Boolean);
+      return imageUrls.length ? [{
+        id: `vendor-${product.id}`,
+        title: product.title,
+        vendor: product.vendor,
+        category: product.category,
+        price: product.price,
+        formerPrice: undefined,
+        badge: "Verified seller find",
+        imageUrl: imageUrls[0],
+        imageUrls,
+        description: product.description,
+        detail: product.description,
+      }] : [];
+    });
+  }),
+  admin: router({
+    reviewProducts: adminProcedure.query(() => listAdminReviewProducts()),
+    setProductStatus: adminProcedure
+      .input(z.object({ id: z.number().int().positive(), status: z.enum(["active", "rejected"]) }))
+      .mutation(async ({ input }) => {
+        await updateVendorProductStatus(input.id, input.status);
+        return { id: input.id, status: input.status };
+      }),
+  }),
   createReferralShare: protectedProcedure
     .input(z.object({ channel: z.enum(["whatsapp", "tiktok", "instagram", "other"]) }))
     .mutation(async ({ ctx, input }) => {
@@ -145,12 +191,22 @@ export const marketplaceRouter = router({
         if (!application) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: `Application ${id} could not be loaded.` });
         return { application, alreadySubmitted: false };
       }),
+    uploadProductImage: protectedProcedure
+      .input(z.object({ dataUrl: productImageDataUrlSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const { contentType, data, extension } = decodeProductImage(input.dataUrl);
+        const result = await storagePut(`vendor-products/${ctx.user.id}/${Date.now()}.${extension}`, data, contentType);
+        return { imageUrl: result.url };
+      }),
     createProduct: protectedProcedure
-      .input(z.object({ title: z.string().trim().min(2).max(180), category: z.enum(MARKETPLACE_CATEGORIES), price: z.number().int().min(500).max(5000000), description: z.string().trim().min(12).max(1200) }))
+      .input(z.object({ title: z.string().trim().min(2).max(180), category: z.enum(MARKETPLACE_CATEGORIES), price: z.number().int().min(500).max(5000000), description: z.string().trim().min(12).max(1200), imageUrls: z.array(z.string().startsWith("/manus-storage/").max(500)).min(1).max(5) }))
       .mutation(async ({ ctx, input }) => {
         const application = await getVendorApplicationForUser(ctx.user.id);
         if (!application) throw new TRPCError({ code: "BAD_REQUEST", message: "Submit your seller application before adding a product." });
-        const id = await createVendorProduct({ vendorApplicationId: application.id, title: input.title, category: input.category, price: input.price, description: input.description, status: "draft" });
+        if (input.imageUrls.some(imageUrl => !imageUrl.startsWith(`/manus-storage/vendor-products/${ctx.user.id}/`))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Upload all product images from your seller account first." });
+        }
+        const id = await createVendorProduct({ vendorApplicationId: application.id, title: input.title, category: input.category, price: input.price, description: input.description, imageUrl: input.imageUrls[0], imageUrls: input.imageUrls, status: "draft" });
         return { id, status: "draft" as const };
       }),
   }),
