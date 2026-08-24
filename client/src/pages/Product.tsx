@@ -33,7 +33,7 @@ export default function Product() {
           <div className="detail-copy">
             <span className="eyebrow">{product.category} / {product.badge ?? "collective find"}</span>
             <h1>{product.title}</h1>
-            <p className="vendor-byline">Sold by {product.vendor}</p>
+            <p className="vendor-byline">By {product.vendor}</p>
             <div className="detail-price">{formatNaira(product.price)} {product.formerPrice ? <s>{formatNaira(product.formerPrice)}</s> : null}</div>
             <p className="detail-description">{product.detail}</p>
             <div className="detail-actions">{isVendorFind ? <a className="button button-primary" href={WHATSAPP_SUPPORT_URL} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Ask about this product</a> : <button className="button button-primary" onClick={() => { addItem(product.id); toast.success(`${product.title} added to your cart.`); }}><ShoppingBag size={17} /> Add to cart</button>}<a className="button button-secondary" href={WHATSAPP_SUPPORT_URL} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Ask on WhatsApp</a></div>
