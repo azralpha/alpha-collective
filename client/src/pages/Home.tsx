@@ -62,7 +62,7 @@ export default function Home() {
           <h1>Naija deals,<br />straight from<br />independent sellers.</h1>
           <p>Fashion, gadgets, beauty, home, vehicles and pet essentials in Naira — with Pay on Delivery so your order is saved before delivery.</p>
           <div className="deal-hero-actions">
-            <Link href="/shop" className="deal-cta deal-cta-primary">Shop today’s deals <ArrowRight size={19} /></Link>
+            <Link href="/shop" className="deal-cta deal-cta-primary">Shop Naija’s Good Finds <ArrowRight size={19} /></Link>
             <Link href="/sell" className="deal-cta deal-cta-secondary">Sell on Alpha Collective <ArrowRight size={19} /></Link>
           </div>
           <div className="deal-hero-trust">
