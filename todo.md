@@ -73,4 +73,4 @@
 - [x] Confirm the Tawk.to launcher loads in a live preview browser session
 - [x] Verify and update the product-page seller attribution from “Sold by” to “By” for Alpha real estate listings
 - [x] Validate the seller-attribution change
-- [ ] Save a checkpoint containing the verified product-page seller-attribution update
+- [x] Save a checkpoint containing the verified product-page seller-attribution update
