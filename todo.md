@@ -77,3 +77,12 @@
 - [x] Inspect the failed homepage call-to-action visual edit and confirm its current wording
 - [x] Apply the approved catchier homepage call-to-action and validate it
 - [x] Save a checkpoint containing the verified “Shop Naija’s Good Finds” homepage update
+- [x] Inspect current cart, checkout, order persistence, and support-widget integration points
+- [x] Add a draggable support control that supports mouse and touch movement without blocking checkout actions
+- [x] Confirm the custom draggable Support control moves on mobile-sized checkout and product pages and opens Tawk chat
+- [x] Replace the failed third-party launcher drag hook with a controlled draggable support bubble that opens Tawk chat
+- [x] Change the vendor product-page secondary action to add the selected product to cart with confirmation
+- [x] Implement server-side zone, weight, and delivery-tier shipping calculation with validated inputs
+- [x] Replace the free-text address with locked Nigeria, state, LGA, and street-detail fields and persist a standardized address string
+- [x] Add checkout delivery-service selection, pricing breakdown, seller-contact note, and full automated and visual validation
+- [ ] Save a checkpoint containing the verified cart, delivery, address, and movable support update

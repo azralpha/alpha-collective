@@ -2,14 +2,17 @@ import { TRPCError } from "@trpc/server";
 import { customAlphabet } from "nanoid";
 import { z } from "zod";
 import {
-  DELIVERY_FEE,
   MARKETPLACE_CATEGORIES,
+  MARKETPLACE_PRODUCTS,
   REFERRAL_DISCOUNT,
   REFERRAL_MINIMUM_SUBTOTAL,
+  type MarketplaceProduct,
   getCartSubtotal,
   qualifiesForReferralDiscount,
   resolveCartLines,
 } from "../../shared/marketplace";
+import { DELIVERY_SERVICE_TIERS, calculateDeliveryQuote } from "../../shared/delivery";
+import { formatNigerianDeliveryAddress, isNigerianLga, isNigerianState } from "../../shared/nigeriaAddress";
 import {
   createOrder,
   createReferralShare,
@@ -35,10 +38,41 @@ const cartLineSchema = z.object({ productId: z.string().min(1), quantity: z.numb
 const shareCodeAlphabet = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 8);
 const orderReferenceAlphabet = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 8);
 const rewardCodeAlphabet = customAlphabet("ABCDEFGHJKLMNPQRSTUVWXYZ23456789", 8);
+const deliveryQuoteInputSchema = z.object({
+  destinationState: z.string().trim().min(2).max(80),
+  weightKg: z.number().positive().max(5000),
+  serviceTier: z.enum(DELIVERY_SERVICE_TIERS),
+});
 
 function newShareCode() { return `ALPHA-${shareCodeAlphabet()}`; }
 function newOrderReference() { return `AC-${orderReferenceAlphabet()}`; }
 function newRewardCode() { return `THANKS-${rewardCodeAlphabet()}`; }
+
+function validateNigerianState(state: string) {
+  if (!isNigerianState(state)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a valid Nigerian state or the FCT." });
+  }
+}
+
+function createVendorCatalog(products: Awaited<ReturnType<typeof listApprovedVendorProducts>>): MarketplaceProduct[] {
+  return products.flatMap(product => {
+    const imageUrls = (product.imageUrls?.length ? product.imageUrls : product.imageUrl ? [product.imageUrl] : []).filter(Boolean);
+    if (!imageUrls.length) return [];
+    return [{
+      id: `vendor-${product.id}`,
+      title: product.title,
+      vendor: product.vendor,
+      category: product.category,
+      price: product.price,
+      formerPrice: undefined,
+      badge: "Verified seller find",
+      imageUrl: imageUrls[0],
+      imageUrls,
+      description: product.description,
+      detail: product.description,
+    }];
+  });
+}
 
 const productImageDataUrlSchema = z.string().max(7_000_000);
 const vendorProductInputSchema = z.object({ title: z.string().trim().min(2).max(180), category: z.enum(MARKETPLACE_CATEGORIES), price: z.number().int().min(500).max(5000000), description: z.string().trim().min(12).max(1200), imageUrls: z.array(z.string().startsWith("/manus-storage/").max(500)).min(1).max(5) });
@@ -58,23 +92,14 @@ function decodeProductImage(dataUrl: string) {
 export const marketplaceRouter = router({
   publicProducts: publicProcedure.query(async () => {
     const products = await listApprovedVendorProducts();
-    return products.flatMap(product => {
-      const imageUrls = (product.imageUrls?.length ? product.imageUrls : product.imageUrl ? [product.imageUrl] : []).filter(Boolean);
-      return imageUrls.length ? [{
-        id: `vendor-${product.id}`,
-        title: product.title,
-        vendor: product.vendor,
-        category: product.category,
-        price: product.price,
-        formerPrice: undefined,
-        badge: "Verified seller find",
-        imageUrl: imageUrls[0],
-        imageUrls,
-        description: product.description,
-        detail: product.description,
-      }] : [];
-    });
+    return createVendorCatalog(products);
   }),
+  deliveryQuote: publicProcedure
+    .input(deliveryQuoteInputSchema)
+    .query(({ input }) => {
+      validateNigerianState(input.destinationState);
+      return calculateDeliveryQuote(input);
+    }),
   admin: router({
     reviewProducts: adminProcedure.query(() => listAdminReviewProducts()),
     setProductStatus: adminProcedure
@@ -107,15 +132,33 @@ export const marketplaceRouter = router({
     .input(z.object({
       buyerName: z.string().trim().min(2).max(120),
       buyerPhone: z.string().trim().min(7).max(32),
-      deliveryAddress: z.string().trim().min(12).max(500),
+      deliveryAddress: z.object({
+        country: z.literal("Nigeria"),
+        state: z.string().trim().min(2).max(80),
+        lga: z.string().trim().min(2).max(120),
+        streetDetails: z.string().trim().min(8).max(350),
+      }),
+      packageWeightKg: z.number().positive().max(5000),
+      deliveryTier: z.enum(DELIVERY_SERVICE_TIERS),
       items: z.array(cartLineSchema).min(1).max(12),
       referralCode: z.string().trim().max(32).optional(),
     }))
     .mutation(async ({ ctx, input }) => {
-      const resolvedLines = resolveCartLines(input.items);
+      validateNigerianState(input.deliveryAddress.state);
+      if (!isNigerianLga(input.deliveryAddress.state, input.deliveryAddress.lga)) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a valid local government area for the selected state." });
+      }
+
+      const deliveryQuote = calculateDeliveryQuote({
+        destinationState: input.deliveryAddress.state,
+        weightKg: input.packageWeightKg,
+        serviceTier: input.deliveryTier,
+      });
+      const catalog = [...MARKETPLACE_PRODUCTS, ...createVendorCatalog(await listApprovedVendorProducts())];
+      const resolvedLines = resolveCartLines(input.items, catalog);
       if (resolvedLines.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Your cart does not contain a valid product." });
 
-      const subtotal = getCartSubtotal(input.items);
+      const subtotal = getCartSubtotal(input.items, catalog);
       let appliedCode: string | undefined;
       let discountType: "none" | "referral" | "reward" = "none";
       let discount = 0;
@@ -154,18 +197,18 @@ export const marketplaceRouter = router({
       }
 
       const reference = newOrderReference();
-      const total = subtotal - discount + DELIVERY_FEE;
+      const total = subtotal - discount + deliveryQuote.deliveryFee;
       await createOrder({
         reference,
         buyerUserId: ctx.user?.id,
         buyerName: input.buyerName,
         buyerPhone: input.buyerPhone,
-        deliveryAddress: input.deliveryAddress,
+        deliveryAddress: formatNigerianDeliveryAddress(input.deliveryAddress),
         paymentMethod: "delivery",
         paymentStatus: "cod_pending",
         subtotal,
         referralDiscount: discount,
-        deliveryFee: DELIVERY_FEE,
+        deliveryFee: deliveryQuote.deliveryFee,
         total,
         referralCode: appliedCode,
         discountType,
@@ -174,7 +217,7 @@ export const marketplaceRouter = router({
 
       if (discountType === "referral" && appliedCode) await qualifyReferralShare(appliedCode, reference, newRewardCode());
       if (discountType === "reward" && appliedCode && ctx.user) await redeemReferralReward(appliedCode, ctx.user.id);
-      return { reference, paymentStatus: "cod_pending" as const, subtotal, discount, deliveryFee: DELIVERY_FEE, total };
+      return { reference, paymentStatus: "cod_pending" as const, subtotal, discount, deliveryFee: deliveryQuote.deliveryFee, total, deliveryQuote };
     }),
 
   vendor: router({

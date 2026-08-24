@@ -31,7 +31,7 @@ describe("marketplace money and cart rules", () => {
     expect(qualifiesForReferralDiscount(5000)).toBe(true);
     const totals = getCheckoutTotals([{ productId: "clay-table-bowl", quantity: 1 }], true);
     expect(totals.discount).toBe(REFERRAL_DISCOUNT);
-    expect(totals.total).toBe(10800);
+    expect(totals.total).toBe(9300);
   });
 
   it("clamps seller commission guidance to the advertised 10–15% range", () => {

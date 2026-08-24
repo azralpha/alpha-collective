@@ -1,11 +1,14 @@
 import MarketplaceShell from "@/components/MarketplaceShell";
+import "./CheckoutDelivery.css";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { useCart } from "@/contexts/CartContext";
 import { trpc } from "@/lib/trpc";
-import { DELIVERY_FEE, formatNaira, getCheckoutTotals, REFERRAL_DISCOUNT } from "@shared/marketplace";
+import { DELIVERY_SERVICE_TIERS, type DeliveryServiceTier } from "@shared/delivery";
+import { MARKETPLACE_PRODUCTS, REFERRAL_DISCOUNT, formatNaira, getCheckoutTotals, type MarketplaceProduct } from "@shared/marketplace";
+import { NIGERIA_COUNTRY, NIGERIA_STATES, getNigerianLgas } from "@shared/nigeriaAddress";
 import { ArrowRight, CheckCircle2, Copy, CreditCard, MessageCircle, Truck } from "lucide-react";
-import { FormEvent, useState } from "react";
+import { FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 
@@ -15,19 +18,38 @@ export default function Checkout() {
   const { isAuthenticated } = useAuth();
   const { items, clearCart } = useCart();
   const [referralCode, setReferralCode] = useState(() => window.localStorage.getItem("alpha-collective-referral-code") ?? "");
+  const [state, setState] = useState("");
+  const [lga, setLga] = useState("");
+  const [streetDetails, setStreetDetails] = useState("");
+  const [weightKg, setWeightKg] = useState(2);
+  const [deliveryTier, setDeliveryTier] = useState<DeliveryServiceTier>("standard");
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
-  const totals = getCheckoutTotals(items);
+  const publicProducts = trpc.marketplace.publicProducts.useQuery();
+  const catalog = useMemo<MarketplaceProduct[]>(() => [...MARKETPLACE_PRODUCTS, ...(publicProducts.data ?? [])], [publicProducts.data]);
+  const lgas = useMemo(() => state ? getNigerianLgas(state) : [], [state]);
+  const deliveryQuoteInput = useMemo(() => ({ destinationState: state, weightKg, serviceTier: deliveryTier }), [state, weightKg, deliveryTier]);
+  const deliveryQuote = trpc.marketplace.deliveryQuote.useQuery(deliveryQuoteInput, { enabled: Boolean(state) && Number.isFinite(weightKg) && weightKg > 0 });
+  const totals = useMemo(() => getCheckoutTotals(items, false, catalog, deliveryQuote.data?.deliveryFee ?? 0), [catalog, deliveryQuote.data?.deliveryFee, items]);
   const submitOrder = trpc.marketplace.submitOrder.useMutation({
     onSuccess: data => {
       if (data.discount > 0) window.localStorage.removeItem("alpha-collective-referral-code");
       setConfirmation(data);
       clearCart();
+      toast.success("Your Pay on Delivery order has been saved.");
     },
   });
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (items.length === 0) return;
+    if (!state || !lga || !streetDetails.trim()) {
+      toast.error("Choose your state, local government area, and street details.");
+      return;
+    }
+    if (!deliveryQuote.data) {
+      toast.error("Choose a valid delivery state and package weight to calculate delivery.");
+      return;
+    }
     if (referralCode.trim() && !isAuthenticated) {
       toast.info("Sign in to apply a referral or earned reward code.");
       startLogin();
@@ -37,7 +59,9 @@ export default function Checkout() {
     submitOrder.mutate({
       buyerName: String(form.get("buyerName") ?? ""),
       buyerPhone: String(form.get("buyerPhone") ?? ""),
-      deliveryAddress: String(form.get("deliveryAddress") ?? ""),
+      deliveryAddress: { country: NIGERIA_COUNTRY, state, lga, streetDetails },
+      packageWeightKg: weightKg,
+      deliveryTier,
       items,
       referralCode: referralCode.trim() || undefined,
     });
@@ -48,9 +72,10 @@ export default function Checkout() {
       <MarketplaceShell>
         <div className="page-shell"><section className="confirmation-panel" style={{ marginTop: 34 }}>
           <span className="eyebrow">Order saved</span><h1>We have your delivery order.</h1>
-          <p>Your order is queued as <strong>Pay on Delivery</strong>. A seller or support coordinator can use your phone number and address to arrange the next step.</p>
+          <p>Your order is queued as <strong>Pay on Delivery</strong>. A seller or support coordinator can use your phone number and standardized address to arrange the next step.</p>
           <div className="order-reference">Order reference: <strong>{confirmation.reference}</strong> <button onClick={() => { navigator.clipboard.writeText(confirmation.reference); toast.success("Order reference copied."); }} style={{ border: 0, background: "transparent", color: "var(--tomato)", marginLeft: 7 }} aria-label="Copy order reference"><Copy size={15} /></button></div>
           <div className="summary-row"><span>Saved order total</span><strong>{formatNaira(confirmation.total)}</strong></div>
+          <div className="summary-row"><span>Calculated delivery</span><strong>{formatNaira(confirmation.deliveryFee)}</strong></div>
           {confirmation.discount > 0 ? <div className="summary-row"><span>Referral discount included</span><strong>−{formatNaira(confirmation.discount)}</strong></div> : null}
           <div className="confirmation-actions"><Link href="/shop" className="button button-primary">Keep shopping <ArrowRight size={17} /></Link><a href="https://wa.me/2340000000000" target="_blank" rel="noreferrer" className="button button-secondary"><MessageCircle size={17} /> WhatsApp support</a></div>
         </section></div>
@@ -70,8 +95,19 @@ export default function Checkout() {
           <div className="form-grid">
             <div className="form-field"><label htmlFor="buyerName">Your name</label><input id="buyerName" name="buyerName" required placeholder="Full name" /></div>
             <div className="form-field"><label htmlFor="buyerPhone">WhatsApp or phone</label><input id="buyerPhone" name="buyerPhone" required placeholder="0800 000 0000" /></div>
-            <div className="form-field full"><label htmlFor="deliveryAddress">Delivery address</label><textarea id="deliveryAddress" name="deliveryAddress" required placeholder="House number, street, area, city and delivery cues" /></div>
+            <div className="form-field"><label htmlFor="country">Country</label><select id="country" name="country" value={NIGERIA_COUNTRY} disabled aria-label="Country"><option>{NIGERIA_COUNTRY}</option></select></div>
+            <div className="form-field"><label htmlFor="state">State or FCT</label><select id="state" name="state" value={state} required onChange={event => { setState(event.target.value); setLga(""); }}><option value="" disabled>Select your state</option>{NIGERIA_STATES.map(locationState => <option key={locationState} value={locationState}>{locationState}</option>)}</select></div>
+            <div className="form-field full"><label htmlFor="lga">Local Government Area</label><select id="lga" name="lga" value={lga} required disabled={!state} onChange={event => setLga(event.target.value)}><option value="" disabled>{state ? "Select your LGA" : "Choose a state first"}</option>{lgas.map(locationLga => <option key={locationLga} value={locationLga}>{locationLga}</option>)}</select></div>
+            <div className="form-field full"><label htmlFor="streetDetails">Street and delivery details</label><input id="streetDetails" name="streetDetails" value={streetDetails} required minLength={8} onChange={event => setStreetDetails(event.target.value)} placeholder="House number, street name, compound, and area (e.g., Oyan, Olomoba Compound)" /><p className="form-help">Your saved address is standardized as: NIGERIA, STATE, LGA, STREET DETAILS.</p></div>
           </div>
+          <section className="delivery-options" aria-label="Delivery calculator">
+            <div><span className="eyebrow">Delivery calculator</span><h2>Choose your delivery speed.</h2><p>Base delivery includes up to 2 kg. Each additional 1 kg adds ₦1,000 before the service-tier adjustment.</p></div>
+            <div className="form-grid">
+              <div className="form-field"><label htmlFor="weightKg">Estimated parcel weight (kg)</label><input id="weightKg" name="weightKg" type="number" min="0.1" max="5000" step="0.1" value={weightKg} onChange={event => setWeightKg(Number(event.target.value))} /></div>
+              <div className="form-field"><label htmlFor="deliveryTier">Delivery service</label><select id="deliveryTier" name="deliveryTier" value={deliveryTier} onChange={event => setDeliveryTier(event.target.value as DeliveryServiceTier)}>{DELIVERY_SERVICE_TIERS.map(tier => <option key={tier} value={tier}>{tier === "express" ? "Express Delivery (1–2 days)" : "Standard Delivery (3–5 days)"}</option>)}</select></div>
+            </div>
+            {deliveryQuote.isFetching ? <p className="form-help">Calculating delivery…</p> : deliveryQuote.data ? <div className="delivery-quote"><div><span>Zone</span><strong>{deliveryQuote.data.zoneLabel}</strong></div><div><span>Base rate</span><strong>{formatNaira(deliveryQuote.data.baseRate)}</strong></div><div><span>Weight surcharge</span><strong>{formatNaira(deliveryQuote.data.weightSurcharge)}</strong></div><div><span>{deliveryQuote.data.serviceLabel}</span><strong>{formatNaira(deliveryQuote.data.deliveryFee)}</strong></div></div> : <p className="form-help">Choose a Nigerian state to see the delivery quote.</p>}
+          </section>
           <div className="form-field" style={{ marginTop: 20 }}><label htmlFor="referralCode">Referral or earned reward code</label><input id="referralCode" value={referralCode} onChange={event => setReferralCode(event.target.value.toUpperCase())} placeholder="ALPHA-XXXXXXXX or THANKS-XXXXXXXX" /><p className="form-help">A shared code gives the referred buyer ₦500 off an eligible order from ₦5,000. The sharer’s separate reward is issued after qualification. Sign in is required to apply either code.</p></div>
           <div className="payment-options">
             <label className="payment-option selected"><input type="radio" name="payment" checked readOnly /><span><strong><Truck size={14} style={{ display: "inline", marginRight: 5 }} />Pay on Delivery</strong><span>Your order is stored now; payment is coordinated at delivery.</span></span></label>
@@ -79,9 +115,9 @@ export default function Checkout() {
             <label className="payment-option disabled"><input type="radio" name="payment" disabled /><span><strong><CreditCard size={14} style={{ display: "inline", marginRight: 5 }} />Flutterwave</strong><span>Online checkout will appear here when secure gateway processing is enabled.</span></span></label>
           </div>
           {submitOrder.error ? <div className="form-error">{submitOrder.error.message}</div> : null}
-          <button type="submit" className="button button-primary" style={{ width: "100%", marginTop: 20 }} disabled={submitOrder.isPending}>{submitOrder.isPending ? "Saving your order…" : "Save Pay on Delivery order"} <ArrowRight size={17} /></button>
+          <button type="submit" className="button button-primary" style={{ width: "100%", marginTop: 20 }} disabled={submitOrder.isPending || !deliveryQuote.data}>{submitOrder.isPending ? "Saving your order…" : "Save Pay on Delivery order"} <ArrowRight size={17} /></button>
         </form>
-      </section><aside className="summary-card"><h2>Order note</h2><div className="summary-row"><span>Items</span><span>{formatNaira(totals.subtotal)}</span></div><div className="summary-row"><span>Delivery</span><span>{formatNaira(DELIVERY_FEE)}</span></div><div className="summary-row total"><span>Order total</span><span>{formatNaira(totals.total)}</span></div><div className="cod-chip"><i /> Pay on Delivery selected</div><p className="summary-note">If an eligible referral code validates, {formatNaira(REFERRAL_DISCOUNT)} is removed from the stored total shown in the confirmation.</p><p className="summary-note"><CheckCircle2 size={13} style={{ display: "inline", marginRight: 4, color: "var(--tomato)" }} />No online payment is taken for this order.</p></aside></div></div>
+      </section><aside className="summary-card"><h2>Order note</h2><div className="summary-row"><span>Items</span><span>{formatNaira(totals.subtotal)}</span></div><div className="summary-row"><span>Calculated delivery</span><span>{deliveryQuote.data ? formatNaira(totals.deliveryFee) : "Select a state"}</span></div><div className="summary-row total"><span>Order total</span><span>{formatNaira(totals.total)}</span></div><div className="cod-chip"><i /> Pay on Delivery selected</div><p className="summary-note">If an eligible referral code validates, {formatNaira(REFERRAL_DISCOUNT)} is removed from the stored total shown in the confirmation.</p><p className="summary-note"><CheckCircle2 size={13} style={{ display: "inline", marginRight: 4, color: "var(--tomato)" }} />No online payment is taken for this order.</p></aside></div><p className="checkout-seller-note">Need to confirm a product detail before checking out? Contact the seller using <strong>“Ask about this product”</strong> on the product page.</p></div>
     </MarketplaceShell>
   );
 }

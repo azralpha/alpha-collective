@@ -119,7 +119,6 @@ export type ResolvedCartLine = CartLine & {
 
 export const REFERRAL_DISCOUNT = 500;
 export const REFERRAL_MINIMUM_SUBTOTAL = 5000;
-export const DELIVERY_FEE = 1500;
 export const LAUNCH_PROMO_COMMISSION_RATE = 0;
 export const LAUNCH_PROMO_NOTE = "0% commission active for the first two weeks to help you grow!";
 
@@ -131,13 +130,13 @@ export function formatNaira(value: number) {
   }).format(value);
 }
 
-export function getProduct(productId: string) {
-  return MARKETPLACE_PRODUCTS.find(product => product.id === productId);
+export function getProduct(productId: string, catalog: readonly MarketplaceProduct[] = MARKETPLACE_PRODUCTS) {
+  return catalog.find(product => product.id === productId);
 }
 
-export function resolveCartLines(lines: CartLine[]): ResolvedCartLine[] {
+export function resolveCartLines(lines: CartLine[], catalog: readonly MarketplaceProduct[] = MARKETPLACE_PRODUCTS): ResolvedCartLine[] {
   return lines.flatMap(line => {
-    const product = getProduct(line.productId);
+    const product = getProduct(line.productId, catalog);
     const quantity = Math.max(0, Math.floor(line.quantity));
     if (!product || quantity === 0) return [];
 
@@ -145,22 +144,23 @@ export function resolveCartLines(lines: CartLine[]): ResolvedCartLine[] {
   });
 }
 
-export function getCartSubtotal(lines: CartLine[]) {
-  return resolveCartLines(lines).reduce((total, line) => total + line.lineTotal, 0);
+export function getCartSubtotal(lines: CartLine[], catalog: readonly MarketplaceProduct[] = MARKETPLACE_PRODUCTS) {
+  return resolveCartLines(lines, catalog).reduce((total, line) => total + line.lineTotal, 0);
 }
 
 export function qualifiesForReferralDiscount(subtotal: number) {
   return subtotal >= REFERRAL_MINIMUM_SUBTOTAL;
 }
 
-export function getCheckoutTotals(lines: CartLine[], hasValidReferralCode = false) {
-  const subtotal = getCartSubtotal(lines);
+export function getCheckoutTotals(lines: CartLine[], hasValidReferralCode = false, catalog: readonly MarketplaceProduct[] = MARKETPLACE_PRODUCTS, deliveryFee = 0) {
+  const subtotal = getCartSubtotal(lines, catalog);
   const discount = hasValidReferralCode && qualifiesForReferralDiscount(subtotal) ? REFERRAL_DISCOUNT : 0;
+  const normalizedDeliveryFee = subtotal > 0 ? Math.max(0, Math.round(deliveryFee)) : 0;
   return {
     subtotal,
     discount,
-    deliveryFee: subtotal > 0 ? DELIVERY_FEE : 0,
-    total: Math.max(0, subtotal - discount + (subtotal > 0 ? DELIVERY_FEE : 0)),
+    deliveryFee: normalizedDeliveryFee,
+    total: Math.max(0, subtotal - discount + normalizedDeliveryFee),
   };
 }
 

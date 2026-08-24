@@ -7,5 +7,8 @@ describe("product seller attribution", () => {
 
     expect(source).toContain("By {product.vendor}");
     expect(source).not.toContain("Sold by {product.vendor}");
+    expect(source).toContain("Add to Cart");
+    expect(source).toContain("addItem(product.id)");
+    expect(source).not.toContain("Ask on WhatsApp");
   });
 });

@@ -96,6 +96,44 @@ describe("marketplace vendor image workflow", () => {
     })]);
   });
 
+  it("calculates a delivery quote from the selected zone, parcel weight, and service tier", async () => {
+    await expect(caller().deliveryQuote({ destinationState: "Osun", weightKg: 3, serviceTier: "express" })).resolves.toMatchObject({
+      zone: "regional",
+      baseRate: 15000,
+      weightSurcharge: 1000,
+      deliveryFee: 24000,
+    });
+  });
+
+  it("stores a standardized address and dynamic delivery fee for approved vendor products in the cart", async () => {
+    mocks.listApprovedVendorProducts.mockResolvedValue([{
+      id: 91,
+      title: "Approved image find",
+      category: "Fashion",
+      price: 4500,
+      description: "Approved for public category pages.",
+      imageUrl: "/manus-storage/vendor-products/7/product_123.jpg",
+      imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg"],
+      vendor: "Test Store",
+    }]);
+
+    await expect(caller().submitOrder({
+      buyerName: "Ada Okafor",
+      buyerPhone: "08000000000",
+      deliveryAddress: { country: "Nigeria", state: "Lagos", lga: "Ikeja", streetDetails: "12 Oyan Road, Olomoba Compound" },
+      packageWeightKg: 3,
+      deliveryTier: "express",
+      items: [{ productId: "vendor-91", quantity: 2 }],
+    })).resolves.toMatchObject({ subtotal: 9000, deliveryFee: 15750, total: 24750 });
+
+    expect(mocks.createOrder).toHaveBeenCalledWith(expect.objectContaining({
+      deliveryAddress: "NIGERIA, LAGOS, IKEJA, 12 Oyan Road, Olomoba Compound",
+      deliveryFee: 15750,
+      total: 24750,
+      orderLines: [expect.objectContaining({ productId: "vendor-91", quantity: 2 })],
+    }));
+  });
+
   it("allows administrators to review and publish a vendor draft", async () => {
     mocks.listAdminReviewProducts.mockResolvedValue([{ id: 91, productStatus: "draft" }]);
     await expect(adminCaller().admin.reviewProducts()).resolves.toEqual([{ id: 91, productStatus: "draft" }]);
