@@ -76,4 +76,4 @@
 - [x] Save a checkpoint containing the verified product-page seller-attribution update
 - [x] Inspect the failed homepage call-to-action visual edit and confirm its current wording
 - [x] Apply the approved catchier homepage call-to-action and validate it
-- [ ] Save a checkpoint containing the verified “Shop Naija’s Good Finds” homepage update
+- [x] Save a checkpoint containing the verified “Shop Naija’s Good Finds” homepage update
