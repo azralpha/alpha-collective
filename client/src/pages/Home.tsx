@@ -4,7 +4,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { MARKETPLACE_PRODUCTS } from "@shared/marketplace";
-import { ArrowRight, CheckCircle2, MessageCircle, ShieldCheck, Tag, Truck } from "lucide-react";
+import { ArrowRight, CheckCircle2, Flame, MessageCircle, PackageCheck, ShieldCheck, Tag, Truck } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
@@ -47,27 +47,26 @@ export default function Home() {
 
   return (
     <MarketplaceShell>
-      <section className="hero">
-        <div className="hero-copy">
-          <span className="eyebrow">For the good everyday</span>
-          <h1 className="display-title">The local find,<br />made easier.</h1>
-          <p>Alpha Collective brings practical things from independent Nigerian sellers into one calm, deal-led place.</p>
-          <div className="hero-actions">
-            <Link href="/shop" className="button button-primary">Shop the collective <ArrowRight size={17} /></Link>
-            <Link href="/sell" className="button button-secondary">Sell with us</Link>
+      <section className="deal-hero">
+        <img src="/manus-storage/alpha-collective-hero_3f1a59b7.jpg" alt="A collection of local fashion, beauty, home and technology finds" />
+        <div className="deal-hero-overlay" />
+        <div className="deal-hero-content">
+          <span className="deal-hero-kicker"><Flame size={17} /> Local sellers. Good prices.</span>
+          <h1>Naija deals,<br />straight from<br />independent sellers.</h1>
+          <p>Fashion, phones, beauty and home essentials in Naira — with Pay on Delivery so your order is saved before delivery.</p>
+          <div className="deal-hero-actions">
+            <Link href="/shop" className="deal-cta deal-cta-primary">Shop today’s deals <ArrowRight size={19} /></Link>
+            <Link href="/sell" className="deal-cta deal-cta-secondary">Sell on Alpha Collective <ArrowRight size={19} /></Link>
           </div>
-          <div className="hero-note">
-            <span><i /> Pay on Delivery</span>
-            <span><i /> WhatsApp help</span>
+          <div className="deal-hero-trust">
+            <span><Truck size={19} /> Pay on Delivery</span>
+            <span><PackageCheck size={19} /> Order saved</span>
+            <a href={WHATSAPP_SUPPORT_URL} target="_blank" rel="noreferrer"><MessageCircle size={19} /> WhatsApp help</a>
           </div>
-        </div>
-        <div className="hero-media">
-          <img src="/manus-storage/alpha-collective-hero_3f1a59b7.jpg" alt="A warm edit of independent marketplace products" />
-          <div className="hero-stamp"><b>α</b> chosen<br />together</div>
         </div>
       </section>
 
-      <section className="section">
+      <section className="section deal-discovery-section">
         <div className="section-heading">
           <div>
             <span className="eyebrow">Browse by feeling</span>
@@ -86,7 +85,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="section">
+      <section className="section deal-products-section">
         <div className="section-heading">
           <div>
             <span className="eyebrow">This week’s good price</span>
@@ -104,7 +103,7 @@ export default function Home() {
         </div>
       </section>
 
-      <section className="section">
+      <section id="rewards" className="section">
         <div className="referral-band">
           <div>
             <span className="eyebrow eyebrow-dark">Bring your people</span>

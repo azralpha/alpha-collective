@@ -14,3 +14,9 @@
 - [x] Publish an accurate WordPress, WooCommerce, Dokan, Astra, Elementor, LiteSpeed Cache, and Yoast SEO deployment handoff
 - [x] Implement sharer attribution, self-referral prevention, and a distinct ₦500 reward code after a qualifying referred order
 - [x] Audit referral and ratings wording across the storefront and launch handoff so it only describes the implemented behavior
+- [x] Define a high-energy mobile deal-commerce visual system using the supplied reference as inspiration
+- [x] Add a promo strip, compact search-led header, category chips, and persistent mobile bottom navigation
+- [x] Redesign the homepage hero around bolder green/orange deal surfaces, action hierarchy, and delivery trust cues
+- [x] Apply the refreshed theme consistently to shop, product, cart, checkout, and seller routes
+- [x] Verify the refreshed experience on mobile and desktop
+- [ ] Save a visual-refresh checkpoint
