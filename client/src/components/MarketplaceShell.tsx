@@ -1,20 +1,19 @@
 import { useCart } from "@/contexts/CartContext";
+import { MARKETPLACE_CATEGORIES } from "@shared/marketplace";
 import { Gift, Grid2X2, Home, Search, ShoppingCart, Store, X } from "lucide-react";
 import { Link, useLocation } from "wouter";
 
 export const WHATSAPP_SUPPORT_URL =
   "https://wa.me/2340000000000?text=Hello%20Alpha%20Collective%2C%20I%20need%20help%20with%20my%20order.";
 
-const categoryItems = ["Fashion", "Phones", "Beauty", "Home"];
-
 export function AlphaMark({ compact = false }: { compact?: boolean }) {
   return (
     <Link href="/" className="brand-lockup" aria-label="Alpha Collective home">
-      <span className="alpha-mark" aria-hidden="true">A</span>
+      <span className="alpha-mark alpha-wolf-mark" aria-hidden="true" />
       {!compact ? (
         <span className="brand-copy">
           <strong>ALPHA</strong>
-          <small>collective</small>
+          <small>collective corporation</small>
         </span>
       ) : null}
     </Link>
@@ -37,7 +36,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
           <AlphaMark />
           <Link href="/shop" className="header-search" aria-label="Search Alpha Collective">
             <Search size={21} aria-hidden="true" />
-            <span>Search phones, ankara, serum</span>
+            <span>Search gadgets, ankara, serum</span>
           </Link>
           <div className="header-actions">
             <Link href="/cart" className="cart-link" aria-label={`Open cart with ${itemCount} items`}>
@@ -47,7 +46,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
           </div>
         </div>
         <nav aria-label="Shop categories" className="header-category-nav">
-          {categoryItems.map(category => <Link key={category} href={`/shop?category=${category}`} className="header-category-chip">{category}</Link>)}
+          {MARKETPLACE_CATEGORIES.map(category => <Link key={category} href={`/shop?category=${category}`} className="header-category-chip">{category}</Link>)}
           <a href="/#rewards" className="header-category-chip header-reward-chip"><Gift size={17} /> ₦500 off</a>
         </nav>
       </header>

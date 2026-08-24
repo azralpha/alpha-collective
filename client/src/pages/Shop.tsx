@@ -42,8 +42,8 @@ export default function Shop() {
     <MarketplaceShell>
       <div className="page-shell">
         <section className="listing-hero">
-          <div><span className="eyebrow">The everyday edit</span><h1>Things worth finding.</h1></div>
-          <p>Four useful corners of the collective, with prices in Naira and the seller name always in view.</p>
+          <div><span className="eyebrow">The everyday edit</span><h1>More ways to find your next thing.</h1></div>
+          <p>Six useful corners of the collective, with prices in Naira and the seller name always in view.</p>
         </section>
         <section className="shop-toolbar" aria-label="Shop filters">
           <div className="category-pills">

@@ -3,18 +3,25 @@ import ProductCard from "@/components/ProductCard";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
-import { MARKETPLACE_PRODUCTS } from "@shared/marketplace";
+import { MARKETPLACE_CATEGORIES, MARKETPLACE_PRODUCTS, type MarketplaceCategory } from "@shared/marketplace";
 import { ArrowRight, CheckCircle2, Flame, MessageCircle, PackageCheck, ShieldCheck, Tag, Truck } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 
-const categoryCards = [
-  { name: "Fashion", product: MARKETPLACE_PRODUCTS[0], note: "wear it out" },
-  { name: "Phones", product: MARKETPLACE_PRODUCTS[1], note: "plug in" },
-  { name: "Beauty", product: MARKETPLACE_PRODUCTS[2], note: "feel good" },
-  { name: "Home", product: MARKETPLACE_PRODUCTS[3], note: "stay in" },
-];
+const categoryNotes: Record<MarketplaceCategory, string> = {
+  Fashion: "wear it out",
+  Gadgets: "plug in",
+  Beauty: "feel good",
+  "Home & Furniture": "stay in",
+  Vehicles: "get moving",
+  "Animals & Pets": "care well",
+};
+
+const categoryCards = MARKETPLACE_CATEGORIES.flatMap(name => {
+  const product = MARKETPLACE_PRODUCTS.find(item => item.category === name);
+  return product ? [{ name, product, note: categoryNotes[name] }] : [];
+});
 
 export default function Home() {
   const { isAuthenticated } = useAuth();
@@ -53,7 +60,7 @@ export default function Home() {
         <div className="deal-hero-content">
           <span className="deal-hero-kicker"><Flame size={17} /> Local sellers. Good prices.</span>
           <h1>Naija deals,<br />straight from<br />independent sellers.</h1>
-          <p>Fashion, phones, beauty and home essentials in Naira — with Pay on Delivery so your order is saved before delivery.</p>
+          <p>Fashion, gadgets, beauty, home, vehicles and pet essentials in Naira — with Pay on Delivery so your order is saved before delivery.</p>
           <div className="deal-hero-actions">
             <Link href="/shop" className="deal-cta deal-cta-primary">Shop today’s deals <ArrowRight size={19} /></Link>
             <Link href="/sell" className="deal-cta deal-cta-secondary">Sell on Alpha Collective <ArrowRight size={19} /></Link>

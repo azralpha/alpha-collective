@@ -1,4 +1,4 @@
-export const MARKETPLACE_CATEGORIES = ["Fashion", "Phones", "Beauty", "Home"] as const;
+export const MARKETPLACE_CATEGORIES = ["Fashion", "Gadgets", "Beauty", "Home & Furniture", "Vehicles", "Animals & Pets"] as const;
 
 export type MarketplaceCategory = (typeof MARKETPLACE_CATEGORIES)[number];
 
@@ -33,7 +33,7 @@ export const MARKETPLACE_PRODUCTS = [
     id: "pulse-buds-mini",
     title: "Pulse Buds Mini",
     vendor: "Current Devices, Abuja",
-    category: "Phones",
+    category: "Gadgets",
     price: 21900,
     formerPrice: 28500,
     badge: "Price drop",
@@ -59,7 +59,7 @@ export const MARKETPLACE_PRODUCTS = [
     id: "clay-table-bowl",
     title: "Clay Table Bowl",
     vendor: "Nook & Form, Ilorin",
-    category: "Home",
+    category: "Home & Furniture",
     price: 9800,
     formerPrice: 12500,
     badge: "Made local",
@@ -67,6 +67,42 @@ export const MARKETPLACE_PRODUCTS = [
     description: "A warm, hand-finished bowl for the table or shelf.",
     detail:
       "A quietly textured ceramic bowl for everyday serving or display. Handmade pieces can vary subtly in finish.",
+  },
+  {
+    id: "city-ride-compact",
+    title: "City Ride Compact",
+    vendor: "Drive Find, Lagos",
+    category: "Vehicles",
+    price: 4250000,
+    formerPrice: 4680000,
+    badge: "Featured vehicle",
+    imageUrl: "/manus-storage/alpha-vehicles_5be21869.jpg",
+    description: "A practical compact crossover for everyday movement in the city.",
+    detail: "A clean compact vehicle listing from an independent seller. Confirm inspection, ownership documents and delivery terms directly with the seller before any transaction.",
+  },
+  {
+    id: "rattan-lounge-edit",
+    title: "Rattan Lounge Edit",
+    vendor: "House & Hue, Abuja",
+    category: "Home & Furniture",
+    price: 86500,
+    formerPrice: 112000,
+    badge: "Home find",
+    imageUrl: "/manus-storage/alpha-furniture_f4fd12ae.jpg",
+    description: "A woven lounge setting that adds warmth to a quiet corner.",
+    detail: "A tactile furniture edit designed for relaxed interiors. Confirm measurements, finish and delivery availability with the seller before ordering.",
+  },
+  {
+    id: "pet-home-starter",
+    title: "Pet Home Starter",
+    vendor: "Paws & Play, Enugu",
+    category: "Animals & Pets",
+    price: 17400,
+    formerPrice: 22900,
+    badge: "Pet pick",
+    imageUrl: "/manus-storage/alpha-pets_c5b86711.jpg",
+    description: "A practical comfort set for a new pet corner at home.",
+    detail: "A curated pet-home set from a local seller. Confirm size, materials and suitability for your animal before ordering.",
   },
 ] as const satisfies readonly MarketplaceProduct[];
 

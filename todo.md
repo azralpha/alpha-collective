@@ -21,4 +21,11 @@
 - [x] Verify the refreshed experience on mobile and desktop
 - [x] Save a visual-refresh checkpoint
 - [x] Verify the top announcement copy uses “Fresh finds for African products”
-- [ ] Save a checkpoint containing the verified announcement-copy update
+- [x] Save a checkpoint containing the verified announcement-copy update
+- [x] Create a compact wolf-logo asset from the supplied Alpha identity for navigation and footer use
+- [x] Rename Phones to Gadgets and add Vehicles, Home & Furniture, and Animals & Pets to marketplace categories
+- [x] Update the brand lockup, homepage category discovery, shop filters, and seller categories for the expanded catalogue
+- [x] Store the supplied Paystack live key in secure server configuration without exposing it in source or the browser
+- [x] Confirm seller application and product forms use the shared expanded category list and display the updated marketplace shell
+- [x] Validate the branding, category flows, and secret configuration
+- [ ] Save a checkpoint containing the wolf brand, category, and secure Paystack update
