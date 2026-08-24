@@ -67,7 +67,7 @@
 - [x] Build a vendor draft editor with saved image-gallery retention and optional image replacement
 - [x] Add the supplied asynchronous Tawk.to script once in the global application layout
 - [x] Add focused tests and verify draft editing, published-product restrictions, and widget loading
-- [ ] Save a checkpoint containing the verified draft-editing and Tawk.to support update
+- [x] Save a checkpoint containing the verified draft-editing and Tawk.to support update
 - [x] Add coverage for replacement image galleries during a successful draft edit
 - [x] Verify the signed-in vendor can save edited fields and a replacement gallery end to end
 - [x] Confirm the Tawk.to launcher loads in a live preview browser session
