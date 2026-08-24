@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   getReferralShareByCode: vi.fn(),
   getReferralShareByRewardCode: vi.fn(),
   getVendorApplicationForUser: vi.fn(),
+  getVendorProductForApplication: vi.fn(),
   listAdminReviewProducts: vi.fn(),
   listApprovedVendorProducts: vi.fn(),
   listReferralSharesForUser: vi.fn(),
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   redeemReferralReward: vi.fn(),
   storagePut: vi.fn(),
   updateVendorProductStatus: vi.fn(),
+  updateVendorDraftProduct: vi.fn(),
 }));
 
 vi.mock("../db", () => mocks);
@@ -99,5 +101,26 @@ describe("marketplace vendor image workflow", () => {
     await expect(adminCaller().admin.reviewProducts()).resolves.toEqual([{ id: 91, productStatus: "draft" }]);
     await expect(adminCaller().admin.setProductStatus({ id: 91, status: "active" })).resolves.toEqual({ id: 91, status: "active" });
     expect(mocks.updateVendorProductStatus).toHaveBeenCalledWith(91, "active");
+  });
+
+  it("allows a seller to edit only their own draft and retain its gallery when no replacements are sent", async () => {
+    mocks.getVendorApplicationForUser.mockResolvedValue(application);
+    mocks.getVendorProductForApplication.mockResolvedValue({ id: 91, status: "draft", imageUrl: "/manus-storage/vendor-products/7/product_123.jpg", imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg"] });
+    await expect(caller().vendor.updateDraftProduct({ id: 91, title: "Updated draft", category: "Fashion", price: 5000, description: "An updated product draft description." })).resolves.toEqual({ id: 91, status: "draft" });
+    expect(mocks.updateVendorDraftProduct).toHaveBeenCalledWith(91, expect.objectContaining({ title: "Updated draft", imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg"] }));
+  });
+
+  it("allows a seller to replace the complete image gallery on their own draft", async () => {
+    mocks.getVendorApplicationForUser.mockResolvedValue(application);
+    mocks.getVendorProductForApplication.mockResolvedValue({ id: 91, status: "draft", imageUrl: "/manus-storage/vendor-products/7/product_123.jpg", imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg"] });
+    const replacementGallery = ["/manus-storage/vendor-products/7/replacement_1.jpg", "/manus-storage/vendor-products/7/replacement_2.jpg"];
+    await expect(caller().vendor.updateDraftProduct({ id: 91, title: "Updated draft", category: "Fashion", price: 5000, description: "An updated product draft description.", imageUrls: replacementGallery })).resolves.toEqual({ id: 91, status: "draft" });
+    expect(mocks.updateVendorDraftProduct).toHaveBeenCalledWith(91, expect.objectContaining({ imageUrl: replacementGallery[0], imageUrls: replacementGallery }));
+  });
+
+  it("blocks edits to published products", async () => {
+    mocks.getVendorApplicationForUser.mockResolvedValue(application);
+    mocks.getVendorProductForApplication.mockResolvedValue({ id: 91, status: "active", imageUrl: "/manus-storage/vendor-products/7/product_123.jpg", imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg"] });
+    await expect(caller().vendor.updateDraftProduct({ id: 91, title: "Published find", category: "Fashion", price: 5000, description: "A published product cannot be edited here." })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });

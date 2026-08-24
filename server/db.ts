@@ -169,6 +169,12 @@ export async function listVendorProducts(vendorApplicationId: number) {
     .orderBy(desc(vendorProducts.createdAt));
 }
 
+export async function getVendorProductForApplication(id: number, vendorApplicationId: number) {
+  const db = await requireDb();
+  const result = await db.select().from(vendorProducts).where(and(eq(vendorProducts.id, id), eq(vendorProducts.vendorApplicationId, vendorApplicationId))).limit(1);
+  return result[0];
+}
+
 export async function listApprovedVendorProducts() {
   const db = await requireDb();
   return db
@@ -215,6 +221,14 @@ export async function createVendorProduct(product: InsertVendorProduct) {
   const db = await requireDb();
   const result = await db.insert(vendorProducts).values(product);
   return Number(result[0].insertId);
+}
+
+export async function updateVendorDraftProduct(
+  id: number,
+  update: Pick<InsertVendorProduct, "title" | "category" | "price" | "description" | "imageUrl" | "imageUrls">,
+) {
+  const db = await requireDb();
+  await db.update(vendorProducts).set(update).where(eq(vendorProducts.id, id));
 }
 
 export async function updateVendorProductStatus(id: number, status: "draft" | "active" | "rejected") {

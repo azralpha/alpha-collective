@@ -62,3 +62,12 @@
 - [x] Correct direct `/shop?category=…` routing so approved listings appear in the requested category view
 - [x] Verify the approved Range Rover listing appears with its gallery on public shop and product pages
 - [x] Save a checkpoint containing the verified vendor gallery and administrator approval workflow
+- [x] Add protected vendor procedures that allow edits only to the seller’s own draft products
+- [x] Prevent edits to published products and show a clear paid-change notice at the bottom of the vendor dashboard
+- [x] Build a vendor draft editor with saved image-gallery retention and optional image replacement
+- [x] Add the supplied asynchronous Tawk.to script once in the global application layout
+- [x] Add focused tests and verify draft editing, published-product restrictions, and widget loading
+- [ ] Save a checkpoint containing the verified draft-editing and Tawk.to support update
+- [x] Add coverage for replacement image galleries during a successful draft edit
+- [x] Verify the signed-in vendor can save edited fields and a replacement gallery end to end
+- [x] Confirm the Tawk.to launcher loads in a live preview browser session

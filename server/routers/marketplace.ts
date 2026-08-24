@@ -18,6 +18,7 @@ import {
   getReferralShareByCode,
   getReferralShareByRewardCode,
   getVendorApplicationForUser,
+  getVendorProductForApplication,
   listAdminReviewProducts,
   listApprovedVendorProducts,
   listReferralSharesForUser,
@@ -25,6 +26,7 @@ import {
   qualifyReferralShare,
   redeemReferralReward,
   updateVendorProductStatus,
+  updateVendorDraftProduct,
 } from "../db";
 import { storagePut } from "../storage";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "../_core/trpc";
@@ -39,6 +41,7 @@ function newOrderReference() { return `AC-${orderReferenceAlphabet()}`; }
 function newRewardCode() { return `THANKS-${rewardCodeAlphabet()}`; }
 
 const productImageDataUrlSchema = z.string().max(7_000_000);
+const vendorProductInputSchema = z.object({ title: z.string().trim().min(2).max(180), category: z.enum(MARKETPLACE_CATEGORIES), price: z.number().int().min(500).max(5000000), description: z.string().trim().min(12).max(1200), imageUrls: z.array(z.string().startsWith("/manus-storage/").max(500)).min(1).max(5) });
 
 function decodeProductImage(dataUrl: string) {
   const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
@@ -199,7 +202,7 @@ export const marketplaceRouter = router({
         return { imageUrl: result.url };
       }),
     createProduct: protectedProcedure
-      .input(z.object({ title: z.string().trim().min(2).max(180), category: z.enum(MARKETPLACE_CATEGORIES), price: z.number().int().min(500).max(5000000), description: z.string().trim().min(12).max(1200), imageUrls: z.array(z.string().startsWith("/manus-storage/").max(500)).min(1).max(5) }))
+      .input(vendorProductInputSchema)
       .mutation(async ({ ctx, input }) => {
         const application = await getVendorApplicationForUser(ctx.user.id);
         if (!application) throw new TRPCError({ code: "BAD_REQUEST", message: "Submit your seller application before adding a product." });
@@ -208,6 +211,21 @@ export const marketplaceRouter = router({
         }
         const id = await createVendorProduct({ vendorApplicationId: application.id, title: input.title, category: input.category, price: input.price, description: input.description, imageUrl: input.imageUrls[0], imageUrls: input.imageUrls, status: "draft" });
         return { id, status: "draft" as const };
+      }),
+    updateDraftProduct: protectedProcedure
+      .input(vendorProductInputSchema.extend({ id: z.number().int().positive(), imageUrls: z.array(z.string().startsWith("/manus-storage/").max(500)).min(1).max(5).optional() }))
+      .mutation(async ({ ctx, input }) => {
+        const application = await getVendorApplicationForUser(ctx.user.id);
+        if (!application) throw new TRPCError({ code: "BAD_REQUEST", message: "Submit your seller application before editing a product." });
+        const product = await getVendorProductForApplication(input.id, application.id);
+        if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "This product draft was not found in your seller catalogue." });
+        if (product.status !== "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "Published products cannot be edited here. A paid change request is required." });
+        const imageUrls = input.imageUrls ?? product.imageUrls ?? (product.imageUrl ? [product.imageUrl] : []);
+        if (!imageUrls.length || imageUrls.some(imageUrl => !imageUrl.startsWith(`/manus-storage/vendor-products/${ctx.user.id}/`))) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Use only product images uploaded from your seller account." });
+        }
+        await updateVendorDraftProduct(product.id, { title: input.title, category: input.category, price: input.price, description: input.description, imageUrl: imageUrls[0], imageUrls });
+        return { id: product.id, status: "draft" as const };
       }),
   }),
 });
