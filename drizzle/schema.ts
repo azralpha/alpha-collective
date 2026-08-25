@@ -312,6 +312,24 @@ export const walletFundingAttempts = mysqlTable("walletFundingAttempts", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+/** Private NOWPayments quote and callback record. No client redirect or callback can credit a wallet without server verification. */
+export const cryptoFundingAttempts = mysqlTable("cryptoFundingAttempts", {
+  id: int("id").autoincrement().primaryKey(),
+  walletId: int("walletId").notNull(),
+  userId: int("userId").notNull(),
+  reference: varchar("reference", { length: 64 }).notNull().unique(),
+  amountNaira: int("amountNaira").notNull(),
+  payCurrency: varchar("payCurrency", { length: 24 }).notNull(),
+  providerPaymentId: varchar("providerPaymentId", { length: 80 }).unique(),
+  quotedPayAmount: decimal("quotedPayAmount", { precision: 24, scale: 12 }),
+  payAddress: text("payAddress"),
+  quoteExpiresAt: timestamp("quoteExpiresAt").notNull(),
+  status: mysqlEnum("status", ["pending", "confirmed", "failed", "expired"]).notNull().default("pending"),
+  creditedAt: timestamp("creditedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const vendorProducts = mysqlTable("vendorProducts", {
   id: int("id").autoincrement().primaryKey(),
   vendorApplicationId: int("vendorApplicationId").notNull(),
