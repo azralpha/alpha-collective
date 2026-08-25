@@ -87,6 +87,11 @@
 - [x] Replace the static hero background with an infinite four-to-five-second auto-scrolling carousel that respects reduced-motion preferences
 - [x] Maintain strong text contrast, mobile readability, and accessible carousel progress controls across all slides
 - [x] Add focused carousel tests, validate desktop and mobile rendering, and save a checkpoint
+
+- [x] Review existing hero carousel controls and slide inventory for the simplified presentation
+- [x] Generate and upload six additional compatible African retail lifestyle hero slides
+- [x] Remove all pause/play and progress-dot controls while expanding the continuous hero carousel to ten slides
+- [x] Update carousel tests, validate desktop and mobile rendering, and save a checkpoint
 - [x] Create a compact wolf-logo asset from the supplied Alpha identity for navigation and footer use
 - [x] Rename Phones to Gadgets and add Vehicles, Home & Furniture, and Animals & Pets to marketplace categories
 - [x] Update the brand lockup, homepage category discovery, shop filters, and seller categories for the expanded catalogue
