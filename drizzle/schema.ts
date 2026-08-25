@@ -39,6 +39,7 @@ export const orders = mysqlTable("orders", {
   discountType: mysqlEnum("discountType", ["none", "referral", "reward"]).notNull().default("none"),
   orderLines: json("orderLines").$type<StoredOrderLine[]>().notNull(),
   deliveredAt: timestamp("deliveredAt"),
+  buyerConfirmedAt: timestamp("buyerConfirmedAt"),
   returnedAt: timestamp("returnedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
@@ -108,6 +109,16 @@ export const referralRewardSettings = mysqlTable("referralRewardSettings", {
   minimumFirstOrderSubtotal: int("minimumFirstOrderSubtotal").notNull().default(5000),
   referralBonusAmount: int("referralBonusAmount").notNull().default(500),
   rewardReleaseScheduleTaskUid: varchar("rewardReleaseScheduleTaskUid", { length: 65 }),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Singleton configuration for the project-owned, publication-gated seven-day wallet escrow release schedule. */
+export const escrowReleaseSettings = mysqlTable("escrowReleaseSettings", {
+  id: int("id").primaryKey(),
+  scheduleTaskUid: varchar("scheduleTaskUid", { length: 65 }).unique(),
+  lastStartedAt: timestamp("lastStartedAt"),
+  lastCompletedAt: timestamp("lastCompletedAt"),
+  lastError: varchar("lastError", { length: 255 }),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 

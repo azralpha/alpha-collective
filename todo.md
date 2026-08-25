@@ -218,3 +218,16 @@
 - [x] Expose Alpha Collective warehouse stock only to buyers, block out-of-stock official products from cart/checkout, and display restrained low-stock messaging
 - [x] Implement an idempotent 12-hour CJ inventory-sync handler with safe failure behavior; prepare but do not activate its schedule until the site is published
 - [x] Add focused unit coverage, database migration validation, desktop/mobile visual checks, and a final checkpoint for mass import and inventory sync
+
+- [x] Assess official provider contracts, deployment requirements, and required server secrets for Telegram alerts, NOWPayments, and transaction verification
+- [x] Add a server-only, non-blocking administrator payment-notification service with Telegram delivery only after valid configuration is supplied
+- [x] Enforce verified KYC before wallet dashboard access, wallet funding, wallet balance use, and all wallet deposit procedures
+- [x] Add buyer-side delivery confirmation for eligible local-vendor escrow orders with idempotent commission-aware release controls
+- [x] Prepare a publication-gated, idempotent seven-day escrow auto-release handler without activating a schedule before publication
+- [ ] Design a provider-verified crypto-deposit model with 15-minute locked quotes, unique payment references, confirmation checks, and permanently non-withdrawable crypto-origin credits
+- [ ] Add crypto funding UI only for verified, configured provider rails and ensure no client-side success can credit a wallet
+- [ ] Add security-focused tests, responsive validation, a safe migration, and a checkpoint for the staged payments and escrow work
+
+- [ ] Configure NOWPayments as the approved managed crypto gateway with server-only API, IPN verification, and settlement secrets supplied by the administrator
+- [x] Remove all Pi credentials, validation tests, documentation, and future payment-path references from the project
+- [ ] Re-verify an active NOWPayments merchant API key and configured settlement account before enabling any crypto quote, callback, or wallet-credit path

@@ -6,6 +6,7 @@ import {
   reverseWalletWithdrawal,
 } from "./db";
 import { verifyPaystackTransaction, verifyPaystackWebhookSignature } from "./paystack";
+import { notifyAdminPaymentEvent } from "./paymentNotifications";
 
 type PaystackWebhookEvent = {
   event?: unknown;
@@ -18,19 +19,21 @@ function webhookReference(event: PaystackWebhookEvent) {
 
 async function reconcileFunding(reference: string) {
   const attempt = await getWalletFundingAttemptByReference(reference);
-  if (!attempt) return;
+  if (!attempt) return null;
   const verified = await verifyPaystackTransaction(reference);
   if (verified.reference !== reference || verified.status !== "success" || verified.amountKobo !== attempt.amount * 100) {
     throw new Error("Verified Paystack funding did not match its stored wallet attempt.");
   }
   await creditVerifiedWalletFunding({ reference, providerTransactionId: verified.id });
+  return attempt.amount;
 }
 
 export async function processPaystackWebhook(event: PaystackWebhookEvent) {
   const reference = webhookReference(event);
   if (!reference || typeof event.event !== "string") return;
   if (event.event === "charge.success") {
-    await reconcileFunding(reference);
+    const amount = await reconcileFunding(reference);
+    if (amount !== null) void notifyAdminPaymentEvent({ event: "wallet_funding_confirmed", reference, amountNaira: amount });
     return;
   }
   if (event.event === "transfer.success") {

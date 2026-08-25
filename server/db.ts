@@ -11,6 +11,7 @@ import {
   cjImportBatchItems,
   cjImportBatches,
   escrowAllocations,
+  escrowReleaseSettings,
   freeDeliveryVouchers,
   kycProfiles,
   fulfilmentIntegrations,
@@ -546,6 +547,57 @@ export async function releaseWalletEscrowOrder(reference: string) {
     }
     return { order, releasedVendors };
   });
+}
+
+export async function markWalletOrderDelivered(reference: string) {
+  const db = await requireDb();
+  const result = await db.update(orders).set({ fulfillmentStatus: "delivered", deliveredAt: new Date() }).where(and(eq(orders.reference, reference), eq(orders.paymentMethod, "wallet"), eq(orders.paymentStatus, "wallet_escrow"), eq(orders.fulfillmentStatus, "pending")));
+  if (affectedRows(result) !== 1) throw new Error("This wallet order is no longer awaiting delivery confirmation.");
+  return { reference };
+}
+
+export async function confirmBuyerReceivedWalletOrder(userId: number, reference: string) {
+  const db = await requireDb();
+  await db.transaction(async tx => {
+    const order = (await tx.select().from(orders).where(eq(orders.reference, reference)).limit(1))[0];
+    if (!order || order.buyerUserId !== userId) throw new Error("That order is not available for your confirmation.");
+    if (order.paymentMethod !== "wallet" || order.paymentStatus !== "wallet_escrow" || order.fulfillmentStatus !== "delivered") throw new Error("This order is not ready for delivery confirmation.");
+    if (!order.orderLines.some(line => Boolean(line.vendorUserId))) throw new Error("Buyer confirmation is available only for local-vendor wallet orders.");
+    const confirmed = await tx.update(orders).set({ buyerConfirmedAt: new Date() }).where(and(eq(orders.reference, reference), isNull(orders.buyerConfirmedAt), eq(orders.paymentStatus, "wallet_escrow"), eq(orders.fulfillmentStatus, "delivered")));
+    if (affectedRows(confirmed) !== 1) throw new Error("This delivery has already been confirmed or is no longer eligible.");
+  });
+  return releaseWalletEscrowOrder(reference);
+}
+
+export async function listBuyerWalletEscrowOrders(userId: number) {
+  const db = await requireDb();
+  return db.select({ reference: orders.reference, total: orders.total, fulfillmentStatus: orders.fulfillmentStatus, deliveredAt: orders.deliveredAt, buyerConfirmedAt: orders.buyerConfirmedAt, createdAt: orders.createdAt, orderLines: orders.orderLines }).from(orders).where(and(eq(orders.buyerUserId, userId), eq(orders.paymentMethod, "wallet"), eq(orders.paymentStatus, "wallet_escrow"))).orderBy(desc(orders.createdAt));
+}
+
+export async function getEscrowReleaseSettings() {
+  const db = await requireDb();
+  await db.insert(escrowReleaseSettings).values({ id: 1 }).onDuplicateKeyUpdate({ set: { id: sql`${escrowReleaseSettings.id}` } });
+  return (await db.select().from(escrowReleaseSettings).where(eq(escrowReleaseSettings.id, 1)).limit(1))[0];
+}
+
+export async function saveEscrowReleaseScheduleTaskUid(taskUid: string) {
+  const db = await requireDb();
+  await db.insert(escrowReleaseSettings).values({ id: 1, scheduleTaskUid: taskUid }).onDuplicateKeyUpdate({ set: { scheduleTaskUid: taskUid, lastError: null } });
+}
+
+export async function releaseMatureLocalVendorEscrows(now = new Date(), limit = 100) {
+  const db = await requireDb();
+  const settings = await getEscrowReleaseSettings();
+  await db.update(escrowReleaseSettings).set({ lastStartedAt: now, lastError: null }).where(eq(escrowReleaseSettings.id, settings?.id ?? 1));
+  const dueAt = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+  const candidates = await db.select({ reference: orders.reference, orderLines: orders.orderLines }).from(orders).where(and(eq(orders.paymentMethod, "wallet"), eq(orders.paymentStatus, "wallet_escrow"), eq(orders.fulfillmentStatus, "delivered"), lte(orders.deliveredAt, dueAt))).limit(limit);
+  let released = 0;
+  for (const candidate of candidates) {
+    if (!candidate.orderLines.some(line => Boolean(line.vendorUserId))) continue;
+    try { await releaseWalletEscrowOrder(candidate.reference); released += 1; } catch { /* Concurrent buyer confirmation or return makes the release ineligible. */ }
+  }
+  await db.update(escrowReleaseSettings).set({ lastCompletedAt: new Date(), lastError: null }).where(eq(escrowReleaseSettings.id, settings?.id ?? 1));
+  return { released, scanned: candidates.length };
 }
 
 export async function listHeldWalletOrders() {

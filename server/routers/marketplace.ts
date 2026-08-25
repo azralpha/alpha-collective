@@ -18,6 +18,7 @@ import {
   createOfficialProduct,
   createOrder,
   createReferralShare,
+  confirmBuyerReceivedWalletOrder,
   assessReferralFraudBeforeCheckout,
   cancelPendingBonusRewardsForReturnedOrder,
   createWithdrawalOtpChallenge,
@@ -50,6 +51,7 @@ import {
   listActiveOfficialProducts,
   listActiveOfficialProductsWithSourcing,
   listApprovedVendorProducts,
+  listBuyerWalletEscrowOrders,
   listWalletFundingAttemptsForUser,
   listPendingBonusRewardsForUser,
   listHeldWalletOrders,
@@ -63,6 +65,7 @@ import {
   markFulfilmentJobRetryQueued,
   markDeliveredOrderReturned,
   markNonWalletOrderDelivered,
+  markWalletOrderDelivered,
   markWalletWithdrawalProcessing,
   qualifyReferralShare,
   issueFreeDeliveryVoucherIfQualified,
@@ -91,6 +94,7 @@ import { storagePut } from "../storage";
 import { decodeProductImageDataUrl, importCjProductImage, ProductImageProcessingError, storeProcessedProductImage } from "../productImageProcessing";
 import { CjDropshippingError, fetchCjProductForImport } from "../cjDropshipping";
 import { createCjMassImportBatch, getCjMassImportBatch, processNextCjMassImportItem } from "../cjMassImport";
+import { notifyAdminPaymentEvent } from "../paymentNotifications";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { hashTransactionPin, validateTransactionPin, verifyTransactionPin } from "../walletSecurity";
 import { generateWithdrawalOtp, hashWithdrawalOtp } from "../withdrawalOtpSecurity";
@@ -147,6 +151,12 @@ function newOrderReference() { return `AC-${orderReferenceAlphabet()}`; }
 function newRewardCode() { return `THANKS-${rewardCodeAlphabet()}`; }
 function newPaystackFundingReference() { return `acwfund_${paystackFundingReferenceAlphabet()}`; }
 function newPaystackWithdrawalReference() { return `acwwith_${paystackWithdrawalReferenceAlphabet()}`; }
+
+const walletKycProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+  const profile = await ensureKycProfileForUser(ctx.user.id);
+  if (profile.status !== "verified") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Complete KYC Verification before accessing or using Alpha Wallet." });
+  return next({ ctx });
+});
 
 function paystackErrorToTrpc(error: unknown, fallback: string) {
   if (error instanceof PaystackProviderError) {
@@ -293,15 +303,16 @@ export const marketplaceRouter = router({
       return calculateDeliveryQuote(input);
     }),
   wallet: router({
-    dashboard: protectedProcedure.query(async ({ ctx }) => {
+    dashboard: walletKycProcedure.query(async ({ ctx }) => {
       const wallet = await getWalletForUser(ctx.user.id);
       if (!wallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet is being provisioned. Refresh and try again." });
-      const [transactions, recipient, withdrawals, fundingAttempts, pendingRewards] = await Promise.all([
+      const [transactions, recipient, withdrawals, fundingAttempts, pendingRewards, escrowOrders] = await Promise.all([
         listWalletTransactionsForUser(ctx.user.id),
         getWalletBankRecipientForUser(ctx.user.id),
         listWithdrawalRequestsForUser(ctx.user.id),
         listWalletFundingAttemptsForUser(ctx.user.id),
         listPendingBonusRewardsForUser(ctx.user.id),
+        listBuyerWalletEscrowOrders(ctx.user.id),
       ]);
       return {
         totalBalance: wallet.withdrawableBalance + wallet.bonusBalance,
@@ -314,10 +325,11 @@ export const marketplaceRouter = router({
         recipient: recipient ? { bankName: recipient.bankName, accountNumberMasked: recipient.accountNumberMasked, accountName: recipient.accountName, kycBindingStatus: recipient.kycBindingStatus, verifiedAt: recipient.verifiedAt } : null,
         withdrawals: withdrawals.map(request => ({ id: request.id, amount: request.amount, status: request.status, createdAt: request.createdAt })),
         fundingAttempts: fundingAttempts.map(attempt => ({ reference: attempt.reference, amount: attempt.amount, status: attempt.status, createdAt: attempt.createdAt })),
+        escrowOrders: escrowOrders.map(order => ({ reference: order.reference, total: order.total, fulfillmentStatus: order.fulfillmentStatus, deliveredAt: order.deliveredAt, buyerConfirmedAt: order.buyerConfirmedAt, localVendorOrder: order.orderLines.some(line => Boolean(line.vendorUserId)) })),
         transactions,
       };
     }),
-    setPin: protectedProcedure
+    setPin: walletKycProcedure
       .input(z.object({ pin: walletPinSchema, confirmation: walletPinSchema }))
       .mutation(async ({ ctx, input }) => {
         if (input.pin !== input.confirmation) throw new TRPCError({ code: "BAD_REQUEST", message: "Your PIN confirmation does not match." });
@@ -325,14 +337,14 @@ export const marketplaceRouter = router({
         await updateWalletPin(ctx.user.id, await hashTransactionPin(input.pin));
         return { hasPin: true };
       }),
-    listBanks: protectedProcedure.query(async () => {
+    listBanks: walletKycProcedure.query(async () => {
       try {
         return await listPaystackNigerianBanks();
       } catch (error) {
         throw paystackErrorToTrpc(error, "Nigerian banks are temporarily unavailable. Please try again.");
       }
     }),
-    verifyBankAccount: protectedProcedure
+    verifyBankAccount: walletKycProcedure
       .input(z.object({ bankCode: z.string().trim().min(2).max(24), accountNumber: z.string().regex(/^\d{10}$/, "Enter a valid 10-digit Nigerian account number.") }))
       .mutation(async ({ ctx, input }) => {
         try {
@@ -357,7 +369,7 @@ export const marketplaceRouter = router({
           throw paystackErrorToTrpc(error, "Your bank account could not be verified right now. Please try again.");
         }
       }),
-    initializeFunding: protectedProcedure
+    initializeFunding: walletKycProcedure
       .input(z.object({ amount: walletAmountSchema, email: z.string().trim().email("Enter the email address you use for payment receipts.").max(320) }))
       .mutation(async ({ ctx, input }) => {
         const wallet = await ensureWalletForUser(ctx.user.id);
@@ -371,7 +383,7 @@ export const marketplaceRouter = router({
           throw paystackErrorToTrpc(error, "Funding could not be initialized. Please try again.");
         }
       }),
-    requestWithdrawal: protectedProcedure
+    requestWithdrawal: walletKycProcedure
       .input(z.object({ amount: walletAmountSchema, transactionPin: walletPinSchema, confirmed: z.literal(true) }))
       .mutation(async ({ ctx, input }) => {
         const wallet = await authorizeWalletPin(ctx.user.id, input.transactionPin);
@@ -388,7 +400,7 @@ export const marketplaceRouter = router({
         const challengeId = await createWithdrawalOtpChallenge({ userId: ctx.user.id, recipientId: recipient.id, amount: input.amount, otpHash: await hashWithdrawalOtp(otp), expiresAt: new Date(Date.now() + 10 * 60 * 1000) });
         return { challengeId, otpDelivery: "unavailable" as const };
       }),
-    checkout: protectedProcedure
+    checkout: walletKycProcedure
       .input(walletCheckoutInputSchema)
       .mutation(async ({ ctx, input }) => {
         await authorizeWalletPin(ctx.user.id, input.transactionPin);
@@ -464,11 +476,25 @@ export const marketplaceRouter = router({
             freeDeliveryVoucherId: freeDeliveryVoucher?.id,
           });
           if (fulfilmentJobInputs.length) void processCjFulfilmentQueue(5).catch(() => undefined);
+          void notifyAdminPaymentEvent({ event: "wallet_escrow_created", reference, amountNaira: total });
         } catch (error) {
           if (error instanceof Error && error.message === "INSUFFICIENT_WALLET_BALANCE") throw new TRPCError({ code: "BAD_REQUEST", message: "Your available Alpha Wallet balance is not enough for this order." });
           throw error;
         }
         return { reference, paymentStatus: "wallet_escrow" as const, subtotal, discount, deliveryFee: deliveryQuote.deliveryFee, total, deliveryQuote };
+      }),
+    confirmDelivery: walletKycProcedure
+      .input(z.object({ reference: z.string().trim().min(8).max(40) }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const result = await confirmBuyerReceivedWalletOrder(ctx.user.id, input.reference);
+          const bonusReward = await queueReferralBonusAfterDeliveredOrder(input.reference);
+          const [cashback, freeDeliveryVoucher] = await Promise.all([queueCashbackAfterDeliveredOrder(input.reference), issueFreeDeliveryVoucherIfQualified(input.reference)]);
+          void notifyAdminPaymentEvent({ event: "local_vendor_escrow_released", reference: input.reference, amountNaira: result.order.total });
+          return { reference: input.reference, releasedVendors: result.releasedVendors, bonusReward, cashback, freeDeliveryVoucher };
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not confirm delivery." });
+        }
       }),
   }),
   kyc: router({
@@ -603,12 +629,10 @@ export const marketplaceRouter = router({
       .input(z.object({ reference: z.string().trim().min(8).max(40) }))
       .mutation(async ({ input }) => {
         try {
-          const result = await releaseWalletEscrowOrder(input.reference);
-          const bonusReward = await queueReferralBonusAfterDeliveredOrder(input.reference);
-          const [cashback, freeDeliveryVoucher] = await Promise.all([queueCashbackAfterDeliveredOrder(input.reference), issueFreeDeliveryVoucherIfQualified(input.reference)]);
-          return { reference: input.reference, releasedVendors: result.releasedVendors, bonusReward, cashback, freeDeliveryVoucher };
+          await markWalletOrderDelivered(input.reference);
+          return { reference: input.reference, awaitingBuyerConfirmation: true };
         } catch (error) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not release wallet escrow." });
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not mark this wallet order as delivered." });
         }
       }),
     ordersAwaitingDelivery: adminProcedure.query(() => listOrdersAwaitingDelivery()),

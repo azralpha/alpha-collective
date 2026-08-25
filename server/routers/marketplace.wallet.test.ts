@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   assessReferralFraudBeforeCheckout: vi.fn(),
   createReferralShare: vi.fn(),
   createWalletEscrowOrder: vi.fn(),
+  confirmBuyerReceivedWalletOrder: vi.fn(),
+  ensureKycProfileForUser: vi.fn(),
   getReferralRewardSettings: vi.fn(),
   getReferralShareByCode: vi.fn(),
   getCurrentVendorCommissionRate: vi.fn(),
@@ -14,6 +16,8 @@ const mocks = vi.hoisted(() => ({
   listActiveOfficialProducts: vi.fn(),
   listActiveOfficialProductsWithSourcing: vi.fn(),
   listApprovedVendorProducts: vi.fn(),
+  listBuyerWalletEscrowOrders: vi.fn(),
+  markWalletOrderDelivered: vi.fn(),
   recordWalletPinFailure: vi.fn(),
   releaseWalletEscrowOrder: vi.fn(),
   queueReferralBonusAfterDeliveredOrder: vi.fn(),
@@ -48,6 +52,8 @@ describe("marketplace wallet escrow release", () => {
     vi.resetAllMocks();
     mocks.listActiveOfficialProducts.mockResolvedValue([]);
     mocks.listActiveOfficialProductsWithSourcing.mockResolvedValue([]);
+    mocks.ensureKycProfileForUser.mockResolvedValue({ status: "verified" });
+    mocks.listBuyerWalletEscrowOrders.mockResolvedValue([]);
     mocks.queueReferralBonusAfterDeliveredOrder.mockResolvedValue({ queued: false, reason: "not_eligible" });
     mocks.queueCashbackAfterDeliveredOrder.mockResolvedValue({ queued: false, reason: "not_delivered" });
     mocks.issueFreeDeliveryVoucherIfQualified = vi.fn().mockResolvedValue({ issued: false, reason: "not_delivered" });
@@ -55,28 +61,38 @@ describe("marketplace wallet escrow release", () => {
     mocks.getCurrentVendorCommissionRate.mockResolvedValue(0);
   });
 
-  it("releases a held wallet order once and reports vendor allocations", async () => {
-    mocks.releaseWalletEscrowOrder.mockResolvedValue({ releasedVendors: [{ userId: 42, amount: 15_000 }] });
+  it("marks a held wallet order delivered without releasing local-vendor escrow", async () => {
+    mocks.markWalletOrderDelivered.mockResolvedValue({ reference: "AC-WALLET-001" });
 
     await expect(adminCaller().admin.markWalletOrderDelivered({ reference: "AC-WALLET-001" })).resolves.toEqual({
       reference: "AC-WALLET-001",
-      releasedVendors: [{ userId: 42, amount: 15_000 }],
-      bonusReward: { queued: false, reason: "not_eligible" },
-      cashback: { queued: false, reason: "not_delivered" },
-      freeDeliveryVoucher: { issued: false, reason: "not_delivered" },
+      awaitingBuyerConfirmation: true,
     });
-    expect(mocks.releaseWalletEscrowOrder).toHaveBeenCalledTimes(1);
-    expect(mocks.queueReferralBonusAfterDeliveredOrder).toHaveBeenCalledWith("AC-WALLET-001");
-    expect(mocks.queueCashbackAfterDeliveredOrder).toHaveBeenCalledWith("AC-WALLET-001");
+    expect(mocks.markWalletOrderDelivered).toHaveBeenCalledWith("AC-WALLET-001");
+    expect(mocks.releaseWalletEscrowOrder).not.toHaveBeenCalled();
   });
 
-  it("rejects a second delivery-release attempt after the held escrow state has changed", async () => {
-    mocks.releaseWalletEscrowOrder.mockRejectedValue(new Error("This order does not have held wallet escrow."));
+  it("releases a delivered local-vendor escrow only after buyer confirmation", async () => {
+    mocks.confirmBuyerReceivedWalletOrder.mockResolvedValue({ order: { total: 15_000 }, releasedVendors: [{ userId: 42, amount: 15_000 }] });
 
-    await expect(adminCaller().admin.markWalletOrderDelivered({ reference: "AC-WALLET-001" })).rejects.toMatchObject({
+    await expect(buyerCaller().wallet.confirmDelivery({ reference: "AC-WALLET-001" })).resolves.toMatchObject({ reference: "AC-WALLET-001", releasedVendors: [{ userId: 42, amount: 15_000 }] });
+    expect(mocks.confirmBuyerReceivedWalletOrder).toHaveBeenCalledWith(7, "AC-WALLET-001");
+    expect(mocks.queueReferralBonusAfterDeliveredOrder).toHaveBeenCalledWith("AC-WALLET-001");
+  });
+
+  it("rejects a second buyer confirmation after escrow state has changed", async () => {
+    mocks.confirmBuyerReceivedWalletOrder.mockRejectedValue(new Error("This delivery has already been confirmed or is no longer eligible."));
+
+    await expect(buyerCaller().wallet.confirmDelivery({ reference: "AC-WALLET-001" })).rejects.toMatchObject({
       code: "BAD_REQUEST",
-      message: "This order does not have held wallet escrow.",
+      message: "This delivery has already been confirmed or is no longer eligible.",
     });
+  });
+
+  it("blocks every wallet procedure before verified KYC", async () => {
+    mocks.ensureKycProfileForUser.mockResolvedValue({ status: "identity_pending" });
+    await expect(buyerCaller().wallet.dashboard()).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: "Complete KYC Verification before accessing or using Alpha Wallet." });
+    expect(mocks.getWalletForUser).not.toHaveBeenCalled();
   });
 
   it("blocks a static catalogue item from entering the wallet escrow path", async () => {
