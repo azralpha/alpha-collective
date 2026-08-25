@@ -66,10 +66,12 @@ export default function AdminOfficialProducts() {
         status: "draft",
         fulfillmentProvider: imported.fulfillmentProvider,
         externalSkuId: imported.sku,
-        supplierCost: String(imported.supplierCost),
+        supplierCost: imported.supplierCost === null ? "" : String(imported.supplierCost),
         supplierCurrency: imported.supplierCurrency,
       }));
-      toast.success("CJ details imported into an unpublished draft. Set your Naira retail price before saving.");
+      if (!imported.supplierCostAvailable) toast.warning("CJ imported the draft without a trustworthy supplier cost. Enter or verify that hidden cost before publishing.");
+      else if (imported.matchType === "parent_spu") toast.info(`CJ resolved this variant-style code to base SKU ${imported.sku}. Review the product details and images before saving.`);
+      else toast.success("CJ details imported into an unpublished draft. Set your Naira retail price before saving.");
     } catch (error) { toast.error(error instanceof Error ? error.message : "CJ product import failed."); }
   }
 

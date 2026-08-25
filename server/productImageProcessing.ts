@@ -54,6 +54,30 @@ async function applyOpacity(input: Buffer, opacity: number) {
   return sharp(data, { raw: { width: info.width, height: info.height, channels: info.channels } }).png().toBuffer();
 }
 
+async function readCjImageWithinLimit(response: Response) {
+  if (!response.body) throw new ProductImageProcessingError("CJ returned an empty product image response.");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value) continue;
+      total += value.byteLength;
+      if (total > MAX_PRODUCT_IMAGE_BYTES) {
+        await reader.cancel();
+        throw new ProductImageProcessingError("A CJ product image exceeds the 5 MB import limit.");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (!total) throw new ProductImageProcessingError("CJ returned an empty product image response.");
+  return Buffer.concat(chunks);
+}
+
 export async function watermarkAndConvertToWebp(source: Buffer) {
   if (!source.length || source.length > MAX_PRODUCT_IMAGE_BYTES) throw new ProductImageProcessingError("Product images must be 5 MB or smaller.");
   let metadata: Metadata;
@@ -89,12 +113,10 @@ export async function importCjProductImage(input: { imageUrl: string; storagePre
   } catch {
     throw new ProductImageProcessingError("A CJ product image could not be downloaded.");
   }
-  const contentType = response.headers.get("content-type")?.split(";")[0] ?? "";
   const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (!response.ok || !/^image\/(jpeg|png|webp)$/.test(contentType) || declaredLength > MAX_PRODUCT_IMAGE_BYTES) {
+  if (!response.ok || declaredLength > MAX_PRODUCT_IMAGE_BYTES) {
     throw new ProductImageProcessingError("CJ returned an unsupported or oversized product image.");
   }
-  const source = Buffer.from(await response.arrayBuffer());
-  if (source.length > MAX_PRODUCT_IMAGE_BYTES) throw new ProductImageProcessingError("A CJ product image exceeds the 5 MB import limit.");
+  const source = await readCjImageWithinLimit(response);
   return storeProcessedProductImage({ source, storagePrefix: input.storagePrefix });
 }

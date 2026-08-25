@@ -53,4 +53,63 @@ describe("CJ Dropshipping adapter", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/product/listV2?");
     expect(String(fetchMock.mock.calls[1]?.[0])).not.toContain("createOrder");
   });
+
+  it("accepts a CJ SPU when the catalogue response has a distinct fulfilment SKU", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { content: [{ productList: [{ sku: "CJYH247507812LO-RED", spu: "CJYH247507812LO", nameEn: "CJ SPU Import", nowPrice: "12.00", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/item.png", description: "<p>Imported product detail text.</p>" }] }] } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductForImport } = await import("./cjDropshipping");
+
+    await expect(fetchCjProductForImport("cjyh247507812lo")).resolves.toMatchObject({ sku: "CJYH247507812LO-RED", title: "CJ SPU Import", supplierCost: 12 });
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("size=100");
+    expect(String(fetchMock.mock.calls[1]?.[0])).not.toContain("createOrder");
+  });
+
+  it("falls back to CJ's exact productSku listing endpoint when V2 search omits a valid identifier", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { content: [{ productList: [] }] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { list: [{ productSku: "CJYH247507812LO", productNameEn: "Fallback CJ Product", productImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/fallback.png", sellPrice: 15.5 }] } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductForImport } = await import("./cjDropshipping");
+
+    await expect(fetchCjProductForImport("CJYH247507812LO")).resolves.toMatchObject({ sku: "CJYH247507812LO", title: "Fallback CJ Product", supplierCost: 15.5, supplierCurrency: "USD" });
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/product/list?pageNum=1&pageSize=20&productSku=CJYH247507812LO");
+    expect(String(fetchMock.mock.calls[2]?.[0])).not.toContain("createOrder");
+  });
+
+  it("resolves a unique CJ parent SPU for a longer variant-style product identifier without placing an order", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { content: [{ productList: [{ sku: "CJYH2475078", spu: "CJYH2475078", nameEn: "CJ Parent Product", nowPrice: "18.25", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/parent.png", description: "<p>Parent item for the CJ variant selection.</p>" }] }] } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductForImport } = await import("./cjDropshipping");
+
+    await expect(fetchCjProductForImport("CJYH247507812LO")).resolves.toMatchObject({ sku: "CJYH2475078", title: "CJ Parent Product", matchType: "parent_spu", supplierCost: 18.25 });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[1]?.[0])).not.toContain("createOrder");
+  });
+
+  it("imports a draft with a formatted price and leaves an ambiguous price blank for administrator review", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { content: [{ productList: [{ sku: "CJ-FORMATTED", nameEn: "Formatted Price Product", nowPrice: "N/A", sellPrice: "US $ 12.50", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/formatted.png", description: "<p>Formatted supplier price product.</p>" }] }] } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductForImport } = await import("./cjDropshipping");
+    await expect(fetchCjProductForImport("CJ-FORMATTED")).resolves.toMatchObject({ supplierCost: 12.5, supplierCostAvailable: true });
+
+    vi.resetModules();
+    const ambiguousFetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { content: [{ productList: [{ sku: "CJ-RANGE", nameEn: "Range Price Product", nowPrice: "USD 8.00 - 12.00", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/range.png", description: "<p>Range supplier price product.</p>" }] }] } }), { status: 200 }));
+    vi.stubGlobal("fetch", ambiguousFetch);
+    const { fetchCjProductForImport: importAmbiguousPrice } = await import("./cjDropshipping");
+    await expect(importAmbiguousPrice("CJ-RANGE")).resolves.toMatchObject({ supplierCost: null, supplierCostAvailable: false, title: "Range Price Product" });
+    expect(String(ambiguousFetch.mock.calls[1]?.[0])).not.toContain("createOrder");
+  });
 });
