@@ -5,11 +5,13 @@ const mocks = vi.hoisted(() => ({
   createReferralShare: vi.fn(),
   createVendorApplication: vi.fn(),
   createVendorProduct: vi.fn(),
+  ensureKycProfileForUser: vi.fn(),
   getKycProfileForUser: vi.fn(),
   getReferralShareByCode: vi.fn(),
   getReferralShareByRewardCode: vi.fn(),
   getVendorApplicationForUser: vi.fn(),
   getVendorProductForApplication: vi.fn(),
+  listAdminOfficialProducts: vi.fn(),
   listAdminReviewProducts: vi.fn(),
   listActiveOfficialProducts: vi.fn(),
   listApprovedVendorProducts: vi.fn(),
@@ -55,6 +57,7 @@ function adminCaller() {
 describe("marketplace vendor image workflow", () => {
   beforeEach(() => {
     mocks.listActiveOfficialProducts.mockResolvedValue([]);
+    mocks.ensureKycProfileForUser.mockResolvedValue({ status: "identity_pending", governmentIdImageUrl: null });
   });
 
   it("rejects unsupported primary-image payloads before storage", async () => {
@@ -155,6 +158,30 @@ describe("marketplace vendor image workflow", () => {
     await expect(adminCaller().admin.reviewProducts()).resolves.toEqual([{ id: 91, productStatus: "draft" }]);
     await expect(adminCaller().admin.setProductStatus({ id: 91, status: "active" })).resolves.toEqual({ id: 91, status: "active" });
     expect(mocks.updateVendorProductStatus).toHaveBeenCalledWith(91, "active");
+  });
+
+  it("returns a bounded administrator saved-product page with the selected filters", async () => {
+    const page = { items: [{ id: 120001, title: "CJ draft", status: "draft" }], total: 101, page: 2, pageSize: 100, totalPages: 2 };
+    mocks.listAdminOfficialProducts.mockResolvedValue(page);
+
+    await expect(adminCaller().admin.officialProducts({ status: "draft", category: "Fashion", search: "CJ jacket", page: 2, pageSize: 100 })).resolves.toEqual(page);
+    expect(mocks.listAdminOfficialProducts).toHaveBeenCalledWith({ status: "draft", category: "Fashion", search: "CJ jacket", page: 2, pageSize: 100 });
+  });
+
+  it("limits saved-product pages to 100 entries at the procedure boundary", async () => {
+    await expect(adminCaller().admin.officialProducts({ pageSize: 101 })).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("scopes the vendor saved-product page to the caller's own seller application", async () => {
+    mocks.getVendorApplicationForUser.mockResolvedValue(application);
+    mocks.listVendorProducts.mockResolvedValue({ items: [{ id: 91, title: "My draft", status: "draft" }], total: 101, page: 1, pageSize: 100, totalPages: 2 });
+
+    await expect(caller().vendor.dashboard({ status: "draft", category: "Fashion", search: "my", page: 1, pageSize: 100 })).resolves.toMatchObject({
+      application,
+      products: [{ id: 91, title: "My draft", status: "draft" }],
+      productPage: { total: 101, page: 1, pageSize: 100, totalPages: 2 },
+    });
+    expect(mocks.listVendorProducts).toHaveBeenCalledWith(31, { status: "draft", category: "Fashion", search: "my", page: 1, pageSize: 100 });
   });
 
   it("allows a seller to edit only their own draft and retain its gallery when no replacements are sent", async () => {

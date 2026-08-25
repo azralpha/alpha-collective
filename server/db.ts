@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gte, isNull, like, lt, lte, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   type InsertOrder,
@@ -42,6 +42,7 @@ import { ENV } from "./_core/env";
 import { hashSecuritySignal, normalizeDeviceId } from "./referralFraud";
 import { splitWalletPayment } from "./walletBalanceSplit";
 import { fundingCreditDisposition, withdrawalPaidDisposition, withdrawalRestoreDisposition } from "./walletReconciliation";
+import type { MarketplaceCategory } from "../shared/marketplace";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -1070,13 +1071,49 @@ export async function createVendorApplication(application: InsertVendorApplicati
   return Number(result[0].insertId);
 }
 
-export async function listVendorProducts(vendorApplicationId: number) {
+export type SavedProductStatusFilter = "draft" | "active" | "rejected";
+
+export type SavedProductListOptions = {
+  status?: SavedProductStatusFilter;
+  category?: MarketplaceCategory;
+  search?: string;
+  page?: number;
+  pageSize?: number;
+};
+
+export const MAX_SAVED_PRODUCTS_PAGE_SIZE = 100;
+
+function normalizeSavedProductListOptions(options: SavedProductListOptions = {}) {
+  const pageSize = Math.min(MAX_SAVED_PRODUCTS_PAGE_SIZE, Math.max(1, Math.floor(options.pageSize ?? 25)));
+  const requestedPage = Math.max(1, Math.floor(options.page ?? 1));
+  const search = options.search?.trim().slice(0, 120) ?? "";
+  return { ...options, search, pageSize, requestedPage };
+}
+
+function savedProductSearchPattern(search: string) {
+  return `%${search.replace(/[\\%_]/g, "\\$&")}%`;
+}
+
+export async function listVendorProducts(vendorApplicationId: number, options: SavedProductListOptions = {}) {
   const db = await requireDb();
-  return db
+  const normalized = normalizeSavedProductListOptions(options);
+  const conditions = [eq(vendorProducts.vendorApplicationId, vendorApplicationId)];
+  if (normalized.status) conditions.push(eq(vendorProducts.status, normalized.status));
+  if (normalized.category) conditions.push(eq(vendorProducts.category, normalized.category));
+  if (normalized.search) conditions.push(like(vendorProducts.title, savedProductSearchPattern(normalized.search)));
+  const whereClause = and(...conditions);
+  const [{ total }] = await db.select({ total: count() }).from(vendorProducts).where(whereClause);
+  const totalProducts = Number(total);
+  const totalPages = Math.max(1, Math.ceil(totalProducts / normalized.pageSize));
+  const page = Math.min(normalized.requestedPage, totalPages);
+  const items = await db
     .select()
     .from(vendorProducts)
-    .where(eq(vendorProducts.vendorApplicationId, vendorApplicationId))
-    .orderBy(desc(vendorProducts.createdAt));
+    .where(whereClause)
+    .orderBy(desc(vendorProducts.createdAt), desc(vendorProducts.id))
+    .limit(normalized.pageSize)
+    .offset((page - 1) * normalized.pageSize);
+  return { items, total: totalProducts, page, pageSize: normalized.pageSize, totalPages };
 }
 
 export async function getVendorProductForApplication(id: number, vendorApplicationId: number) {
@@ -1219,9 +1256,19 @@ export async function listActiveOfficialProductsWithSourcing() {
   }).from(officialProducts).leftJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id)).where(eq(officialProducts.status, "active")).orderBy(desc(officialProducts.createdAt));
 }
 
-export async function listAdminOfficialProducts() {
+export async function listAdminOfficialProducts(options: SavedProductListOptions = {}) {
   const db = await requireDb();
-  return db.select({
+  const normalized = normalizeSavedProductListOptions(options);
+  const conditions = [] as ReturnType<typeof eq>[];
+  if (normalized.status) conditions.push(eq(officialProducts.status, normalized.status));
+  if (normalized.category) conditions.push(eq(officialProducts.category, normalized.category));
+  if (normalized.search) conditions.push(like(officialProducts.title, savedProductSearchPattern(normalized.search)));
+  const whereClause = and(...conditions);
+  const [{ total }] = await db.select({ total: count() }).from(officialProducts).where(whereClause);
+  const totalProducts = Number(total);
+  const totalPages = Math.max(1, Math.ceil(totalProducts / normalized.pageSize));
+  const page = Math.min(normalized.requestedPage, totalPages);
+  const items = await db.select({
     id: officialProducts.id,
     title: officialProducts.title,
     category: officialProducts.category,
@@ -1249,7 +1296,13 @@ export async function listAdminOfficialProducts() {
     supplierInventoryQuantity: officialProductSourcing.supplierInventoryQuantity,
     supplierInventoryCountryCode: officialProductSourcing.supplierInventoryCountryCode,
     supplierCurrency: officialProductSourcing.supplierCurrency,
-  }).from(officialProducts).leftJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id)).orderBy(desc(officialProducts.createdAt));
+  }).from(officialProducts)
+    .leftJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id))
+    .where(whereClause)
+    .orderBy(desc(officialProducts.createdAt), desc(officialProducts.id))
+    .limit(normalized.pageSize)
+    .offset((page - 1) * normalized.pageSize);
+  return { items, total: totalProducts, page, pageSize: normalized.pageSize, totalPages };
 }
 
 export async function getOfficialProductWithSourcing(id: number) {

@@ -145,6 +145,13 @@ const cjMassImportInputSchema = z.object({
   exchangeRateNgnPerUsd: z.number().min(100).max(10_000),
   category: z.enum(MARKETPLACE_CATEGORIES),
 });
+const savedProductListInputSchema = z.object({
+  status: z.enum(["draft", "active", "rejected"]).optional(),
+  category: z.enum(MARKETPLACE_CATEGORIES).optional(),
+  search: z.string().trim().max(120).transform(sanitizePlainText).optional(),
+  page: z.number().int().min(1).max(100_000).optional(),
+  pageSize: z.number().int().min(1).max(100).optional(),
+});
 
 function newShareCode() { return `ALPHA-${shareCodeAlphabet()}`; }
 function newOrderReference() { return `AC-${orderReferenceAlphabet()}`; }
@@ -528,7 +535,7 @@ export const marketplaceRouter = router({
         await updateVendorProductStatus(input.id, input.status);
         return { id: input.id, status: input.status };
       }),
-    officialProducts: adminProcedure.query(() => listAdminOfficialProducts()),
+    officialProducts: adminProcedure.input(savedProductListInputSchema.optional()).query(({ input }) => listAdminOfficialProducts(input ?? {})),
     uploadOfficialProductImage: adminProcedure
       .input(z.object({ dataUrl: productImageDataUrlSchema }))
       .mutation(async ({ ctx, input }) => {
@@ -797,11 +804,11 @@ export const marketplaceRouter = router({
     }),
 
   vendor: router({
-    dashboard: protectedProcedure.query(async ({ ctx }) => {
+    dashboard: protectedProcedure.input(savedProductListInputSchema.optional()).query(async ({ ctx, input }) => {
       const [application, kyc] = await Promise.all([getVendorApplicationForUser(ctx.user.id), ensureKycProfileForUser(ctx.user.id)]);
-      if (!application) return { application: null, products: [] };
-      const products = await listVendorProducts(application.id);
-      return { application, products, kyc: { status: kyc.status, hasGovernmentId: Boolean(kyc.governmentIdImageUrl) } };
+      if (!application) return { application: null, products: [], productPage: { items: [], total: 0, page: 1, pageSize: input?.pageSize ?? 25, totalPages: 1 } };
+      const productPage = await listVendorProducts(application.id, input ?? {});
+      return { application, products: productPage.items, productPage, kyc: { status: kyc.status, hasGovernmentId: Boolean(kyc.governmentIdImageUrl) } };
     }),
     submitApplication: protectedProcedure
       .input(z.object({ name: z.string().trim().min(2).max(120).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid name."), storeName: z.string().trim().min(2).max(160).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid store name."), whatsapp: z.string().trim().min(7).max(32), category: z.enum(MARKETPLACE_CATEGORIES) }))

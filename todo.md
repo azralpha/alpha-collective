@@ -245,3 +245,8 @@
 - [x] Compare reported CJ batch SKU stock results against the successful single-SKU importer without creating a supplier order
 - [x] Correct the mass-import stock-resolution logic so unambiguously available CJ products create unpublished drafts and genuinely unavailable products remain blocked
 - [x] Add reported-SKU-shaped regression coverage, validate batch progress messaging, and save a checkpoint
+
+- [x] Diagnose why newly created mass-import drafts do not appear in the administrator saved-products list
+- [x] Add bounded server-side saved-product queries that support up to 100 administrator official products and 100 vendor drafts with safe filtering
+- [x] Add responsive status/category toggles, item counts, and page-switching controls to administrator and vendor saved-product views
+- [x] Add regression coverage and visual validation for visible new drafts, filters, 100-item browsing, and pagination before checkpointing
