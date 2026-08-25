@@ -141,7 +141,7 @@ export default function VendorDashboard() {
   if (!isAuthenticated) return <MarketplaceShell><div className="page-shell"><div className="sign-in-card" style={{ marginTop: 38 }}><h2>Sign in for your seller space.</h2><p>Applications and product drafts are attached to your account.</p><button className="button button-primary" onClick={() => startLogin()}>Sign in to sell <ArrowRight size={17} /></button></div></div></MarketplaceShell>;
   if (dashboard.isLoading) return <MarketplaceShell><div className="page-shell"><p className="loading-line">Loading your seller dashboard…</p></div></MarketplaceShell>;
   if (dashboard.error) return <MarketplaceShell><div className="page-shell"><div className="form-error">{dashboard.error.message}</div></div></MarketplaceShell>;
-  if (!dashboard.data?.application) return <MarketplaceShell><div className="page-shell"><div className="sign-in-card" style={{ marginTop: 38 }}><h2>Your seller space starts with an application.</h2><p>Tell us about your store, category, and WhatsApp number first.</p><Link className="button button-primary" href="/sell">Sell on Alpha Collective <ArrowRight size={17} /></Link></div></div></MarketplaceShell>;
+  if (!dashboard.data?.application) return <MarketplaceShell><div className="page-shell"><div className="sign-in-card" style={{ marginTop: 38 }}><h2>Your seller space starts with an application.</h2><p>Tell us about your store, category, and WhatsApp number first.</p><Link className="button button-primary" href="/sell">Sell on Alpha Market <ArrowRight size={17} /></Link></div></div></MarketplaceShell>;
 
   const { application, products, kyc } = dashboard.data;
   const launchRate = LAUNCH_PROMO_COMMISSION_RATE;

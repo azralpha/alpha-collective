@@ -15,6 +15,8 @@ import Shop from "@/pages/Shop";
 import VendorDashboard from "@/pages/VendorDashboard";
 import Wallet from "@/pages/Wallet";
 import Rewards from "@/pages/Rewards";
+import Legal from "@/pages/Legal";
+import CookieConsent from "@/components/CookieConsent";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { CartProvider } from "./contexts/CartContext";
@@ -33,6 +35,8 @@ function Router() {
       <Route path="/wallet" component={Wallet} />
       <Route path="/rewards" component={Rewards} />
       <Route path="/kyc" component={KycVerification} />
+      <Route path="/terms-of-use"><Legal kind="terms" /></Route>
+      <Route path="/privacy-policy"><Legal kind="privacy" /></Route>
       <Route path="/admin/products" component={AdminProductReview} />
       <Route path="/admin/wallet-orders" component={AdminWalletOrders} />
       <Route path="/admin/official-products" component={AdminOfficialProducts} />
@@ -50,6 +54,7 @@ function App() {
         <TooltipProvider>
           <CartProvider>
             <Toaster />
+            <CookieConsent />
             <Router />
           </CartProvider>
         </TooltipProvider>

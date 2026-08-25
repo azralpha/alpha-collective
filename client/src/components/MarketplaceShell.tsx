@@ -6,16 +6,16 @@ import { Link, useLocation } from "wouter";
 import DraggableSupportBubble from "./DraggableSupportBubble";
 
 export const WHATSAPP_SUPPORT_URL =
-  "https://wa.me/2340000000000?text=Hello%20Alpha%20Collective%2C%20I%20need%20help%20with%20my%20order.";
+  "https://wa.me/2340000000000?text=Hello%20Alpha%20Market%2C%20I%20need%20help%20with%20my%20order.";
 
 export function AlphaMark({ compact = false }: { compact?: boolean }) {
   return (
-    <Link href="/" className="brand-lockup" aria-label="Alpha Collective home">
+    <Link href="/" className="brand-lockup" aria-label="Alpha Market home">
       <span className="alpha-mark alpha-wolf-mark" aria-hidden="true" />
       {!compact ? (
         <span className="brand-copy">
           <strong>ALPHA</strong>
-          <small>collective corporation</small>
+          <small>market</small>
         </span>
       ) : null}
     </Link>
@@ -37,7 +37,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
       <header className="site-header">
         <div className="header-main">
           <AlphaMark />
-          <Link href="/shop" className="header-search" aria-label="Search Alpha Collective">
+          <Link href="/shop" className="header-search" aria-label="Search Alpha Market">
             <Search size={21} aria-hidden="true" />
             <span>Search gadgets, ankara, serum</span>
           </Link>
@@ -74,10 +74,12 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
         </div>
         <div className="footer-links">
           <Link href="/shop">Shop collections</Link>
-          <Link href="/sell">Sell on Alpha Collective</Link>
+          <Link href="/sell">Sell on Alpha Market</Link>
+          <Link href="/terms-of-use">Terms of Use</Link>
+          <Link href="/privacy-policy">Privacy Policy</Link>
           <a href={WHATSAPP_SUPPORT_URL} target="_blank" rel="noreferrer">WhatsApp support</a>
         </div>
-        <p className="footer-note">Pay on Delivery is available to KYC-verified buyers. Online payment options will be available once secure gateway processing is enabled.</p>
+        <p className="footer-note">© {new Date().getFullYear()} Alpha Collective Corporation. Alpha Market is the public marketplace brand. Pay on Delivery is available to KYC-verified buyers.</p>
       </footer>
     </div>
   );

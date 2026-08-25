@@ -231,3 +231,9 @@
 - [ ] Configure NOWPayments as the approved managed crypto gateway with server-only API, IPN verification, and settlement secrets supplied by the administrator
 - [x] Remove all Pi credentials, validation tests, documentation, and future payment-path references from the project
 - [ ] Re-verify an active NOWPayments merchant API key and configured settlement account before enabling any crypto quote, callback, or wallet-credit path
+- [ ] Keep all NOWPayments payment creation, IPN callback crediting, and seven-day escrow schedule activation disabled until the administrator supplies a published HTTPS domain
+
+- [x] Audit and replace public Alpha Collective branding across the storefront, navigation, product views, buttons, and SEO metadata while retaining legal and administrative parent-company references
+- [x] Add a persistent, accessible Alpha Market cookie-consent banner with Terms of Use and Privacy Policy links
+- [x] Create responsive Terms of Use and Privacy Policy routes that name Alpha Collective Corporation as the legal entity and disclose KYC, dropshipping, local-vendor escrow, crypto address, and non-withdrawable crypto-credit practices
+- [x] Add route, cookie-consent, and branding regression tests; complete desktop/mobile checks and save a checkpoint

@@ -17,7 +17,7 @@ export default function Product() {
 
   if (!product && approvedProducts.isLoading) return <MarketplaceShell><div className="page-shell"><p className="loading-line">Loading this seller find…</p></div></MarketplaceShell>;
   if (!product) {
-    return <MarketplaceShell><div className="page-shell"><div className="empty-panel"><h2>This find has moved on.</h2><p>Explore the rest of the Alpha Collective edit.</p><Link href="/shop" className="button button-primary">Back to shop</Link></div></div></MarketplaceShell>;
+    return <MarketplaceShell><div className="page-shell"><div className="empty-panel"><h2>This find has moved on.</h2><p>Explore the rest of the Alpha Market edit.</p><Link href="/shop" className="button button-primary">Back to shop</Link></div></div></MarketplaceShell>;
   }
 
   const related = [...MARKETPLACE_PRODUCTS, ...(approvedProducts.data ?? [])].filter(item => item.id !== product.id && item.category === product.category).slice(0, 3);

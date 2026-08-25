@@ -34,7 +34,7 @@ export default function Home() {
     onSuccess: async data => {
       setShareCode(data.shareCode);
       const shareUrl = `${window.location.origin}/shop?ref=${data.shareCode}`;
-      const shareText = `Shop Alpha Collective with my referral code ${data.shareCode} and get ₦${data.rewardValue.toLocaleString("en-NG")} off orders from ₦${data.minimumOrderSubtotal.toLocaleString("en-NG")}: ${shareUrl}`;
+      const shareText = `Shop Alpha Market with my referral code ${data.shareCode} and get ₦${data.rewardValue.toLocaleString("en-NG")} off orders from ₦${data.minimumOrderSubtotal.toLocaleString("en-NG")}: ${shareUrl}`;
       try {
         await navigator.clipboard.writeText(shareText);
         toast.success("Your referral message is ready to share.");
@@ -72,7 +72,7 @@ export default function Home() {
   return (
     <MarketplaceShell>
       <section className="deal-hero">
-        <div className="deal-hero-carousel" role="region" aria-roledescription="carousel" aria-label="Alpha Collective shopping lifestyle highlights">
+        <div className="deal-hero-carousel" role="region" aria-roledescription="carousel" aria-label="Alpha Market shopping lifestyle highlights">
           {HERO_CAROUSEL_SLIDES.map((slide, index) => <img key={slide.src} src={slide.src} alt="" aria-hidden="true" className={index === activeHeroSlide ? "active" : ""} />)}
         </div>
         <div className="deal-hero-overlay" />
@@ -82,7 +82,7 @@ export default function Home() {
           <p>Fashion, gadgets, beauty, home, vehicles and pet essentials in Naira — with KYC-verified Pay on Delivery so your order is protected before delivery.</p>
           <div className="deal-hero-actions">
             <Link href="/shop" className="deal-cta deal-cta-primary">Shop Naija’s Good Finds <ArrowRight size={19} /></Link>
-            <Link href="/sell" className="deal-cta deal-cta-secondary">Sell on Alpha Collective <ArrowRight size={19} /></Link>
+            <Link href="/sell" className="deal-cta deal-cta-secondary">Sell on Alpha Market <ArrowRight size={19} /></Link>
           </div>
           <div className="deal-hero-trust">
             <span><Truck size={19} /> KYC-verified delivery</span>
@@ -151,7 +151,7 @@ export default function Home() {
             <span className="eyebrow eyebrow-dark">A seller-first market</span>
             <h2>Bring your good thing to more people.</h2>
             <p>Open a practical storefront, keep your catalogue moving, and receive clear payout guidance for local transfers.</p>
-            <Link href="/sell" className="button button-cream">Sell on Alpha Collective <ArrowRight size={17} /></Link>
+            <Link href="/sell" className="button button-cream">Sell on Alpha Market <ArrowRight size={17} /></Link>
           </div>
           <div className="seller-panel-stats">
             <div className="seller-stat"><strong>10–15%</strong><span>Transparent seller commission</span></div>
