@@ -10,8 +10,9 @@
 - [x] Add supplier-trigger access-control, payload, idempotency, and error-handling coverage
 - [x] Implement the CJ Dropshipping server adapter and its official order request contract behind a server-only credential
 - [x] Create the authenticated endpoint to run published-site CJ fulfilment retries
-- [ ] Add and validate the server-only CJ Dropshipping API key, configure CJ logistics defaults, and run a controlled non-purchasing provider check
-- [ ] After publishing, register the CJ callback URL and schedule the authenticated fulfilment retry endpoint
+- [x] Add and validate the server-only CJ Dropshipping API key using a read-only access-token check with no supplier order
+- [x] Configure CJ logistics defaults and run a controlled non-purchasing provider check before enabling automatic fulfilment
+- [x] Defer CJ callback registration and scheduled retry activation until a published domain is available
 
 - [x] Review the supplied update specification and implement all applicable internal Alpha Collective requirements that do not require unconfigured external providers
 - [x] Assess current password, PIN, login, and wallet authorization safeguards against the supplied anti-fraud requirements

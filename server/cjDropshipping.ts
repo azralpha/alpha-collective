@@ -40,6 +40,12 @@ export function isCjDropshippingConfigured() {
   return Boolean(process.env.CJ_DROPSHIPPING_API_KEY?.trim());
 }
 
+/** Validates the configured CJ credential by requesting an access token only. No product, customer, or order data is sent. */
+export async function validateCjDropshippingCredential() {
+  await accessToken();
+  return true;
+}
+
 export type CjCreateOrderInput = {
   orderNumber: string;
   externalSkuId: string;
