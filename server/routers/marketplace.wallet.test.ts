@@ -3,13 +3,20 @@ import { MARKETPLACE_PRODUCTS } from "../../shared/marketplace";
 import { hashTransactionPin } from "../walletSecurity";
 
 const mocks = vi.hoisted(() => ({
+  assessReferralFraudBeforeCheckout: vi.fn(),
+  createReferralShare: vi.fn(),
   createWalletEscrowOrder: vi.fn(),
+  getReferralRewardSettings: vi.fn(),
+  getReferralShareByCode: vi.fn(),
   getWalletForUser: vi.fn(),
+  isReferralEligibleUser: vi.fn(),
   listActiveOfficialProducts: vi.fn(),
   listActiveOfficialProductsWithSourcing: vi.fn(),
   listApprovedVendorProducts: vi.fn(),
   recordWalletPinFailure: vi.fn(),
   releaseWalletEscrowOrder: vi.fn(),
+  queueReferralBonusAfterDeliveredOrder: vi.fn(),
+  queueVerifiedPostSaleBonus: vi.fn(),
   resetWalletPinFailures: vi.fn(),
 }));
 
@@ -39,6 +46,8 @@ describe("marketplace wallet escrow release", () => {
     vi.resetAllMocks();
     mocks.listActiveOfficialProducts.mockResolvedValue([]);
     mocks.listActiveOfficialProductsWithSourcing.mockResolvedValue([]);
+    mocks.queueReferralBonusAfterDeliveredOrder.mockResolvedValue({ queued: false, reason: "not_eligible" });
+    mocks.isReferralEligibleUser.mockResolvedValue(true);
   });
 
   it("releases a held wallet order once and reports vendor allocations", async () => {
@@ -47,8 +56,10 @@ describe("marketplace wallet escrow release", () => {
     await expect(adminCaller().admin.markWalletOrderDelivered({ reference: "AC-WALLET-001" })).resolves.toEqual({
       reference: "AC-WALLET-001",
       releasedVendors: [{ userId: 42, amount: 15_000 }],
+      bonusReward: { queued: false, reason: "not_eligible" },
     });
     expect(mocks.releaseWalletEscrowOrder).toHaveBeenCalledTimes(1);
+    expect(mocks.queueReferralBonusAfterDeliveredOrder).toHaveBeenCalledWith("AC-WALLET-001");
   });
 
   it("rejects a second delivery-release attempt after the held escrow state has changed", async () => {
@@ -114,5 +125,34 @@ describe("marketplace wallet escrow release", () => {
     expect(results[0]).not.toHaveProperty("externalSkuId");
     expect(results[0]).not.toHaveProperty("supplierCost");
     expect(results[0]).not.toHaveProperty("fulfillmentProvider");
+  });
+
+  it("requires verified identity or bank-name matching before a referral link is created", async () => {
+    mocks.isReferralEligibleUser.mockResolvedValue(false);
+
+    await expect(buyerCaller().createReferralShare({ channel: "whatsapp" })).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+      message: "Verify your identity or complete bank-name matching before creating a referral link.",
+    });
+    expect(mocks.createReferralShare).not.toHaveBeenCalled();
+  });
+
+  it("queues a post-sale cashback hold only through the administrator procedure", async () => {
+    mocks.queueVerifiedPostSaleBonus.mockResolvedValue({ type: "cashback", amount: 500, releaseAt: new Date("2026-08-27T10:00:00.000Z") });
+    await expect(adminCaller().admin.createPostSaleBonus({ reference: "AC-POSTSALE-001", type: "cashback", amount: 500 })).resolves.toMatchObject({ type: "cashback", amount: 500 });
+    await expect(buyerCaller().admin.createPostSaleBonus({ reference: "AC-POSTSALE-001", type: "review", amount: 500 })).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(mocks.queueVerifiedPostSaleBonus).toHaveBeenCalledWith({ reference: "AC-POSTSALE-001", type: "cashback", amount: 500 });
+  });
+
+  it("voids a suspicious referral discount without blocking a valid wallet purchase", async () => {
+    mocks.getWalletForUser.mockResolvedValue({ id: 8, userId: 7, pinHash: await hashTransactionPin("1234"), pinFailedAttempts: 0, pinLockedUntil: null });
+    mocks.listApprovedVendorProducts.mockResolvedValue([{ id: 92, title: "Independent listing", category: "Fashion", price: 7_000, description: "An approved vendor listing for referral safety testing.", imageUrl: "/manus-storage/vendor-products/9/product.jpg", imageUrls: ["/manus-storage/vendor-products/9/product.jpg"], vendor: "Another Store", vendorUserId: 9, commissionRate: 0 }]);
+    mocks.getReferralShareByCode.mockResolvedValue({ id: 14, shareCode: "ALPHA-SAFE001", status: "shared", sharerUserId: 12, minimumOrderSubtotal: 5_000, rewardValue: 500 });
+    mocks.assessReferralFraudBeforeCheckout.mockResolvedValue({ flagged: true, reason: "same_device" });
+    mocks.createWalletEscrowOrder.mockResolvedValue({});
+
+    await expect(buyerCaller().wallet.checkout({ ...checkoutBase, items: [{ productId: "vendor-92", quantity: 1 }], referralCode: "ALPHA-SAFE001" })).resolves.toMatchObject({ discount: 0 });
+    expect(mocks.assessReferralFraudBeforeCheckout).toHaveBeenCalledWith({ referralShareId: 14, sharerUserId: 12, referredUserId: 7 });
+    expect(mocks.createWalletEscrowOrder).toHaveBeenCalledWith(expect.objectContaining({ order: expect.objectContaining({ referralCode: undefined, referralDiscount: 0, discountType: "none" }) }));
   });
 });

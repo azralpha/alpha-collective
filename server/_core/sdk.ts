@@ -6,6 +6,7 @@ import type { Request } from "express";
 import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
+import { extractClientIp, normalizeDeviceId } from "../referralFraud";
 import { ENV } from "./env";
 import type {
   ExchangeTokenRequest,
@@ -315,6 +316,14 @@ class SDKServer {
       openId: user.openId,
       lastSignedIn: signedInAt,
     });
+
+    try {
+      const header = req.headers["x-alpha-device-id"];
+      const deviceId = normalizeDeviceId(Array.isArray(header) ? header[0] : header);
+      await db.recordUserRequestSecuritySignal({ userId: user.id, deviceId, ipAddress: extractClientIp(req) });
+    } catch (error) {
+      console.warn("[Auth] Security signal recording skipped", String(error));
+    }
 
     return user;
   }

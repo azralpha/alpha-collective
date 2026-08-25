@@ -30,7 +30,7 @@ export const orders = mysqlTable("orders", {
   deliveryAddress: text("deliveryAddress").notNull(),
   paymentMethod: mysqlEnum("paymentMethod", ["delivery", "paystack", "flutterwave", "wallet"]).notNull(),
   paymentStatus: mysqlEnum("paymentStatus", ["pending", "paid", "cod_pending", "wallet_escrow", "wallet_released", "refunded"]).notNull(),
-  fulfillmentStatus: mysqlEnum("fulfillmentStatus", ["pending", "delivered", "cancelled"]).notNull().default("pending"),
+  fulfillmentStatus: mysqlEnum("fulfillmentStatus", ["pending", "delivered", "cancelled", "returned"]).notNull().default("pending"),
   subtotal: int("subtotal").notNull(),
   referralDiscount: int("referralDiscount").notNull().default(0),
   deliveryFee: int("deliveryFee").notNull(),
@@ -38,6 +38,8 @@ export const orders = mysqlTable("orders", {
   referralCode: varchar("referralCode", { length: 32 }),
   discountType: mysqlEnum("discountType", ["none", "referral", "reward"]).notNull().default("none"),
   orderLines: json("orderLines").$type<StoredOrderLine[]>().notNull(),
+  deliveredAt: timestamp("deliveredAt"),
+  returnedAt: timestamp("returnedAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -46,11 +48,15 @@ export const referralShares = mysqlTable("referralShares", {
   sharerUserId: int("sharerUserId").notNull(),
   shareCode: varchar("shareCode", { length: 32 }).notNull().unique(),
   channel: mysqlEnum("channel", ["whatsapp", "tiktok", "instagram", "other"]).notNull(),
-  status: mysqlEnum("status", ["shared", "qualified", "rewarded"]).notNull().default("shared"),
+  status: mysqlEnum("status", ["shared", "qualified", "rewarded", "voided"]).notNull().default("shared"),
   rewardValue: int("rewardValue").notNull().default(500),
+  minimumOrderSubtotal: int("minimumOrderSubtotal").notNull().default(5000),
   rewardCode: varchar("rewardCode", { length: 32 }).unique(),
-  rewardStatus: mysqlEnum("rewardStatus", ["none", "issued", "redeemed"]).notNull().default("none"),
+  rewardStatus: mysqlEnum("rewardStatus", ["none", "issued", "pending", "released", "redeemed", "cancelled", "voided"]).notNull().default("none"),
   referredOrderReference: varchar("referredOrderReference", { length: 40 }),
+  referredUserId: int("referredUserId"),
+  fraudStatus: mysqlEnum("fraudStatus", ["clear", "flagged"]).notNull().default("clear"),
+  fraudReason: varchar("fraudReason", { length: 80 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -69,7 +75,8 @@ export const vendorApplications = mysqlTable("vendorApplications", {
 export const wallets = mysqlTable("wallets", {
   id: int("id").autoincrement().primaryKey(),
   userId: int("userId").notNull().unique(),
-  availableBalance: int("availableBalance").notNull().default(0),
+  withdrawableBalance: int("withdrawableBalance").notNull().default(0),
+  bonusBalance: int("bonusBalance").notNull().default(0),
   escrowBalance: int("escrowBalance").notNull().default(0),
   pinHash: varchar("pinHash", { length: 255 }),
   pinFailedAttempts: int("pinFailedAttempts").notNull().default(0),
@@ -82,15 +89,63 @@ export const walletTransactions = mysqlTable("walletTransactions", {
   id: int("id").autoincrement().primaryKey(),
   walletId: int("walletId").notNull(),
   userId: int("userId").notNull(),
-  type: mysqlEnum("type", ["deposit", "withdrawal", "purchase_escrow", "refund", "sale_earning"]).notNull(),
+  type: mysqlEnum("type", ["deposit", "withdrawal", "purchase_escrow", "bonus_purchase", "refund", "sale_earning", "reward_bonus"]).notNull(),
   direction: mysqlEnum("direction", ["in", "out"]).notNull(),
-  status: mysqlEnum("status", ["pending", "completed", "held", "released", "failed", "reversed"]).notNull(),
+  status: mysqlEnum("status", ["pending", "completed", "held", "released", "failed", "reversed", "cancelled", "voided"]).notNull(),
   amount: int("amount").notNull(),
+  balanceBucket: mysqlEnum("balanceBucket", ["withdrawable", "bonus"]).notNull().default("withdrawable"),
   balanceAfter: int("balanceAfter").notNull(),
   reference: varchar("reference", { length: 64 }).notNull(),
   idempotencyKey: varchar("idempotencyKey", { length: 120 }).notNull().unique(),
   orderReference: varchar("orderReference", { length: 40 }),
   description: varchar("description", { length: 255 }).notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+/** Policy values are administrator-managed and copied to a referral share when it is created. */
+export const referralRewardSettings = mysqlTable("referralRewardSettings", {
+  id: int("id").primaryKey(),
+  minimumFirstOrderSubtotal: int("minimumFirstOrderSubtotal").notNull().default(5000),
+  referralBonusAmount: int("referralBonusAmount").notNull().default(500),
+  rewardReleaseScheduleTaskUid: varchar("rewardReleaseScheduleTaskUid", { length: 65 }),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Hash-only device and network signals. Raw IP and browser identifiers are never persisted. */
+export const userSecuritySignals = mysqlTable("userSecuritySignals", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  deviceFingerprintHash: varchar("deviceFingerprintHash", { length: 128 }),
+  ipHash: varchar("ipHash", { length: 128 }),
+  firstSeenAt: timestamp("firstSeenAt").defaultNow().notNull(),
+  lastSeenAt: timestamp("lastSeenAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Immutable eligibility decision recorded for referral bonus fraud review. */
+export const referralFraudChecks = mysqlTable("referralFraudChecks", {
+  id: int("id").autoincrement().primaryKey(),
+  referralShareId: int("referralShareId").notNull(),
+  referredUserId: int("referredUserId").notNull(),
+  status: mysqlEnum("status", ["clear", "flagged"]).notNull(),
+  reason: mysqlEnum("reason", ["none", "same_device", "same_ip"]).notNull().default("none"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+/** Pending post-sale bonuses; a schedule may release them only after the return window ends. */
+export const bonusRewardHolds = mysqlTable("bonusRewardHolds", {
+  id: int("id").autoincrement().primaryKey(),
+  walletId: int("walletId").notNull(),
+  userId: int("userId").notNull(),
+  orderReference: varchar("orderReference", { length: 40 }).notNull(),
+  referralShareId: int("referralShareId"),
+  type: mysqlEnum("type", ["referral", "cashback", "review"]).notNull(),
+  beneficiary: mysqlEnum("beneficiary", ["sharer", "referred", "customer"]).notNull(),
+  amount: int("amount").notNull(),
+  status: mysqlEnum("status", ["pending", "released", "cancelled", "voided"]).notNull().default("pending"),
+  releaseAt: timestamp("releaseAt").notNull(),
+  releasedAt: timestamp("releasedAt"),
+  cancelledAt: timestamp("cancelledAt"),
+  idempotencyKey: varchar("idempotencyKey", { length: 140 }).notNull().unique(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 

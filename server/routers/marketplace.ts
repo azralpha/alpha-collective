@@ -17,6 +17,8 @@ import {
   createOfficialProduct,
   createOrder,
   createReferralShare,
+  assessReferralFraudBeforeCheckout,
+  cancelPendingBonusRewardsForReturnedOrder,
   createWithdrawalOtpChallenge,
   createWalletEscrowOrder,
   createVendorApplication,
@@ -28,12 +30,14 @@ import {
   failWalletWithdrawalBeforeTransfer,
   getReferralShareByCode,
   getReferralShareByRewardCode,
+  getReferralRewardSettings,
   getKycProfileForUser,
   getFulfilmentIntegration,
   getVendorApplicationForUser,
   getVendorProductForApplication,
   getWalletBankRecipientForUser,
   getWalletForUser,
+  isReferralEligibleUser,
   listAdminReviewProducts,
   listAdminFulfilmentJobs,
   listAdminOfficialProducts,
@@ -41,15 +45,23 @@ import {
   listActiveOfficialProductsWithSourcing,
   listApprovedVendorProducts,
   listWalletFundingAttemptsForUser,
+  listPendingBonusRewardsForUser,
   listHeldWalletOrders,
+  listOrdersAwaitingDelivery,
+  listOrdersInRewardReturnWindow,
   listReferralSharesForUser,
   listVendorProducts,
   listWalletTransactionsForUser,
   listWithdrawalRequestsForUser,
   markWalletFundingAttemptFailed,
   markFulfilmentJobRetryQueued,
+  markDeliveredOrderReturned,
+  markNonWalletOrderDelivered,
   markWalletWithdrawalProcessing,
   qualifyReferralShare,
+  queueReferralBonusAfterDeliveredOrder,
+  queueVerifiedPostSaleBonus,
+  recordUserRequestSecuritySignal,
   recordWalletPinFailure,
   redeemReferralReward,
   releaseWalletEscrowOrder,
@@ -60,9 +72,11 @@ import {
   updateVendorProductStatus,
   updateOfficialProduct,
   updateOfficialProductStatus,
+  updateReferralRewardSettings,
   updateVendorDraftProduct,
   updateWalletPin,
 } from "../db";
+import { extractClientIp, normalizeDeviceId } from "../referralFraud";
 import { storagePut } from "../storage";
 import { decodeProductImageDataUrl, importCjProductImage, ProductImageProcessingError, storeProcessedProductImage } from "../productImageProcessing";
 import { CjDropshippingError, fetchCjProductForImport } from "../cjDropshipping";
@@ -104,6 +118,7 @@ const walletCheckoutInputSchema = z.object({
   deliveryTier: z.enum(DELIVERY_SERVICE_TIERS),
   items: z.array(cartLineSchema).min(1).max(12),
   transactionPin: walletPinSchema,
+  referralCode: z.string().trim().max(32).optional(),
 });
 
 function newShareCode() { return `ALPHA-${shareCodeAlphabet()}`; }
@@ -253,15 +268,20 @@ export const marketplaceRouter = router({
     dashboard: protectedProcedure.query(async ({ ctx }) => {
       const wallet = await getWalletForUser(ctx.user.id);
       if (!wallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet is being provisioned. Refresh and try again." });
-      const [transactions, recipient, withdrawals, fundingAttempts] = await Promise.all([
+      const [transactions, recipient, withdrawals, fundingAttempts, pendingRewards] = await Promise.all([
         listWalletTransactionsForUser(ctx.user.id),
         getWalletBankRecipientForUser(ctx.user.id),
         listWithdrawalRequestsForUser(ctx.user.id),
         listWalletFundingAttemptsForUser(ctx.user.id),
+        listPendingBonusRewardsForUser(ctx.user.id),
       ]);
       return {
-        availableBalance: wallet.availableBalance,
+        totalBalance: wallet.withdrawableBalance + wallet.bonusBalance,
+        withdrawableBalance: wallet.withdrawableBalance,
+        bonusBalance: wallet.bonusBalance,
         escrowBalance: wallet.escrowBalance,
+        pendingBonusBalance: pendingRewards.reduce((total, reward) => total + reward.amount, 0),
+        pendingRewards: pendingRewards.map(reward => ({ id: reward.id, amount: reward.amount, type: reward.type, releaseAt: reward.releaseAt, orderReference: reward.orderReference })),
         hasPin: Boolean(wallet.pinHash),
         recipient: recipient ? { bankName: recipient.bankName, accountNumberMasked: recipient.accountNumberMasked, accountName: recipient.accountName, kycBindingStatus: recipient.kycBindingStatus, verifiedAt: recipient.verifiedAt } : null,
         withdrawals: withdrawals.map(request => ({ id: request.id, amount: request.amount, status: request.status, createdAt: request.createdAt })),
@@ -334,7 +354,7 @@ export const marketplaceRouter = router({
         const recipient = await getWalletBankRecipientForUser(ctx.user.id);
         if (!recipient) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Verify your Nigerian bank account before requesting a withdrawal." });
         if (recipient.kycBindingStatus !== "locked") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Complete KYC bank-name matching before requesting a withdrawal." });
-        if (wallet.availableBalance < input.amount) throw new TRPCError({ code: "BAD_REQUEST", message: "Your available Alpha Wallet balance is not enough for this withdrawal." });
+        if (wallet.withdrawableBalance < input.amount) throw new TRPCError({ code: "BAD_REQUEST", message: "Only your withdrawable balance can be sent to your bank, and it is not enough for this withdrawal." });
         if (!isWithdrawalOtpEmailDeliveryConfigured()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Withdrawal OTP email delivery is not configured yet. No bank transfer has been started." });
         const otp = generateWithdrawalOtp();
         const challengeId = await createWithdrawalOtpChallenge({ userId: ctx.user.id, recipientId: recipient.id, amount: input.amount, otpHash: await hashWithdrawalOtp(otp), expiresAt: new Date(Date.now() + 10 * 60 * 1000) });
@@ -356,8 +376,23 @@ export const marketplaceRouter = router({
         if (resolvedLines.some(line => !line.product.vendorUserId && !officialByProductId.has(line.product.id))) throw new TRPCError({ code: "BAD_REQUEST", message: "Alpha Wallet currently supports approved vendor listings and Alpha Collective Official products only." });
         if (resolvedLines.some(line => line.product.vendorUserId === ctx.user.id)) throw new TRPCError({ code: "FORBIDDEN", message: "Use Alpha Wallet to purchase from other vendors, not your own listing." });
         const subtotal = getCartSubtotal(input.items, catalog);
+        let appliedCode: string | undefined;
+        let discount = 0;
+        if (input.referralCode) {
+          const candidate = input.referralCode.toUpperCase();
+          if (!candidate.startsWith("ALPHA-")) throw new TRPCError({ code: "BAD_REQUEST", message: "Enter a valid referral code beginning ALPHA-." });
+          const share = await getReferralShareByCode(candidate);
+          if (!share || share.status !== "shared") throw new TRPCError({ code: "BAD_REQUEST", message: "That referral code is unavailable or has already been used." });
+          if (share.sharerUserId === ctx.user.id) throw new TRPCError({ code: "FORBIDDEN", message: "You cannot use your own referral code." });
+          if (subtotal < share.minimumOrderSubtotal) throw new TRPCError({ code: "BAD_REQUEST", message: `This referral code applies to orders from ₦${share.minimumOrderSubtotal.toLocaleString("en-NG")}.` });
+          const fraud = await assessReferralFraudBeforeCheckout({ referralShareId: share.id, sharerUserId: share.sharerUserId, referredUserId: ctx.user.id });
+          if (!fraud.flagged) {
+            appliedCode = candidate;
+            discount = share.rewardValue;
+          }
+        }
         const reference = newOrderReference();
-        const total = subtotal + deliveryQuote.deliveryFee;
+        const total = subtotal - discount + deliveryQuote.deliveryFee;
         const allocations = resolvedLines.flatMap(line => line.product.vendorUserId ? [{ vendorUserId: line.product.vendorUserId, grossAmount: line.lineTotal, commissionAmount: 0, netAmount: line.lineTotal }] : []);
         const deliveryAddress = formatNigerianDeliveryAddress(input.deliveryAddress);
         const fulfilmentJobInputs = resolvedLines.flatMap(line => {
@@ -379,7 +414,7 @@ export const marketplaceRouter = router({
             order: {
               reference, buyerUserId: ctx.user.id, buyerName: input.buyerName, buyerPhone: input.buyerPhone,
               deliveryAddress, paymentMethod: "wallet", paymentStatus: "wallet_escrow", fulfillmentStatus: "pending",
-              subtotal, referralDiscount: 0, deliveryFee: deliveryQuote.deliveryFee, total, discountType: "none",
+              subtotal, referralDiscount: discount, deliveryFee: deliveryQuote.deliveryFee, total, referralCode: appliedCode, discountType: appliedCode ? "referral" : "none",
               orderLines: resolvedLines.map(line => ({ productId: line.product.id, title: line.product.title, quantity: line.quantity, unitPrice: line.product.price, lineTotal: line.lineTotal, vendorUserId: line.product.vendorUserId })),
             },
             allocations,
@@ -390,7 +425,7 @@ export const marketplaceRouter = router({
           if (error instanceof Error && error.message === "INSUFFICIENT_WALLET_BALANCE") throw new TRPCError({ code: "BAD_REQUEST", message: "Your available Alpha Wallet balance is not enough for this order." });
           throw error;
         }
-        return { reference, paymentStatus: "wallet_escrow" as const, subtotal, deliveryFee: deliveryQuote.deliveryFee, total, deliveryQuote };
+        return { reference, paymentStatus: "wallet_escrow" as const, subtotal, discount, deliveryFee: deliveryQuote.deliveryFee, total, deliveryQuote };
       }),
   }),
   kyc: router({
@@ -492,18 +527,58 @@ export const marketplaceRouter = router({
       .mutation(async ({ input }) => {
         try {
           const result = await releaseWalletEscrowOrder(input.reference);
-          return { reference: input.reference, releasedVendors: result.releasedVendors };
+          const bonusReward = await queueReferralBonusAfterDeliveredOrder(input.reference);
+          return { reference: input.reference, releasedVendors: result.releasedVendors, bonusReward };
         } catch (error) {
           throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not release wallet escrow." });
         }
       }),
+    ordersAwaitingDelivery: adminProcedure.query(() => listOrdersAwaitingDelivery()),
+    ordersInRewardReturnWindow: adminProcedure.query(() => listOrdersInRewardReturnWindow()),
+    markOrderDelivered: adminProcedure
+      .input(z.object({ reference: z.string().trim().min(8).max(40) }))
+      .mutation(async ({ input }) => {
+        try {
+          await markNonWalletOrderDelivered(input.reference);
+          const bonusReward = await queueReferralBonusAfterDeliveredOrder(input.reference);
+          return { reference: input.reference, bonusReward };
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not confirm order delivery." });
+        }
+      }),
+    markOrderReturned: adminProcedure
+      .input(z.object({ reference: z.string().trim().min(8).max(40) }))
+      .mutation(async ({ input }) => {
+        try {
+          await markDeliveredOrderReturned(input.reference);
+          const rewards = await cancelPendingBonusRewardsForReturnedOrder(input.reference);
+          return { reference: input.reference, cancelledRewards: rewards.cancelled };
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not record the returned order." });
+        }
+      }),
+    createPostSaleBonus: adminProcedure
+      .input(z.object({ reference: z.string().trim().min(8).max(40), type: z.enum(["cashback", "review"]), amount: z.number().int().min(50).max(500_000) }))
+      .mutation(async ({ input }) => {
+        try {
+          return await queueVerifiedPostSaleBonus(input);
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not create the post-sale Shopping Bonus." });
+        }
+      }),
+    referralRewardSettings: adminProcedure.query(() => getReferralRewardSettings()),
+    saveReferralRewardSettings: adminProcedure
+      .input(z.object({ minimumFirstOrderSubtotal: z.number().int().min(500).max(5_000_000), referralBonusAmount: z.number().int().min(50).max(500_000) }))
+      .mutation(({ input }) => updateReferralRewardSettings(input)),
   }),
   createReferralShare: protectedProcedure
     .input(z.object({ channel: z.enum(["whatsapp", "tiktok", "instagram", "other"]) }))
     .mutation(async ({ ctx, input }) => {
+      if (!await isReferralEligibleUser(ctx.user.id)) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Verify your identity or complete bank-name matching before creating a referral link." });
+      const settings = await getReferralRewardSettings();
       const shareCode = newShareCode();
-      await createReferralShare({ shareCode, channel: input.channel, sharerUserId: ctx.user.id });
-      return { shareCode, rewardValue: REFERRAL_DISCOUNT };
+      await createReferralShare({ shareCode, channel: input.channel, sharerUserId: ctx.user.id, rewardValue: settings.referralBonusAmount, minimumOrderSubtotal: settings.minimumFirstOrderSubtotal });
+      return { shareCode, rewardValue: settings.referralBonusAmount, minimumOrderSubtotal: settings.minimumFirstOrderSubtotal };
     }),
 
   myReferralStatus: protectedProcedure.query(async ({ ctx }) => {
@@ -512,8 +587,9 @@ export const marketplaceRouter = router({
       shareCode: share.shareCode,
       status: share.status,
       rewardStatus: share.rewardStatus,
-      rewardCode: share.rewardStatus === "issued" ? share.rewardCode : null,
       rewardValue: share.rewardValue,
+      minimumOrderSubtotal: share.minimumOrderSubtotal,
+      fraudStatus: share.fraudStatus,
     }));
   }),
 
@@ -558,10 +634,6 @@ export const marketplaceRouter = router({
       }
 
       if (input.referralCode) {
-        if (!qualifiesForReferralDiscount(subtotal)) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: `Discount codes apply to orders from ₦${REFERRAL_MINIMUM_SUBTOTAL.toLocaleString("en-NG")}.` });
-        }
-
         const candidate = input.referralCode.toUpperCase();
         if (candidate.startsWith("ALPHA-")) {
           const referralShare = await getReferralShareByCode(candidate);
@@ -571,19 +643,17 @@ export const marketplaceRouter = router({
           if (referralShare.sharerUserId === ctx.user.id) {
             throw new TRPCError({ code: "FORBIDDEN", message: "You cannot use your own referral code." });
           }
-          appliedCode = candidate;
-          discountType = "referral";
-          discount = REFERRAL_DISCOUNT;
-        } else if (candidate.startsWith("THANKS-")) {
-          const reward = await getReferralShareByRewardCode(candidate);
-          if (!reward || reward.rewardStatus !== "issued" || reward.sharerUserId !== ctx.user.id) {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "That earned reward code is unavailable for this account." });
+          if (subtotal < referralShare.minimumOrderSubtotal) {
+            throw new TRPCError({ code: "BAD_REQUEST", message: `This referral code applies to orders from ₦${referralShare.minimumOrderSubtotal.toLocaleString("en-NG")}.` });
           }
-          appliedCode = candidate;
-          discountType = "reward";
-          discount = REFERRAL_DISCOUNT;
+          const fraud = await assessReferralFraudBeforeCheckout({ referralShareId: referralShare.id, sharerUserId: referralShare.sharerUserId, referredUserId: ctx.user.id });
+          if (!fraud.flagged) {
+            appliedCode = candidate;
+            discountType = "referral";
+            discount = referralShare.rewardValue;
+          }
         } else {
-          throw new TRPCError({ code: "BAD_REQUEST", message: "Enter a referral code beginning ALPHA- or an earned reward code beginning THANKS-." });
+          throw new TRPCError({ code: "BAD_REQUEST", message: "Enter a valid referral code beginning ALPHA-." });
         }
       }
 
@@ -606,8 +676,6 @@ export const marketplaceRouter = router({
         orderLines: resolvedLines.map(line => ({ productId: line.product.id, title: line.product.title, quantity: line.quantity, unitPrice: line.product.price, lineTotal: line.lineTotal })),
       });
 
-      if (discountType === "referral" && appliedCode) await qualifyReferralShare(appliedCode, reference, newRewardCode());
-      if (discountType === "reward" && appliedCode) await redeemReferralReward(appliedCode, ctx.user.id);
       return { reference, paymentStatus: "cod_pending" as const, subtotal, discount, deliveryFee: deliveryQuote.deliveryFee, total, deliveryQuote };
     }),
 

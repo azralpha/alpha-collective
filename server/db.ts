@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, lt, lte, or, sql } from "drizzle-orm";
+import { and, desc, eq, gte, isNull, lt, lte, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   type InsertOrder,
@@ -7,6 +7,7 @@ import {
   type InsertVendorApplication,
   type InsertVendorProduct,
   type InsertWalletTransaction,
+  bonusRewardHolds,
   escrowAllocations,
   kycProfiles,
   fulfilmentIntegrations,
@@ -14,7 +15,10 @@ import {
   officialProducts,
   officialProductSourcing,
   orders,
+  referralFraudChecks,
+  referralRewardSettings,
   referralShares,
+  userSecuritySignals,
   users,
   vendorApplications,
   vendorProducts,
@@ -26,6 +30,8 @@ import {
   withdrawalRequests,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { hashSecuritySignal, normalizeDeviceId } from "./referralFraud";
+import { splitWalletPayment } from "./walletBalanceSplit";
 import { fundingCreditDisposition, withdrawalPaidDisposition, withdrawalRestoreDisposition } from "./walletReconciliation";
 
 let _db: ReturnType<typeof drizzle> | null = null;
@@ -122,6 +128,11 @@ export async function ensureWalletForUser(userId: number) {
 export async function listWalletTransactionsForUser(userId: number) {
   const db = await requireDb();
   return db.select().from(walletTransactions).where(eq(walletTransactions.userId, userId)).orderBy(desc(walletTransactions.createdAt), desc(walletTransactions.id));
+}
+
+export async function listPendingBonusRewardsForUser(userId: number) {
+  const db = await requireDb();
+  return db.select().from(bonusRewardHolds).where(and(eq(bonusRewardHolds.userId, userId), eq(bonusRewardHolds.status, "pending"))).orderBy(bonusRewardHolds.releaseAt);
 }
 
 export async function getWalletBankRecipientForUser(userId: number) {
@@ -243,7 +254,7 @@ export async function creditVerifiedWalletFunding(input: { reference: string; pr
     const walletResult = await tx.select().from(wallets).where(eq(wallets.id, attempt.walletId)).limit(1);
     const wallet = walletResult[0];
     if (!wallet || wallet.userId !== attempt.userId) throw new Error("Wallet funding attempt has an invalid wallet owner.");
-    await tx.update(wallets).set({ availableBalance: sql`${wallets.availableBalance} + ${attempt.amount}` }).where(eq(wallets.id, wallet.id));
+    await tx.update(wallets).set({ withdrawableBalance: sql`${wallets.withdrawableBalance} + ${attempt.amount}` }).where(eq(wallets.id, wallet.id));
     const walletAfter = (await tx.select().from(wallets).where(eq(wallets.id, wallet.id)).limit(1))[0];
     if (!walletAfter) throw new Error("Wallet funding balance could not be loaded.");
     await tx.insert(walletTransactions).values({
@@ -253,7 +264,7 @@ export async function creditVerifiedWalletFunding(input: { reference: string; pr
       direction: "in",
       status: "completed",
       amount: attempt.amount,
-      balanceAfter: walletAfter.availableBalance,
+      balanceAfter: walletAfter.withdrawableBalance,
       reference: input.reference,
       idempotencyKey: `wallet-funding-${input.reference}`,
       description: "Paystack wallet funding verified",
@@ -273,7 +284,7 @@ export async function createPendingWalletWithdrawal(input: { walletId: number; u
     const walletResult = await tx.select().from(wallets).where(and(eq(wallets.id, input.walletId), eq(wallets.userId, input.userId))).limit(1);
     const wallet = walletResult[0];
     if (!wallet) throw new Error("Wallet was not found.");
-    const debitResult = await tx.update(wallets).set({ availableBalance: sql`${wallets.availableBalance} - ${input.amount}` }).where(and(eq(wallets.id, wallet.id), gte(wallets.availableBalance, input.amount)));
+    const debitResult = await tx.update(wallets).set({ withdrawableBalance: sql`${wallets.withdrawableBalance} - ${input.amount}` }).where(and(eq(wallets.id, wallet.id), gte(wallets.withdrawableBalance, input.amount)));
     if (affectedRows(debitResult) !== 1) throw new Error("INSUFFICIENT_WALLET_BALANCE");
     const insertResult = await tx.insert(withdrawalRequests).values({ ...input, status: "pending" });
     const requestId = Number(insertResult[0].insertId);
@@ -286,12 +297,12 @@ export async function createPendingWalletWithdrawal(input: { walletId: number; u
       direction: "out",
       status: "pending",
       amount: input.amount,
-      balanceAfter: walletAfter.availableBalance,
+      balanceAfter: walletAfter.withdrawableBalance,
       reference: input.transferReference,
       idempotencyKey: `wallet-withdrawal-${input.transferReference}`,
       description: "Paystack bank withdrawal requested",
     });
-    return { id: requestId, walletId: wallet.id, balanceAfter: walletAfter.availableBalance };
+    return { id: requestId, walletId: wallet.id, balanceAfter: walletAfter.withdrawableBalance };
   });
 }
 
@@ -310,7 +321,7 @@ async function restoreWalletWithdrawal(tx: WalletTransactionExecutor, input: { r
     const processingUpdate = await tx.update(withdrawalRequests).set({ status: input.outcome, providerTransferCode: input.providerTransferCode, providerReference: input.reference, reversedAt: new Date() }).where(and(eq(withdrawalRequests.id, input.requestId), eq(withdrawalRequests.status, "processing")));
     if (affectedRows(processingUpdate) !== 1) return false;
   }
-  await tx.update(wallets).set({ availableBalance: sql`${wallets.availableBalance} + ${input.amount}` }).where(eq(wallets.id, input.walletId));
+  await tx.update(wallets).set({ withdrawableBalance: sql`${wallets.withdrawableBalance} + ${input.amount}` }).where(eq(wallets.id, input.walletId));
   const walletAfter = (await tx.select().from(wallets).where(eq(wallets.id, input.walletId)).limit(1))[0];
   if (!walletAfter) throw new Error("Wallet withdrawal refund balance could not be loaded.");
   await tx.update(walletTransactions).set({ status: input.outcome }).where(eq(walletTransactions.idempotencyKey, `wallet-withdrawal-${input.reference}`));
@@ -321,7 +332,7 @@ async function restoreWalletWithdrawal(tx: WalletTransactionExecutor, input: { r
     direction: "in",
     status: input.outcome,
     amount: input.amount,
-    balanceAfter: walletAfter.availableBalance,
+    balanceAfter: walletAfter.withdrawableBalance,
     reference: input.reference,
     idempotencyKey: `wallet-withdrawal-refund-${input.reference}`,
     description: input.outcome === "reversed" ? "Bank withdrawal reversed; funds restored" : "Bank withdrawal was not accepted; funds restored",
@@ -401,32 +412,43 @@ export async function createWalletEscrowOrder(input: {
     const wallet = walletResult[0];
     if (!wallet) throw new Error("Wallet was not found.");
 
+    const { bonusDebit, withdrawableDebit } = splitWalletPayment(input.order.total, wallet.bonusBalance);
     const debitResult = await tx
       .update(wallets)
       .set({
-        availableBalance: sql`${wallets.availableBalance} - ${input.order.total}`,
+        bonusBalance: sql`${wallets.bonusBalance} - ${bonusDebit}`,
+        withdrawableBalance: sql`${wallets.withdrawableBalance} - ${withdrawableDebit}`,
         escrowBalance: sql`${wallets.escrowBalance} + ${input.order.total}`,
       })
-      .where(and(eq(wallets.id, wallet.id), gte(wallets.availableBalance, input.order.total)));
+      .where(and(
+        eq(wallets.id, wallet.id),
+        gte(wallets.bonusBalance, bonusDebit),
+        gte(wallets.withdrawableBalance, withdrawableDebit),
+      ));
     if (affectedRows(debitResult) !== 1) throw new Error("INSUFFICIENT_WALLET_BALANCE");
 
     await tx.insert(orders).values(input.order);
     const walletAfterDebit = await tx.select().from(wallets).where(eq(wallets.id, wallet.id)).limit(1);
-    const balanceAfter = walletAfterDebit[0]?.availableBalance ?? 0;
-    const buyerTransaction: InsertWalletTransaction = {
-      walletId: wallet.id,
-      userId: input.buyerUserId,
-      type: "purchase_escrow",
-      direction: "out",
-      status: "held",
-      amount: input.order.total,
-      balanceAfter,
-      reference: input.order.reference,
-      idempotencyKey: `wallet-order-${input.order.reference}`,
-      orderReference: input.order.reference,
-      description: `Escrow held for order ${input.order.reference}`,
-    };
-    await tx.insert(walletTransactions).values(buyerTransaction);
+    const walletAfter = walletAfterDebit[0];
+    if (!walletAfter) throw new Error("Wallet checkout balance could not be loaded.");
+    const buyerTransactions: InsertWalletTransaction[] = [];
+    if (bonusDebit > 0) {
+      buyerTransactions.push({
+        walletId: wallet.id, userId: input.buyerUserId, type: "bonus_purchase", direction: "out", status: "held", amount: bonusDebit,
+        balanceBucket: "bonus", balanceAfter: walletAfter.bonusBalance, reference: input.order.reference,
+        idempotencyKey: `wallet-order-bonus-${input.order.reference}`, orderReference: input.order.reference,
+        description: `Shopping bonus applied to order ${input.order.reference}`,
+      });
+    }
+    if (withdrawableDebit > 0) {
+      buyerTransactions.push({
+        walletId: wallet.id, userId: input.buyerUserId, type: "purchase_escrow", direction: "out", status: "held", amount: withdrawableDebit,
+        balanceBucket: "withdrawable", balanceAfter: walletAfter.withdrawableBalance, reference: input.order.reference,
+        idempotencyKey: `wallet-order-withdrawable-${input.order.reference}`, orderReference: input.order.reference,
+        description: `Withdrawable funds held for order ${input.order.reference}`,
+      });
+    }
+    if (buyerTransactions.length) await tx.insert(walletTransactions).values(buyerTransactions);
 
     if (input.allocations.length) {
       await tx.insert(escrowAllocations).values(input.allocations.map(allocation => ({
@@ -442,7 +464,7 @@ export async function createWalletEscrowOrder(input: {
     if (input.fulfilmentJobInputs?.length) {
       await tx.insert(fulfilmentJobs).values(input.fulfilmentJobInputs.map(job => ({ ...job, status: "queued" as const }))).onDuplicateKeyUpdate({ set: { idempotencyKey: sql`${fulfilmentJobs.idempotencyKey}` } });
     }
-    return { wallet, balanceAfter };
+    return { wallet, bonusDebit, withdrawableDebit, totalBalanceAfter: walletAfter.bonusBalance + walletAfter.withdrawableBalance };
   });
 }
 
@@ -453,7 +475,7 @@ export async function releaseWalletEscrowOrder(reference: string) {
     const order = orderResult[0];
     if (!order) throw new Error("Order was not found.");
     if (order.paymentMethod !== "wallet" || order.paymentStatus !== "wallet_escrow") throw new Error("This order does not have held wallet escrow.");
-    const releaseClaim = await tx.update(orders).set({ fulfillmentStatus: "delivered", paymentStatus: "wallet_released" }).where(and(eq(orders.reference, reference), eq(orders.paymentMethod, "wallet"), eq(orders.paymentStatus, "wallet_escrow")));
+    const releaseClaim = await tx.update(orders).set({ fulfillmentStatus: "delivered", paymentStatus: "wallet_released", deliveredAt: new Date() }).where(and(eq(orders.reference, reference), eq(orders.paymentMethod, "wallet"), eq(orders.paymentStatus, "wallet_escrow")));
     if (affectedRows(releaseClaim) !== 1) throw new Error("This order does not have held wallet escrow.");
     const buyerWalletResult = await tx.select().from(wallets).where(eq(wallets.userId, order.buyerUserId ?? -1)).limit(1);
     const buyerWallet = buyerWalletResult[0];
@@ -467,7 +489,7 @@ export async function releaseWalletEscrowOrder(reference: string) {
       const allocationUpdate = await tx.update(escrowAllocations).set({ status: "released", releasedAt: new Date() }).where(and(eq(escrowAllocations.id, allocation.id), eq(escrowAllocations.status, "held")));
       if (affectedRows(allocationUpdate) !== 1) continue;
       await tx.insert(wallets).values({ userId: allocation.vendorUserId }).onDuplicateKeyUpdate({ set: { userId: sql`${wallets.userId}` } });
-      await tx.update(wallets).set({ availableBalance: sql`${wallets.availableBalance} + ${allocation.netAmount}` }).where(eq(wallets.userId, allocation.vendorUserId));
+      await tx.update(wallets).set({ withdrawableBalance: sql`${wallets.withdrawableBalance} + ${allocation.netAmount}` }).where(eq(wallets.userId, allocation.vendorUserId));
       const vendorWalletResult = await tx.select().from(wallets).where(eq(wallets.userId, allocation.vendorUserId)).limit(1);
       const vendorWallet = vendorWalletResult[0];
       if (!vendorWallet) throw new Error("Vendor wallet was not found.");
@@ -478,7 +500,7 @@ export async function releaseWalletEscrowOrder(reference: string) {
         direction: "in",
         status: "released",
         amount: allocation.netAmount,
-        balanceAfter: vendorWallet.availableBalance,
+        balanceAfter: vendorWallet.withdrawableBalance,
         reference,
         idempotencyKey: `wallet-release-${reference}-${allocation.id}`,
         orderReference: reference,
@@ -504,6 +526,57 @@ export async function listHeldWalletOrders() {
     fulfillmentStatus: orders.fulfillmentStatus,
     createdAt: orders.createdAt,
   }).from(orders).where(and(eq(orders.paymentMethod, "wallet"), eq(orders.paymentStatus, "wallet_escrow"))).orderBy(desc(orders.createdAt));
+}
+
+export async function listOrdersAwaitingDelivery() {
+  const db = await requireDb();
+  return db.select({
+    reference: orders.reference,
+    buyerName: orders.buyerName,
+    buyerPhone: orders.buyerPhone,
+    deliveryAddress: orders.deliveryAddress,
+    subtotal: orders.subtotal,
+    deliveryFee: orders.deliveryFee,
+    total: orders.total,
+    paymentMethod: orders.paymentMethod,
+    paymentStatus: orders.paymentStatus,
+    referralCode: orders.referralCode,
+    createdAt: orders.createdAt,
+  }).from(orders).where(eq(orders.fulfillmentStatus, "pending")).orderBy(desc(orders.createdAt));
+}
+
+export async function listOrdersInRewardReturnWindow(now = new Date()) {
+  const db = await requireDb();
+  const returnWindowStart = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+  return db.select({
+    reference: orders.reference,
+    buyerName: orders.buyerName,
+    total: orders.total,
+    paymentMethod: orders.paymentMethod,
+    deliveryAddress: orders.deliveryAddress,
+    deliveredAt: orders.deliveredAt,
+  }).from(orders).where(and(eq(orders.fulfillmentStatus, "delivered"), gte(orders.deliveredAt, returnWindowStart))).orderBy(desc(orders.deliveredAt));
+}
+
+export async function markNonWalletOrderDelivered(reference: string) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const order = (await tx.select().from(orders).where(eq(orders.reference, reference)).limit(1))[0];
+    if (!order) throw new Error("Order was not found.");
+    if (order.paymentMethod === "wallet") throw new Error("Use the wallet escrow delivery release for a wallet order.");
+    const result = await tx.update(orders).set({ fulfillmentStatus: "delivered", deliveredAt: new Date() }).where(and(eq(orders.reference, reference), eq(orders.fulfillmentStatus, "pending")));
+    if (affectedRows(result) !== 1) throw new Error("This order is no longer awaiting delivery confirmation.");
+    return { ...order, fulfillmentStatus: "delivered" as const };
+  });
+}
+
+export async function markDeliveredOrderReturned(reference: string) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const updated = await tx.update(orders).set({ fulfillmentStatus: "returned", returnedAt: new Date() }).where(and(eq(orders.reference, reference), eq(orders.fulfillmentStatus, "delivered")));
+    if (affectedRows(updated) !== 1) throw new Error("Only a delivered order can be marked as returned.");
+    return { reference };
+  });
 }
 
 export async function getReferralShareByCode(shareCode: string) {
@@ -560,7 +633,164 @@ export async function redeemReferralReward(rewardCode: string, userId: number) {
         eq(referralShares.sharerUserId, userId),
         eq(referralShares.rewardStatus, "issued"),
       ),
-    );
+  );
+}
+
+export async function getReferralRewardSettings() {
+  const db = await requireDb();
+  await db.insert(referralRewardSettings).values({ id: 1 }).onDuplicateKeyUpdate({ set: { id: sql`${referralRewardSettings.id}` } });
+  const settings = (await db.select().from(referralRewardSettings).where(eq(referralRewardSettings.id, 1)).limit(1))[0];
+  if (!settings) throw new Error("Referral reward settings could not be loaded.");
+  return settings;
+}
+
+export async function updateReferralRewardSettings(input: { minimumFirstOrderSubtotal: number; referralBonusAmount: number }) {
+  const db = await requireDb();
+  await db.insert(referralRewardSettings).values({ id: 1, ...input }).onDuplicateKeyUpdate({ set: input });
+  return getReferralRewardSettings();
+}
+
+export async function getUserSecuritySignal(userId: number) {
+  const db = await requireDb();
+  return (await db.select().from(userSecuritySignals).where(eq(userSecuritySignals.userId, userId)).limit(1))[0];
+}
+
+export async function recordUserSecuritySignal(input: { userId: number; deviceFingerprintHash: string | null; ipHash: string | null }) {
+  const db = await requireDb();
+  await db.insert(userSecuritySignals).values(input).onDuplicateKeyUpdate({
+    set: {
+      deviceFingerprintHash: sql`coalesce(${userSecuritySignals.deviceFingerprintHash}, ${input.deviceFingerprintHash})`,
+      ipHash: sql`coalesce(${userSecuritySignals.ipHash}, ${input.ipHash})`,
+      lastSeenAt: new Date(),
+    },
+  });
+}
+
+export async function recordUserRequestSecuritySignal(input: { userId: number; deviceId: string | null; ipAddress: string | null }) {
+  return recordUserSecuritySignal({
+    userId: input.userId,
+    deviceFingerprintHash: hashSecuritySignal(normalizeDeviceId(input.deviceId)),
+    ipHash: hashSecuritySignal(input.ipAddress),
+  });
+}
+
+export async function isReferralEligibleUser(userId: number) {
+  const [profile, recipient] = await Promise.all([getKycProfileForUser(userId), getWalletBankRecipientForUser(userId)]);
+  return profile?.status === "verified" || profile?.status === "identity_verified" || recipient?.kycBindingStatus === "locked";
+}
+
+export async function assessReferralFraudBeforeCheckout(input: { referralShareId: number; sharerUserId: number; referredUserId: number }) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const [sharerSignal, referredSignal] = await Promise.all([
+      tx.select().from(userSecuritySignals).where(eq(userSecuritySignals.userId, input.sharerUserId)).limit(1),
+      tx.select().from(userSecuritySignals).where(eq(userSecuritySignals.userId, input.referredUserId)).limit(1),
+    ]);
+    const sameDevice = Boolean(sharerSignal[0]?.deviceFingerprintHash && sharerSignal[0]?.deviceFingerprintHash === referredSignal[0]?.deviceFingerprintHash);
+    const sameIp = Boolean(sharerSignal[0]?.ipHash && sharerSignal[0]?.ipHash === referredSignal[0]?.ipHash);
+    const reason = sameDevice ? "same_device" as const : sameIp ? "same_ip" as const : "none" as const;
+    if (reason === "none") return { flagged: false, reason };
+    await tx.insert(referralFraudChecks).values({ referralShareId: input.referralShareId, referredUserId: input.referredUserId, status: "flagged", reason });
+    await tx.update(referralShares).set({ status: "voided", rewardStatus: "voided", referredUserId: input.referredUserId, fraudStatus: "flagged", fraudReason: reason }).where(and(eq(referralShares.id, input.referralShareId), eq(referralShares.status, "shared")));
+    return { flagged: true, reason };
+  });
+}
+
+export async function queueReferralBonusAfterDeliveredOrder(reference: string) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const order = (await tx.select().from(orders).where(eq(orders.reference, reference)).limit(1))[0];
+    if (!order?.buyerUserId || !order.referralCode?.startsWith("ALPHA-") || order.fulfillmentStatus !== "delivered") return { queued: false, reason: "not_eligible" as const };
+    const share = (await tx.select().from(referralShares).where(eq(referralShares.shareCode, order.referralCode)).limit(1))[0];
+    if (!share || share.status !== "shared") return { queued: false, reason: "already_decided" as const };
+
+    const previousCompleted = await tx.select({ reference: orders.reference }).from(orders).where(and(
+      eq(orders.buyerUserId, order.buyerUserId),
+      eq(orders.fulfillmentStatus, "delivered"),
+      lt(orders.createdAt, order.createdAt),
+    )).limit(1);
+    const [sharerSignal, referredSignal] = await Promise.all([
+      tx.select().from(userSecuritySignals).where(eq(userSecuritySignals.userId, share.sharerUserId)).limit(1),
+      tx.select().from(userSecuritySignals).where(eq(userSecuritySignals.userId, order.buyerUserId)).limit(1),
+    ]);
+    const sameDevice = Boolean(sharerSignal[0]?.deviceFingerprintHash && sharerSignal[0]?.deviceFingerprintHash === referredSignal[0]?.deviceFingerprintHash);
+    const sameIp = Boolean(sharerSignal[0]?.ipHash && sharerSignal[0]?.ipHash === referredSignal[0]?.ipHash);
+    const fraudReason = sameDevice ? "same_device" as const : sameIp ? "same_ip" as const : "none" as const;
+    const mustVoid = previousCompleted.length > 0 || order.subtotal < share.minimumOrderSubtotal || fraudReason !== "none";
+    await tx.insert(referralFraudChecks).values({ referralShareId: share.id, referredUserId: order.buyerUserId, status: fraudReason === "none" ? "clear" : "flagged", reason: fraudReason });
+
+    if (mustVoid) {
+      const reason = fraudReason === "none" ? (previousCompleted.length ? "not_first_completed_order" : "minimum_spend_not_met") : fraudReason;
+      await tx.update(referralShares).set({ status: "voided", rewardStatus: "voided", referredOrderReference: reference, referredUserId: order.buyerUserId, fraudStatus: fraudReason === "none" ? "clear" : "flagged", fraudReason: reason }).where(and(eq(referralShares.id, share.id), eq(referralShares.status, "shared")));
+      return { queued: false, reason: reason as string };
+    }
+
+    await tx.insert(wallets).values([{ userId: share.sharerUserId }, { userId: order.buyerUserId }]).onDuplicateKeyUpdate({ set: { userId: sql`${wallets.userId}` } });
+    const rewardWallets = await tx.select().from(wallets).where(or(eq(wallets.userId, share.sharerUserId), eq(wallets.userId, order.buyerUserId)));
+    const sharerWallet = rewardWallets.find(wallet => wallet.userId === share.sharerUserId);
+    const referredWallet = rewardWallets.find(wallet => wallet.userId === order.buyerUserId);
+    if (!sharerWallet || !referredWallet) throw new Error("Referral reward wallets could not be provisioned.");
+    const releaseAt = new Date((order.deliveredAt ?? new Date()).getTime() + 48 * 60 * 60 * 1000);
+    await tx.insert(bonusRewardHolds).values([
+      { walletId: sharerWallet.id, userId: share.sharerUserId, orderReference: reference, referralShareId: share.id, type: "referral", beneficiary: "sharer", amount: share.rewardValue, status: "pending", releaseAt, idempotencyKey: `referral-bonus-sharer-${reference}-${share.id}` },
+      { walletId: referredWallet.id, userId: order.buyerUserId, orderReference: reference, referralShareId: share.id, type: "referral", beneficiary: "referred", amount: share.rewardValue, status: "pending", releaseAt, idempotencyKey: `referral-bonus-referred-${reference}-${share.id}` },
+    ]).onDuplicateKeyUpdate({ set: { idempotencyKey: sql`${bonusRewardHolds.idempotencyKey}` } });
+    await tx.update(referralShares).set({ status: "qualified", rewardStatus: "pending", referredOrderReference: reference, referredUserId: order.buyerUserId, fraudStatus: "clear", fraudReason: null }).where(and(eq(referralShares.id, share.id), eq(referralShares.status, "shared")));
+    return { queued: true, releaseAt };
+  });
+}
+
+export async function queueVerifiedPostSaleBonus(input: { reference: string; type: "cashback" | "review"; amount: number }) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const order = (await tx.select().from(orders).where(eq(orders.reference, input.reference)).limit(1))[0];
+    if (!order?.buyerUserId || order.fulfillmentStatus !== "delivered") throw new Error("Only a delivered order can receive a post-sale Shopping Bonus.");
+    await tx.insert(wallets).values({ userId: order.buyerUserId }).onDuplicateKeyUpdate({ set: { userId: sql`${wallets.userId}` } });
+    const wallet = (await tx.select().from(wallets).where(eq(wallets.userId, order.buyerUserId)).limit(1))[0];
+    if (!wallet) throw new Error("Customer wallet could not be provisioned for the post-sale bonus.");
+    const releaseAt = new Date((order.deliveredAt ?? new Date()).getTime() + 48 * 60 * 60 * 1000);
+    const idempotencyKey = `post-sale-bonus-${input.type}-${input.reference}-${order.buyerUserId}`;
+    await tx.insert(bonusRewardHolds).values({
+      walletId: wallet.id, userId: order.buyerUserId, orderReference: input.reference, type: input.type,
+      beneficiary: "customer", amount: input.amount, status: "pending", releaseAt, idempotencyKey,
+    }).onDuplicateKeyUpdate({ set: { idempotencyKey: sql`${bonusRewardHolds.idempotencyKey}` } });
+    return { releaseAt, amount: input.amount, type: input.type };
+  });
+}
+
+export async function releaseMatureBonusRewards(now = new Date(), limit = 100) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const holds = await tx.select().from(bonusRewardHolds).where(and(eq(bonusRewardHolds.status, "pending"), lte(bonusRewardHolds.releaseAt, now))).orderBy(bonusRewardHolds.releaseAt).limit(limit);
+    let released = 0;
+    for (const hold of holds) {
+      const claimed = await tx.update(bonusRewardHolds).set({ status: "released", releasedAt: now }).where(and(eq(bonusRewardHolds.id, hold.id), eq(bonusRewardHolds.status, "pending")));
+      if (affectedRows(claimed) !== 1) continue;
+      await tx.update(wallets).set({ bonusBalance: sql`${wallets.bonusBalance} + ${hold.amount}` }).where(eq(wallets.id, hold.walletId));
+      const wallet = (await tx.select().from(wallets).where(eq(wallets.id, hold.walletId)).limit(1))[0];
+      if (!wallet) throw new Error("Bonus reward wallet was not found.");
+      await tx.insert(walletTransactions).values({
+        walletId: hold.walletId, userId: hold.userId, type: "reward_bonus", direction: "in", status: "released", amount: hold.amount,
+        balanceBucket: "bonus", balanceAfter: wallet.bonusBalance, reference: `reward-${hold.id}`,
+        idempotencyKey: `bonus-release-${hold.id}`, orderReference: hold.orderReference,
+        description: `${hold.type === "referral" ? "Referral" : hold.type === "cashback" ? "Cashback" : "Review"} shopping bonus released`,
+      });
+      if (hold.referralShareId) await tx.update(referralShares).set({ status: "rewarded", rewardStatus: "released" }).where(eq(referralShares.id, hold.referralShareId));
+      released += 1;
+    }
+    return { released };
+  });
+}
+
+export async function cancelPendingBonusRewardsForReturnedOrder(reference: string) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const result = await tx.update(bonusRewardHolds).set({ status: "cancelled", cancelledAt: new Date() }).where(and(eq(bonusRewardHolds.orderReference, reference), eq(bonusRewardHolds.status, "pending")));
+    const holds = await tx.select({ referralShareId: bonusRewardHolds.referralShareId }).from(bonusRewardHolds).where(eq(bonusRewardHolds.orderReference, reference));
+    const shareIds = holds.flatMap(hold => hold.referralShareId ? [hold.referralShareId] : []);
+    for (const shareId of shareIds) await tx.update(referralShares).set({ status: "voided", rewardStatus: "cancelled" }).where(eq(referralShares.id, shareId));
+    return { cancelled: affectedRows(result) };
+  });
 }
 
 export async function getVendorApplicationForUser(userId: number) {

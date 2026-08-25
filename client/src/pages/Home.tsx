@@ -31,7 +31,7 @@ export default function Home() {
     onSuccess: async data => {
       setShareCode(data.shareCode);
       const shareUrl = `${window.location.origin}/shop?ref=${data.shareCode}`;
-      const shareText = `Shop Alpha Collective with my referral code ${data.shareCode} and get ₦500 off eligible orders: ${shareUrl}`;
+      const shareText = `Shop Alpha Collective with my referral code ${data.shareCode} and get ₦${data.rewardValue.toLocaleString("en-NG")} off orders from ₦${data.minimumOrderSubtotal.toLocaleString("en-NG")}: ${shareUrl}`;
       try {
         await navigator.clipboard.writeText(shareText);
         toast.success("Your referral message is ready to share.");
@@ -40,9 +40,9 @@ export default function Home() {
       }
       window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank", "noopener,noreferrer");
     },
-    onError: () => toast.error("We could not prepare a referral code. Please try again."),
+    onError: error => toast.error(error.message || "We could not prepare a referral code. Please try again."),
   });
-  const issuedReward = referralStatus.data?.find(share => share.rewardStatus === "issued");
+  const rewardInProgress = referralStatus.data?.find(share => share.rewardStatus === "pending" || share.rewardStatus === "released");
 
   const createOrShareReferral = () => {
     if (!isAuthenticated) {
@@ -114,14 +114,14 @@ export default function Home() {
         <div className="referral-band">
           <div>
             <span className="eyebrow eyebrow-dark" style={{color: '#ffffff'}}>Bring your people</span>
-            <h2>Share and get ₦500 off.</h2>
-            <p>Sign in, make a code, then send it to a different shopper. When their eligible order qualifies, they get ₦500 off and a separate ₦500 reward is issued to your account.</p>
+            <h2>Share verified rewards.</h2>
+            <p>Verify your profile or bank-name match, create a code, then share it with a different shopper. When their first eligible order is delivered, both accounts receive Shopping Bonus after the 48-hour return window.</p>
           </div>
           <div className="referral-action">
             <button className="button button-cream" onClick={createOrShareReferral} disabled={createReferralShare.isPending}>
               <Tag size={16} /> {!isAuthenticated ? "Sign in to create a code" : createReferralShare.isPending ? "Preparing…" : "Create a referral code"}
             </button>
-            {shareCode ? <div className="referral-code">Your share code: <strong>{shareCode}</strong></div> : issuedReward?.rewardCode ? <div className="referral-code">Your earned reward: <strong>{issuedReward.rewardCode}</strong></div> : <span className="referral-code">Different shopper · ₦500 each</span>}
+            {shareCode ? <div className="referral-code">Your share code: <strong>{shareCode}</strong></div> : rewardInProgress ? <div className="referral-code">Shopping Bonus: <strong>{rewardInProgress.rewardStatus === "pending" ? "Pending 48-hour release" : "Available in Alpha Wallet"}</strong></div> : <span className="referral-code">Verified referrer · eligible first order · Shopping Bonus</span>}
           </div>
         </div>
       </section>

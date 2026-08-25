@@ -62,6 +62,16 @@
 - [x] Save a visual-refresh checkpoint
 - [x] Verify the top announcement copy uses “Fresh finds for African products”
 - [x] Save a checkpoint containing the verified announcement-copy update
+
+- [x] Audit existing wallet, referral, checkout, delivery, KYC, and status-transition data flows against the split-balance specification
+- [x] Add safe withdrawable, shopping-bonus, pending-reward, fraud-evidence, and configurable-referral-threshold persistence with a non-destructive migration
+- [x] Enforce withdrawable-only withdrawals and atomic bonus-first wallet checkout deductions
+- [x] Require verified identity or verified bank matching before referral-link generation and enforce the configured first-order threshold
+- [x] Record privacy-minimizing device and IP fraud signals to void suspicious referral bonuses without blocking valid checkout
+- [x] Add verified cashback and review reward-hold creation alongside referral holds, then cancel all pending reward types on returns; defer schedule activation until publication
+- [x] Update wallet and referral interfaces to show total, withdrawable, shopping bonus, and pending reward balances clearly
+- [x] Revalidate signed-in wallet and administrator reward interfaces, then save a checkpoint after focused test coverage passes
+- [x] Add a persistent on-device hide-and-reveal control for all wallet balance amounts and validate the privacy state
 - [x] Create a compact wolf-logo asset from the supplied Alpha identity for navigation and footer use
 - [x] Rename Phones to Gadgets and add Vehicles, Home & Furniture, and Animals & Pets to marketplace categories
 - [x] Update the brand lockup, homepage category discovery, shop filters, and seller categories for the expanded catalogue

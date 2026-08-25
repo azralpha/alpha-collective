@@ -45,7 +45,7 @@ export default function Checkout() {
   const kyc = trpc.marketplace.kyc.status.useQuery(undefined, { enabled: isAuthenticated });
   const payOnDeliveryEligible = isAuthenticated && kyc.data?.status === "verified";
   const walletCheckout = trpc.marketplace.wallet.checkout.useMutation({
-    onSuccess: data => { setConfirmation({ ...data, discount: 0 }); clearCart(); toast.success("Your Alpha Wallet payment is held safely in escrow."); },
+    onSuccess: data => { if (data.discount > 0) window.localStorage.removeItem("alpha-collective-referral-code"); setConfirmation(data); clearCart(); toast.success("Your Alpha Wallet payment is held safely in escrow."); },
   });
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -62,7 +62,7 @@ export default function Checkout() {
     const form = new FormData(event.currentTarget);
     if (paymentMethod === "wallet") {
       if (!isAuthenticated) { toast.info("Sign in to pay with Alpha Wallet."); startLogin(); return; }
-      walletCheckout.mutate({ buyerName: String(form.get("buyerName") ?? ""), buyerPhone: String(form.get("buyerPhone") ?? ""), deliveryAddress: { country: NIGERIA_COUNTRY, state, lga, streetDetails }, packageWeightKg: weightKg, deliveryTier, items, transactionPin });
+      walletCheckout.mutate({ buyerName: String(form.get("buyerName") ?? ""), buyerPhone: String(form.get("buyerPhone") ?? ""), deliveryAddress: { country: NIGERIA_COUNTRY, state, lga, streetDetails }, packageWeightKg: weightKg, deliveryTier, items, transactionPin, referralCode: referralCode.trim() || undefined });
       return;
     }
     if (!isAuthenticated) { toast.info("Sign in and complete KYC before saving a Pay on Delivery order."); startLogin(); return; }
@@ -127,7 +127,7 @@ export default function Checkout() {
           <div className="form-field" style={{ marginTop: 20 }}><label htmlFor="referralCode">Referral or earned reward code</label><input id="referralCode" value={referralCode} onChange={event => setReferralCode(event.target.value.toUpperCase())} placeholder="ALPHA-XXXXXXXX or THANKS-XXXXXXXX" /><p className="form-help">A shared code gives the referred buyer ₦500 off an eligible order from ₦5,000. The sharer’s separate reward is issued after qualification. Sign in is required to apply either code.</p></div>
           <div className="payment-options">
             <label className={`payment-option ${paymentMethod === "delivery" ? "selected" : ""} ${!payOnDeliveryEligible ? "disabled" : ""}`}><input type="radio" name="payment" checked={paymentMethod === "delivery"} onChange={() => setPaymentMethod("delivery")} disabled={!payOnDeliveryEligible} /><span><strong><Truck size={14} style={{ display: "inline", marginRight: 5 }} />Pay on Delivery</strong><span>{!isAuthenticated ? "Sign in and complete KYC to prevent fraudulent delivery orders." : kyc.isLoading ? "Checking KYC eligibility…" : !payOnDeliveryEligible ? "Complete KYC Verification before confirming a Pay on Delivery order." : "Your order is stored now; payment is coordinated at delivery."}</span>{!payOnDeliveryEligible && isAuthenticated ? <Link href="/kyc" className="text-link" style={{ marginTop: 8 }}>Complete KYC Verification <ArrowRight size={14} /></Link> : null}</span></label>
-            <label className={`payment-option ${paymentMethod === "wallet" ? "selected" : ""}`}><input type="radio" name="payment" checked={paymentMethod === "wallet"} onChange={() => setPaymentMethod("wallet")} disabled={!isAuthenticated || !wallet.data?.hasPin || !walletEligible} /><span><strong><WalletCards size={14} style={{ display: "inline", marginRight: 5 }} />Alpha Wallet</strong><span>{!walletEligible ? "Alpha Wallet currently supports approved vendor listings only." : !isAuthenticated ? "Sign in to use your wallet." : !wallet.data?.hasPin ? "Set a transaction PIN in Wallet first." : `Available: ${formatNaira(wallet.data.availableBalance)} · funds are held in escrow.`}</span></span></label>
+            <label className={`payment-option ${paymentMethod === "wallet" ? "selected" : ""}`}><input type="radio" name="payment" checked={paymentMethod === "wallet"} onChange={() => setPaymentMethod("wallet")} disabled={!isAuthenticated || !wallet.data?.hasPin || !walletEligible} /><span><strong><WalletCards size={14} style={{ display: "inline", marginRight: 5 }} />Alpha Wallet</strong><span>{!walletEligible ? "Alpha Wallet currently supports approved vendor listings only." : !isAuthenticated ? "Sign in to use your wallet." : !wallet.data?.hasPin ? "Set a transaction PIN in Wallet first." : `Total: ${formatNaira(wallet.data.totalBalance)} · Shopping Bonus ${formatNaira(wallet.data.bonusBalance)} is used first.`}</span></span></label>
             <label className="payment-option disabled"><input type="radio" name="payment" disabled /><span><strong><CreditCard size={14} style={{ display: "inline", marginRight: 5 }} />Paystack</strong><span>Online checkout will appear here when secure gateway processing is enabled.</span></span></label>
             <label className="payment-option disabled"><input type="radio" name="payment" disabled /><span><strong><CreditCard size={14} style={{ display: "inline", marginRight: 5 }} />Flutterwave</strong><span>Online checkout will appear here when secure gateway processing is enabled.</span></span></label>
           </div>
