@@ -23,6 +23,10 @@ export default function Product() {
   const related = [...MARKETPLACE_PRODUCTS, ...(approvedProducts.data ?? [])].filter(item => item.id !== product.id && item.category === product.category).slice(0, 3);
   const isVendorFind = product.id.startsWith("vendor-");
   const normalizedProduct = product as MarketplaceProduct;
+  const isSoldOut = !isVendorFind && normalizedProduct.stockQuantity === 0;
+  const lowStockLabel = !isVendorFind && normalizedProduct.stockQuantity !== undefined && normalizedProduct.stockQuantity > 0 && normalizedProduct.stockQuantity <= 5
+    ? `Only ${normalizedProduct.stockQuantity} item${normalizedProduct.stockQuantity === 1 ? "" : "s"} left in stock`
+    : null;
   const galleryImages = normalizedProduct.imageUrls?.length ? normalizedProduct.imageUrls : [product.imageUrl];
   const displayedImage = selectedImage && galleryImages.includes(selectedImage) ? selectedImage : galleryImages[0];
   return (
@@ -35,8 +39,10 @@ export default function Product() {
             <h1>{product.title}</h1>
             <p className="vendor-byline">By {product.vendor}</p>
             <div className="detail-price">{formatNaira(product.price)} {product.formerPrice ? <s>{formatNaira(product.formerPrice)}</s> : null}</div>
+            {lowStockLabel ? <p className="stock-note stock-note-low">{lowStockLabel}</p> : null}
+            {isSoldOut ? <p className="stock-note stock-note-empty">Currently out of stock</p> : null}
             <p className="detail-description">{product.detail}</p>
-            <div className="detail-actions">{isVendorFind ? <><a className="button button-primary" href={WHATSAPP_SUPPORT_URL} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Ask about this product</a><button className="button button-secondary" onClick={() => { addItem(product.id); toast.success(`${product.title} added to your cart.`); }}><ShoppingBag size={17} /> Add to Cart</button></> : <button className="button button-primary" onClick={() => { addItem(product.id); toast.success(`${product.title} added to your cart.`); }}><ShoppingBag size={17} /> Add to cart</button>}</div>
+            <div className="detail-actions">{isVendorFind ? <><a className="button button-primary" href={WHATSAPP_SUPPORT_URL} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Ask about this product</a><button className="button button-secondary" onClick={() => { addItem(product.id); toast.success(`${product.title} added to your cart.`); }}><ShoppingBag size={17} /> Add to Cart</button></> : <button className="button button-primary" disabled={isSoldOut} onClick={() => { if (isSoldOut) return; addItem(product.id); toast.success(`${product.title} added to your cart.`); }}><ShoppingBag size={17} /> {isSoldOut ? "Out of stock" : "Add to cart"}</button>}</div>
             <div className="detail-facts">
               <div className="detail-fact"><Truck size={19} /><span><strong>Pay on Delivery is available after KYC verification.</strong><br />Your saved order is confirmed before delivery coordination begins.</span></div>
               <div className="detail-fact"><CheckCircle2 size={19} /><span><strong>Seller details stay close.</strong><br />Use WhatsApp support if you need a product or delivery clarification.</span></div>

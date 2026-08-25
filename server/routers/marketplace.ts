@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { customAlphabet } from "nanoid";
+import { parse as parseCookieHeader } from "cookie";
 import { z } from "zod";
 import {
   MARKETPLACE_CATEGORIES,
@@ -76,6 +77,7 @@ import {
   resetWalletPinFailures,
   saveWalletBankRecipient,
   saveFulfilmentIntegration,
+  saveCjInventorySyncScheduleTaskUid,
   submitKycGovernmentId,
   updateVendorProductStatus,
   updateOfficialProduct,
@@ -88,12 +90,15 @@ import { extractClientIp, normalizeDeviceId } from "../referralFraud";
 import { storagePut } from "../storage";
 import { decodeProductImageDataUrl, importCjProductImage, ProductImageProcessingError, storeProcessedProductImage } from "../productImageProcessing";
 import { CjDropshippingError, fetchCjProductForImport } from "../cjDropshipping";
+import { createCjMassImportBatch, getCjMassImportBatch, processNextCjMassImportItem } from "../cjMassImport";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { hashTransactionPin, validateTransactionPin, verifyTransactionPin } from "../walletSecurity";
 import { generateWithdrawalOtp, hashWithdrawalOtp } from "../withdrawalOtpSecurity";
 import { sanitizePlainText } from "../securityText";
 import { isWithdrawalOtpEmailDeliveryConfigured } from "../withdrawalOtpEmail";
 import { processCjFulfilmentQueue } from "../fulfilmentQueue";
+import { createHeartbeatJob } from "../_core/heartbeat";
+import { COOKIE_NAME } from "@shared/const";
 import {
   PaystackProviderError,
   createPaystackTransferRecipient,
@@ -128,6 +133,13 @@ const walletCheckoutInputSchema = z.object({
   transactionPin: walletPinSchema,
   referralCode: z.string().trim().max(32).optional(),
   freeDeliveryVoucherId: z.number().int().positive().optional(),
+});
+
+const cjMassImportInputSchema = z.object({
+  skuText: z.string().trim().min(3).max(8_000),
+  markupPercent: z.number().min(0).max(500),
+  exchangeRateNgnPerUsd: z.number().min(100).max(10_000),
+  category: z.enum(MARKETPLACE_CATEGORIES),
 });
 
 function newShareCode() { return `ALPHA-${shareCodeAlphabet()}`; }
@@ -202,6 +214,7 @@ function createOfficialCatalog(products: Awaited<ReturnType<typeof listActiveOff
       imageUrls,
       description: product.description,
       detail: product.detail,
+      stockQuantity: product.stockQuantity ?? undefined,
     }];
   });
 }
@@ -394,6 +407,11 @@ export const marketplaceRouter = router({
         const officialByProductId = new Map(officialProducts.map(product => [`official-${product.id}`, product]));
         if (resolvedLines.some(line => !line.product.vendorUserId && !officialByProductId.has(line.product.id))) throw new TRPCError({ code: "BAD_REQUEST", message: "Alpha Wallet currently supports approved vendor listings and Alpha Collective Official products only." });
         if (resolvedLines.some(line => line.product.vendorUserId === ctx.user.id)) throw new TRPCError({ code: "FORBIDDEN", message: "Use Alpha Wallet to purchase from other vendors, not your own listing." });
+        const unavailableOfficial = resolvedLines.find(line => {
+          const official = officialByProductId.get(line.product.id);
+          return official?.stockQuantity !== null && official?.stockQuantity !== undefined && line.quantity > official.stockQuantity;
+        });
+        if (unavailableOfficial) throw new TRPCError({ code: "BAD_REQUEST", message: `${unavailableOfficial.product.title} is currently unavailable in the requested quantity.` });
         const subtotal = getCartSubtotal(input.items, catalog);
         let appliedCode: string | undefined;
         let discount = 0;
@@ -509,6 +527,30 @@ export const marketplaceRouter = router({
           throw new TRPCError({ code: "BAD_REQUEST", message });
         }
       }),
+    startCjMassImport: adminProcedure
+      .input(cjMassImportInputSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const batchId = await createCjMassImportBatch({ requestedByUserId: ctx.user.id, ...input });
+          return await getCjMassImportBatch(batchId, ctx.user.id);
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof CjDropshippingError ? error.message : "The CJ mass import could not be started." });
+        }
+      }),
+    cjMassImportProgress: adminProcedure
+      .input(z.object({ batchId: z.number().int().positive() }))
+      .query(async ({ ctx, input }) => {
+        const batch = await getCjMassImportBatch(input.batchId, ctx.user.id);
+        if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "That CJ import batch was not found." });
+        return batch;
+      }),
+    processNextCjMassImportItem: adminProcedure
+      .input(z.object({ batchId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const batch = await processNextCjMassImportItem(input.batchId, ctx.user.id);
+        if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "That CJ import batch was not found." });
+        return batch;
+      }),
     createOfficialProduct: adminProcedure
       .input(officialProductInputSchema)
       .mutation(async ({ input }) => {
@@ -530,8 +572,17 @@ export const marketplaceRouter = router({
     fulfilmentIntegration: adminProcedure.query(async () => {
       const integration = await getFulfilmentIntegration("cj_dropshipping");
       return integration
-        ? { enabled: Boolean(integration.enabled), callbackUrl: integration.callbackUrl, defaultLogisticsName: integration.defaultLogisticsName, defaultFromCountryCode: integration.defaultFromCountryCode, orderMode: integration.orderMode, hasServerCredential: Boolean(process.env.CJ_DROPSHIPPING_API_KEY) }
-        : { enabled: false, callbackUrl: null, defaultLogisticsName: null, defaultFromCountryCode: null, orderMode: "create_only" as const, hasServerCredential: Boolean(process.env.CJ_DROPSHIPPING_API_KEY) };
+        ? { enabled: Boolean(integration.enabled), callbackUrl: integration.callbackUrl, defaultLogisticsName: integration.defaultLogisticsName, defaultFromCountryCode: integration.defaultFromCountryCode, orderMode: integration.orderMode, hasServerCredential: Boolean(process.env.CJ_DROPSHIPPING_API_KEY), inventorySyncScheduled: Boolean(integration.inventorySyncScheduleTaskUid), inventorySyncLastCompletedAt: integration.inventorySyncLastCompletedAt, inventorySyncLastError: integration.inventorySyncLastError }
+        : { enabled: false, callbackUrl: null, defaultLogisticsName: null, defaultFromCountryCode: null, orderMode: "create_only" as const, hasServerCredential: Boolean(process.env.CJ_DROPSHIPPING_API_KEY), inventorySyncScheduled: false, inventorySyncLastCompletedAt: null, inventorySyncLastError: null };
+    }),
+    activateCjInventorySync: adminProcedure.mutation(async ({ ctx }) => {
+      if (process.env.NODE_ENV !== "production") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Publish this site before activating the 12-hour CJ inventory sync." });
+      const integration = await getFulfilmentIntegration("cj_dropshipping");
+      if (integration?.inventorySyncScheduleTaskUid) return { scheduled: true, alreadyScheduled: true, nextExecutionAt: null };
+      const sessionToken = parseCookieHeader(ctx.req.headers.cookie ?? "")[COOKIE_NAME] ?? "";
+      const job = await createHeartbeatJob({ name: "alpha-collective-cj-inventory-sync", cron: "0 0 */12 * * *", path: "/api/scheduled/cj-inventory-sync", description: "Refreshes stock snapshots for stock-managed Alpha Collective Official CJ drafts every 12 hours." }, sessionToken);
+      await saveCjInventorySyncScheduleTaskUid(job.taskUid);
+      return { scheduled: true, alreadyScheduled: false, nextExecutionAt: job.nextExecutionAt ?? null };
     }),
     saveFulfilmentIntegration: adminProcedure
       .input(z.object({ enabled: z.boolean(), callbackUrl: z.string().trim().url().max(500).nullable().optional(), defaultLogisticsName: z.string().trim().max(80).transform(sanitizePlainText).nullable().optional(), defaultFromCountryCode: z.string().trim().regex(/^[A-Za-z]{2}$/).transform(value => value.toUpperCase()).nullable().optional(), orderMode: z.enum(["create_only", "balance_payment"]) }))

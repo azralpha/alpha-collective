@@ -10,6 +10,15 @@ import { toast } from "sonner";
 
 type Provider = "local_vendor" | "auto_fulfill_api" | "manual_admin";
 type Currency = "NGN" | "USD";
+type CjMassBatch = {
+  id: number;
+  status: "queued" | "processing" | "completed" | "completed_with_errors" | "failed";
+  requestedSkuCount: number;
+  processedSkuCount: number;
+  succeededSkuCount: number;
+  failedSkuCount: number;
+  items: Array<{ id: number; submittedSku: string; status: string; officialProductId: number | null; errorSummary: string | null }>;
+};
 
 const blankForm = () => ({
   title: "", category: "Fashion" as (typeof MARKETPLACE_CATEGORIES)[number], price: "", formerPrice: "", badge: "", description: "", detail: "", imageUrls: [] as string[], status: "draft" as "draft" | "active" | "rejected",
@@ -22,13 +31,22 @@ export default function AdminOfficialProducts() {
   const products = trpc.marketplace.admin.officialProducts.useQuery(undefined, { enabled: isAuthenticated });
   const upload = trpc.marketplace.admin.uploadOfficialProductImage.useMutation();
   const importCj = trpc.marketplace.admin.importCjProduct.useMutation();
+  const startMassImport = trpc.marketplace.admin.startCjMassImport.useMutation();
+  const processMassItem = trpc.marketplace.admin.processNextCjMassImportItem.useMutation();
   const create = trpc.marketplace.admin.createOfficialProduct.useMutation({ onSuccess: async () => { await Promise.all([utils.marketplace.admin.officialProducts.invalidate(), utils.marketplace.publicProducts.invalidate()]); toast.success("Official catalogue product saved."); setEditingId(null); setForm(blankForm()); } });
   const update = trpc.marketplace.admin.updateOfficialProduct.useMutation({ onSuccess: async () => { await Promise.all([utils.marketplace.admin.officialProducts.invalidate(), utils.marketplace.publicProducts.invalidate()]); toast.success("Official catalogue product updated."); setEditingId(null); setForm(blankForm()); } });
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(blankForm);
   const [cjSku, setCjSku] = useState("");
+  const [cjSkuText, setCjSkuText] = useState("");
+  const [markupPercent, setMarkupPercent] = useState("50");
+  const [exchangeRateNgnPerUsd, setExchangeRateNgnPerUsd] = useState("");
+  const [massCategory, setMassCategory] = useState<(typeof MARKETPLACE_CATEGORIES)[number]>("Gadgets");
+  const [massBatchId, setMassBatchId] = useState<number | null>(null);
+  const massProgress = trpc.marketplace.admin.cjMassImportProgress.useQuery({ batchId: massBatchId ?? 0 }, { enabled: isAuthenticated && massBatchId !== null, refetchInterval: massBatchId ? 800 : false });
+  const batch = massProgress.data as CjMassBatch | undefined;
 
-  const busy = upload.isPending || importCj.isPending || create.isPending || update.isPending;
+  const busy = upload.isPending || importCj.isPending || startMassImport.isPending || processMassItem.isPending || create.isPending || update.isPending;
   const canAutoFulfil = form.fulfillmentProvider !== "auto_fulfill_api" || form.externalSkuId.trim().length > 0;
 
   function edit(product: NonNullable<typeof products.data>[number]) {
@@ -75,6 +93,22 @@ export default function AdminOfficialProducts() {
     } catch (error) { toast.error(error instanceof Error ? error.message : "CJ product import failed."); }
   }
 
+  async function onMassImport() {
+    if (!cjSkuText.trim()) return toast.error("Paste one or more CJ SKUs first.");
+    if (!exchangeRateNgnPerUsd.trim()) return toast.error("Enter the USD-to-Naira exchange rate you want this batch to use.");
+    try {
+      const started = await startMassImport.mutateAsync({ skuText: cjSkuText, markupPercent: Number(markupPercent), exchangeRateNgnPerUsd: Number(exchangeRateNgnPerUsd), category: massCategory });
+      if (!started) throw new Error("The CJ import batch could not be created.");
+      setMassBatchId(started.id);
+      toast.success(`CJ batch created for ${started.requestedSkuCount} SKU${started.requestedSkuCount === 1 ? "" : "s"}.`);
+    } catch (error) { toast.error(error instanceof Error ? error.message : "The CJ mass import could not be started."); }
+  }
+
+  useEffect(() => {
+    if (!batch || (batch.status !== "queued" && batch.status !== "processing") || processMassItem.isPending) return;
+    void processMassItem.mutateAsync({ batchId: batch.id }).then(() => massProgress.refetch()).catch(error => toast.error(error instanceof Error ? error.message : "A CJ batch item could not be processed."));
+  }, [batch, massProgress, processMassItem]);
+
   async function save() {
     if (!form.imageUrls.length) return toast.error("Add at least one public product image.");
     if (!hasManualRetailPrice(form.price)) return toast.error("Enter your own retail price in Naira before saving this product.");
@@ -90,7 +124,7 @@ export default function AdminOfficialProducts() {
   return <MarketplaceShell><main className="page-shell dropship-admin-page">
     <section className="admin-review-hero"><div><span className="eyebrow">Administrator workspace</span><h1 className="page-title">Official catalogue products.</h1><p className="section-kicker">Create white-labeled Alpha Collective products. Buyers never receive the sourcing information shown below.</p></div><a className="button button-secondary" href="/admin/dropship-integrations">Dropship Integrations</a></section>
     <section className="official-product-form"><div className="section-title-row"><h2>{editingId ? "Edit official product" : "Create official product"}</h2><span className="private-source-label"><LockKeyhole size={14} /> Administrator only</span></div>
-      <section className="cj-import-panel"><div><span className="eyebrow">Auto-Import from CJ Dropshipping</span><h3>Start with a CJ product SKU.</h3><p>CJ details and images are imported into an unpublished draft. Supplier information remains private and no supplier order is created.</p></div><div className="cj-import-actions"><label>Enter CJ Product SKU<input value={cjSku} onChange={event => setCjSku(event.target.value)} placeholder="e.g. CJNSSYWY01847" disabled={busy} /></label><button className="button button-primary" disabled={busy || !cjSku.trim()} onClick={onCjImport}>{importCj.isPending ? <Loader2 className="spin" size={17} /> : <Download size={17} />}{importCj.isPending ? "Fetching CJ details…" : "Fetch Product Details"}</button></div></section>
+      <section className="cj-import-panel"><div><span className="eyebrow">Mass Import from CJ Dropshipping</span><h3>Create multiple unpublished Alpha Collective drafts.</h3><p>Each available item is quoted to Nigeria, watermarked, converted to WebP, and saved as an unpublished draft with a landed-cost price. No supplier order is created.</p></div><div className="cj-mass-import-grid"><label className="cj-sku-textarea">Paste Multiple SKUs (comma or line-break separated)<textarea value={cjSkuText} onChange={event => setCjSkuText(event.target.value)} placeholder={"CJNSSYWY01847\nCJ-EXAMPLE-002"} disabled={busy} /></label><label>Global Profit Markup (%)<input inputMode="decimal" value={markupPercent} onChange={event => setMarkupPercent(event.target.value)} placeholder="e.g. 50" disabled={busy} /></label><label>USD to Naira exchange rate<input inputMode="decimal" value={exchangeRateNgnPerUsd} onChange={event => setExchangeRateNgnPerUsd(event.target.value)} placeholder="Enter your current rate" disabled={busy} /><small className="field-helper">Required so automatic draft prices never rely on a guessed exchange rate.</small></label><label>Draft category<select value={massCategory} onChange={event => setMassCategory(event.target.value as typeof massCategory)} disabled={busy}>{MARKETPLACE_CATEGORIES.map(category => <option key={category}>{category}</option>)}</select></label><button className="button button-primary" disabled={busy || !cjSkuText.trim() || !exchangeRateNgnPerUsd.trim()} onClick={onMassImport}>{startMassImport.isPending ? <Loader2 className="spin" size={17} /> : <Download size={17} />}{startMassImport.isPending ? "Starting batch…" : "Run Mass Import"}</button></div>{batch ? <div className="cj-import-progress" aria-live="polite"><div><strong>{batch.status === "completed" ? "Import complete" : batch.status === "completed_with_errors" ? "Import completed with review items" : `Importing product ${Math.min(batch.processedSkuCount + 1, batch.requestedSkuCount)} of ${batch.requestedSkuCount}`}</strong><span>{batch.succeededSkuCount} drafted · {batch.failedSkuCount} need review</span></div><progress value={batch.processedSkuCount} max={batch.requestedSkuCount} /><small>{batch.items.filter(item => item.errorSummary).slice(-3).map(item => `${item.submittedSku}: ${item.errorSummary}`).join(" · ")}</small></div> : null}<div className="cj-import-actions cj-single-import"><label>Or fetch one CJ Product SKU<input value={cjSku} onChange={event => setCjSku(event.target.value)} placeholder="e.g. CJNSSYWY01847" disabled={busy} /></label><button className="button button-secondary" disabled={busy || !cjSku.trim()} onClick={onCjImport}>{importCj.isPending ? <Loader2 className="spin" size={17} /> : <Download size={17} />}{importCj.isPending ? "Fetching CJ details…" : "Fetch Product Details"}</button></div></section>
       <div className="admin-form-grid">
         <label>Product title<input value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} /></label>
         <label>Category<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value as typeof form.category })}>{MARKETPLACE_CATEGORIES.map(category => <option key={category}>{category}</option>)}</select></label>

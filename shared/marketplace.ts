@@ -16,6 +16,8 @@ export type MarketplaceProduct = {
   imageUrls?: string[];
   description: string;
   detail: string;
+  /** Only Alpha Collective availability is exposed; supplier origin and logistics remain private. */
+  stockQuantity?: number;
 };
 
 export const MARKETPLACE_PRODUCTS = [

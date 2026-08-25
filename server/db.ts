@@ -8,6 +8,8 @@ import {
   type InsertVendorProduct,
   type InsertWalletTransaction,
   bonusRewardHolds,
+  cjImportBatchItems,
+  cjImportBatches,
   escrowAllocations,
   freeDeliveryVouchers,
   kycProfiles,
@@ -1112,10 +1114,19 @@ export type OfficialProductInput = {
   detail: string;
   imageUrls: string[];
   status: "draft" | "active" | "rejected";
+  stockQuantity?: number | null;
+  inventorySyncStatus?: "not_managed" | "current" | "stale" | "error";
+  inventorySyncedAt?: Date | null;
   sourcing: {
     fulfillmentProvider: "local_vendor" | "auto_fulfill_api" | "manual_admin";
     externalSkuId?: string | null;
+    externalProductId?: string | null;
+    externalVariantId?: string | null;
     supplierCost?: string | null;
+    supplierProductCost?: string | null;
+    supplierShippingCost?: string | null;
+    supplierInventoryQuantity?: number | null;
+    supplierInventoryCountryCode?: string | null;
     supplierCurrency: "NGN" | "USD";
   };
 };
@@ -1133,6 +1144,7 @@ export async function listActiveOfficialProducts() {
     detail: officialProducts.detail,
     imageUrl: officialProducts.imageUrl,
     imageUrls: officialProducts.imageUrls,
+    stockQuantity: officialProducts.stockQuantity,
   }).from(officialProducts).where(eq(officialProducts.status, "active")).orderBy(desc(officialProducts.createdAt));
 }
 
@@ -1149,6 +1161,7 @@ export async function listActiveOfficialProductsWithSourcing() {
     detail: officialProducts.detail,
     imageUrl: officialProducts.imageUrl,
     imageUrls: officialProducts.imageUrls,
+    stockQuantity: officialProducts.stockQuantity,
     fulfillmentProvider: officialProductSourcing.fulfillmentProvider,
     externalSkuId: officialProductSourcing.externalSkuId,
   }).from(officialProducts).leftJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id)).where(eq(officialProducts.status, "active")).orderBy(desc(officialProducts.createdAt));
@@ -1168,12 +1181,21 @@ export async function listAdminOfficialProducts() {
     imageUrl: officialProducts.imageUrl,
     imageUrls: officialProducts.imageUrls,
     status: officialProducts.status,
+    stockQuantity: officialProducts.stockQuantity,
+    inventorySyncedAt: officialProducts.inventorySyncedAt,
+    inventorySyncStatus: officialProducts.inventorySyncStatus,
     createdAt: officialProducts.createdAt,
     updatedAt: officialProducts.updatedAt,
     sourcingId: officialProductSourcing.id,
     fulfillmentProvider: officialProductSourcing.fulfillmentProvider,
     externalSkuId: officialProductSourcing.externalSkuId,
+    externalProductId: officialProductSourcing.externalProductId,
+    externalVariantId: officialProductSourcing.externalVariantId,
     supplierCost: officialProductSourcing.supplierCost,
+    supplierProductCost: officialProductSourcing.supplierProductCost,
+    supplierShippingCost: officialProductSourcing.supplierShippingCost,
+    supplierInventoryQuantity: officialProductSourcing.supplierInventoryQuantity,
+    supplierInventoryCountryCode: officialProductSourcing.supplierInventoryCountryCode,
     supplierCurrency: officialProductSourcing.supplierCurrency,
   }).from(officialProducts).leftJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id)).orderBy(desc(officialProducts.createdAt));
 }
@@ -1214,6 +1236,9 @@ export async function createOfficialProduct(input: OfficialProductInput) {
       imageUrl: input.imageUrls[0] ?? null,
       imageUrls: input.imageUrls,
       status: input.status,
+      stockQuantity: input.stockQuantity ?? null,
+      inventorySyncedAt: input.inventorySyncedAt ?? null,
+      inventorySyncStatus: input.inventorySyncStatus ?? "not_managed",
     });
     const id = Number(productResult[0].insertId);
     await tx.insert(officialProductSourcing).values({ officialProductId: id, ...input.sourcing });
@@ -1235,6 +1260,9 @@ export async function updateOfficialProduct(id: number, input: OfficialProductIn
       imageUrl: input.imageUrls[0] ?? null,
       imageUrls: input.imageUrls,
       status: input.status,
+      ...(input.stockQuantity === undefined ? {} : { stockQuantity: input.stockQuantity }),
+      ...(input.inventorySyncedAt === undefined ? {} : { inventorySyncedAt: input.inventorySyncedAt }),
+      ...(input.inventorySyncStatus === undefined ? {} : { inventorySyncStatus: input.inventorySyncStatus }),
     }).where(eq(officialProducts.id, id));
     await tx.insert(officialProductSourcing).values({ officialProductId: id, ...input.sourcing }).onDuplicateKeyUpdate({ set: input.sourcing });
   });
@@ -1249,6 +1277,11 @@ export async function getFulfilmentIntegration(provider: "cj_dropshipping" | "cu
   const db = await requireDb();
   const results = await db.select().from(fulfilmentIntegrations).where(eq(fulfilmentIntegrations.provider, provider)).limit(1);
   return results[0];
+}
+
+export async function saveCjInventorySyncScheduleTaskUid(taskUid: string) {
+  const db = await requireDb();
+  await db.insert(fulfilmentIntegrations).values({ provider: "cj_dropshipping", enabled: 0, orderMode: "create_only", inventorySyncScheduleTaskUid: taskUid }).onDuplicateKeyUpdate({ set: { inventorySyncScheduleTaskUid: taskUid, inventorySyncLastError: null } });
 }
 
 export async function saveFulfilmentIntegration(input: {

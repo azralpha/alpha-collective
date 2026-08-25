@@ -10,6 +10,7 @@ import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { registerPaystackWebhook } from "../paystackWebhook";
 import { registerCjFulfilmentSchedule } from "../cjFulfilmentSchedule";
+import { registerCjInventorySyncSchedule } from "../cjInventorySync";
 import { registerRewardReleaseSchedule } from "../rewardReleaseSchedule";
 import { registerVendorRewardsSchedule } from "../vendorRewardsSchedule";
 
@@ -37,6 +38,7 @@ async function startServer() {
   const server = createServer(app);
   registerPaystackWebhook(app);
   registerCjFulfilmentSchedule(app);
+  registerCjInventorySyncSchedule(app);
   registerRewardReleaseSchedule(app);
   registerVendorRewardsSchedule(app);
   // Configure body parser with larger size limit for file uploads

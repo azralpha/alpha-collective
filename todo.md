@@ -209,3 +209,12 @@
 - [x] Defer non-production PIN, recipient submission, wallet checkout, ledger, and administrator-release validation until controlled test funds are authorized
 - [x] Defer published-domain webhook registration and controlled live-money verification until the user has a published domain
 - [x] Defer Paystack dashboard webhook registration and all live-money verification until the user has a published domain
+
+- [x] Extend official-product and private sourcing persistence for stock snapshots, landed supplier cost, mass-import batch status, and inventory-sync task ownership
+- [x] Safely query documented CJ catalogue inventory and shipping quotes for Nigeria without supplier orders, customer data, or public supplier exposure
+- [x] Add an administrator-only mass SKU importer that parses bounded comma/newline input, applies a validated markup, processes images, and creates unpublished official drafts
+- [x] Calculate suggested Naira draft prices from verified landed USD cost using a configurable documented exchange-rate policy, never auto-publish products
+- [x] Add durable batch progress, per-SKU success/failure records, idempotency protection, and real-time administrator progress polling
+- [x] Expose Alpha Collective warehouse stock only to buyers, block out-of-stock official products from cart/checkout, and display restrained low-stock messaging
+- [x] Implement an idempotent 12-hour CJ inventory-sync handler with safe failure behavior; prepare but do not activate its schedule until the site is published
+- [x] Add focused unit coverage, database migration validation, desktop/mobile visual checks, and a final checkpoint for mass import and inventory sync

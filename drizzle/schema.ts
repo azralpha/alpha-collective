@@ -327,6 +327,10 @@ export const officialProducts = mysqlTable("officialProducts", {
   imageUrl: text("imageUrl"),
   imageUrls: json("imageUrls").$type<string[]>(),
   status: mysqlEnum("status", ["draft", "active", "rejected"]).notNull().default("draft"),
+  /** Null means the listing is not supplier-stock-managed; zero is explicitly sold out. */
+  stockQuantity: int("stockQuantity"),
+  inventorySyncedAt: timestamp("inventorySyncedAt"),
+  inventorySyncStatus: mysqlEnum("inventorySyncStatus", ["not_managed", "current", "stale", "error"]).notNull().default("not_managed"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -337,7 +341,13 @@ export const officialProductSourcing = mysqlTable("officialProductSourcing", {
   officialProductId: int("officialProductId").notNull().unique(),
   fulfillmentProvider: mysqlEnum("fulfillmentProvider", ["local_vendor", "auto_fulfill_api", "manual_admin"]).notNull().default("manual_admin"),
   externalSkuId: varchar("externalSkuId", { length: 120 }),
+  externalProductId: varchar("externalProductId", { length: 200 }),
+  externalVariantId: varchar("externalVariantId", { length: 200 }),
   supplierCost: decimal("supplierCost", { precision: 12, scale: 2 }),
+  supplierProductCost: decimal("supplierProductCost", { precision: 12, scale: 2 }),
+  supplierShippingCost: decimal("supplierShippingCost", { precision: 12, scale: 2 }),
+  supplierInventoryQuantity: int("supplierInventoryQuantity"),
+  supplierInventoryCountryCode: varchar("supplierInventoryCountryCode", { length: 8 }),
   supplierCurrency: mysqlEnum("supplierCurrency", ["NGN", "USD"]).notNull().default("USD"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -352,6 +362,10 @@ export const fulfilmentIntegrations = mysqlTable("fulfilmentIntegrations", {
   callbackUrl: varchar("callbackUrl", { length: 500 }),
   defaultLogisticsName: varchar("defaultLogisticsName", { length: 80 }),
   defaultFromCountryCode: varchar("defaultFromCountryCode", { length: 8 }),
+  inventorySyncScheduleTaskUid: varchar("inventorySyncScheduleTaskUid", { length: 65 }).unique(),
+  inventorySyncLastStartedAt: timestamp("inventorySyncLastStartedAt"),
+  inventorySyncLastCompletedAt: timestamp("inventorySyncLastCompletedAt"),
+  inventorySyncLastError: varchar("inventorySyncLastError", { length: 255 }),
   orderMode: mysqlEnum("orderMode", ["create_only", "balance_payment"]).notNull().default("create_only"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
@@ -379,6 +393,38 @@ export const fulfilmentJobs = mysqlTable("fulfilmentJobs", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+/** Durable, administrator-owned CJ draft-import request. Never exposed to buyers or vendors. */
+export const cjImportBatches = mysqlTable("cjImportBatches", {
+  id: int("id").autoincrement().primaryKey(),
+  requestedByUserId: int("requestedByUserId").notNull(),
+  requestedSkuCount: int("requestedSkuCount").notNull(),
+  processedSkuCount: int("processedSkuCount").notNull().default(0),
+  succeededSkuCount: int("succeededSkuCount").notNull().default(0),
+  failedSkuCount: int("failedSkuCount").notNull().default(0),
+  markupPercent: decimal("markupPercent", { precision: 7, scale: 2 }).notNull(),
+  exchangeRateNgnPerUsd: decimal("exchangeRateNgnPerUsd", { precision: 12, scale: 2 }).notNull(),
+  category: mysqlEnum("category", ["Fashion", "Gadgets", "Beauty", "Home & Furniture", "Vehicles", "Animals & Pets"]).$type<MarketplaceCategory>().notNull(),
+  destinationCountryCode: varchar("destinationCountryCode", { length: 8 }).notNull().default("NG"),
+  status: mysqlEnum("status", ["queued", "processing", "completed", "completed_with_errors", "failed"]).notNull().default("queued"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  startedAt: timestamp("startedAt"),
+  completedAt: timestamp("completedAt"),
+});
+
+/** One idempotent work record for every normalized SKU in a CJ mass-import batch. */
+export const cjImportBatchItems = mysqlTable("cjImportBatchItems", {
+  id: int("id").autoincrement().primaryKey(),
+  batchId: int("batchId").notNull(),
+  submittedSku: varchar("submittedSku", { length: 120 }).notNull(),
+  normalizedSku: varchar("normalizedSku", { length: 120 }).notNull(),
+  status: mysqlEnum("status", ["queued", "processing", "imported", "skipped", "failed"]).notNull().default("queued"),
+  officialProductId: int("officialProductId"),
+  errorSummary: varchar("errorSummary", { length: 255 }),
+  startedAt: timestamp("startedAt"),
+  completedAt: timestamp("completedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Order = typeof orders.$inferSelect;
@@ -397,6 +443,10 @@ export type FulfilmentIntegration = typeof fulfilmentIntegrations.$inferSelect;
 export type InsertFulfilmentIntegration = typeof fulfilmentIntegrations.$inferInsert;
 export type FulfilmentJob = typeof fulfilmentJobs.$inferSelect;
 export type InsertFulfilmentJob = typeof fulfilmentJobs.$inferInsert;
+export type CjImportBatch = typeof cjImportBatches.$inferSelect;
+export type InsertCjImportBatch = typeof cjImportBatches.$inferInsert;
+export type CjImportBatchItem = typeof cjImportBatchItems.$inferSelect;
+export type InsertCjImportBatchItem = typeof cjImportBatchItems.$inferInsert;
 export type Wallet = typeof wallets.$inferSelect;
 export type InsertWallet = typeof wallets.$inferInsert;
 export type WalletTransaction = typeof walletTransactions.$inferSelect;

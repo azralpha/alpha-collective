@@ -4,6 +4,9 @@ type CjTokenResponse = { code?: number; result?: boolean; message?: string; data
 type CjOrderResponse = { code?: number; result?: boolean; success?: boolean; message?: string; requestId?: string; data?: { orderId?: string; orderNumber?: string } };
 type CjProductListResponse = { code?: number; result?: boolean; message?: string; data?: { content?: Array<{ productList?: Array<{ id?: string; sku?: string; spu?: string; nameEn?: string; productNameEn?: string; bigImage?: string; productImage?: string; description?: string; sellPrice?: string | number; nowPrice?: string | number; discountPrice?: string | number }> }> } };
 type CjProductFallbackResponse = { code?: number; result?: boolean; message?: string; data?: { list?: Array<{ pid?: string; productSku?: string; productNameEn?: string; productImage?: string; sellPrice?: string | number }> } };
+type CjProductVariant = { vid?: string; variantSku?: string; variantSellPrice?: string | number; inventories?: Array<{ countryCode?: string; totalInventory?: number | string; cjInventory?: number | string; factoryInventory?: number | string }> };
+type CjProductQueryResponse = { code?: number; result?: boolean; message?: string; data?: { pid?: string; productSku?: string; sellPrice?: string | number; variants?: CjProductVariant[] } };
+type CjFreightResponse = { code?: number; result?: boolean; message?: string; data?: Array<{ logisticPrice?: string | number; totalPostageFee?: string | number }> };
 
 export class CjDropshippingError extends Error {
   constructor(message: string, readonly statusCode?: number, readonly retryable = false) { super(message); }
@@ -89,6 +92,41 @@ function parseCjSupplierCost(...values: Array<string | number | undefined>) {
   return null;
 }
 
+function parseCjInventory(value: string | number | undefined) {
+  if (typeof value === "number" && Number.isFinite(value)) return Math.max(0, Math.floor(value));
+  if (typeof value === "string" && /^\d+$/.test(value.trim())) return Math.max(0, Number(value));
+  return null;
+}
+
+type CjAvailableVariant = {
+  vid: string;
+  variantSku: string;
+  inventoryCountryCode: string;
+  inventoryQuantity: number;
+  variantSellPrice?: string | number;
+};
+
+function selectCjAvailableVariant(variants: CjProductVariant[] | undefined, preferredVariantId?: string | null) {
+  const candidates: CjAvailableVariant[] = [];
+  for (const variant of variants ?? []) {
+    if (!variant.vid || !variant.variantSku) continue;
+    for (const inventory of variant.inventories ?? []) {
+      const quantity = parseCjInventory(inventory.totalInventory) ?? ((parseCjInventory(inventory.cjInventory) ?? 0) + (parseCjInventory(inventory.factoryInventory) ?? 0));
+      const country = inventory.countryCode?.trim().toUpperCase();
+      if (!country || quantity <= 0) continue;
+      candidates.push({ vid: variant.vid, variantSku: variant.variantSku.trim().toUpperCase(), inventoryCountryCode: country, inventoryQuantity: quantity, variantSellPrice: variant.variantSellPrice });
+    }
+  }
+  const preferred = preferredVariantId ? candidates.find(candidate => candidate.vid === preferredVariantId) : undefined;
+  return preferredVariantId ? preferred ?? null : candidates.sort((left, right) => right.inventoryQuantity - left.inventoryQuantity)[0] ?? null;
+}
+
+async function queryCjProductDetail(token: string, productSku: string) {
+  const detail = await cjFetch<CjProductQueryResponse>(`/product/query?productSku=${encodeURIComponent(productSku)}`, { method: "GET", headers: { "CJ-Access-Token": token } });
+  if (!detail?.result || !detail.data?.pid) throw new CjDropshippingError("CJ could not retrieve current inventory for this product.", 422, false);
+  return detail.data;
+}
+
 function importableCjProduct(product: { sku?: string; spu?: string; nameEn?: string; productNameEn?: string; bigImage?: string; productImage?: string; description?: string; sellPrice?: string | number; nowPrice?: string | number; discountPrice?: string | number }, fallbackIdentifier: string) {
   const title = (product.nameEn ?? product.productNameEn ?? "").trim();
   if (!title) throw new CjDropshippingError("CJ returned a product without a usable English title.", 422, false);
@@ -121,6 +159,48 @@ export async function fetchCjProductForImport(sku: string) {
   const fallbackProduct = fallback.data?.list?.find(candidate => [candidate.productSku, candidate.pid].some(value => value?.trim().toUpperCase() === normalizedSku));
   if (!fallback.result || !fallbackProduct) throw new CjDropshippingError("CJ did not return an exact match for this product identifier. Confirm the CJ Product ID or SPU and that the listing is active.", 404, false);
   return { ...importableCjProduct({ sku: fallbackProduct.productSku, nameEn: fallbackProduct.productNameEn, productImage: fallbackProduct.productImage, sellPrice: fallbackProduct.sellPrice }, normalizedSku), matchType: "exact" as const };
+}
+
+/** Reads CJ catalogue, inventory, and freight quotes only to prepare a landed-cost unpublished draft. */
+export async function fetchCjProductForMassImport(sku: string, destinationCountryCode = "NG") {
+  const imported = await fetchCjProductForImport(sku);
+  const token = await accessToken();
+  const detail = await queryCjProductDetail(token, imported.sku);
+  const selected = selectCjAvailableVariant(detail.variants);
+  if (!selected) throw new CjDropshippingError("CJ reports this product as out of stock, so no draft was created.", 422, false);
+
+  const freight = await cjFetch<CjFreightResponse>("/logistic/freightCalculate", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "CJ-Access-Token": token },
+    body: JSON.stringify({ startCountryCode: selected.inventoryCountryCode, endCountryCode: destinationCountryCode, products: [{ quantity: 1, vid: selected.vid }] }),
+  });
+  const shippingCosts = (freight?.result ? freight.data ?? [] : []).map(option => parseCjSupplierCost(option.totalPostageFee, option.logisticPrice)).filter((cost): cost is number => cost !== null);
+  if (!shippingCosts.length) throw new CjDropshippingError("CJ did not return a usable shipping quote for Nigeria, so no draft was created.", 422, false);
+  const supplierProductCost = parseCjSupplierCost(selected.variantSellPrice, detail.sellPrice, imported.supplierCost ?? undefined);
+  if (supplierProductCost === null) throw new CjDropshippingError("CJ did not return a trustworthy product cost for automatic pricing, so no draft was created.", 422, false);
+  const supplierShippingCost = Math.max(...shippingCosts);
+
+  return {
+    ...imported,
+    sku: selected.variantSku,
+    externalProductId: detail.pid,
+    externalVariantId: selected.vid,
+    stockQuantity: selected.inventoryQuantity,
+    inventoryCountryCode: selected.inventoryCountryCode,
+    supplierProductCost,
+    supplierShippingCost,
+    supplierCost: Number((supplierProductCost + supplierShippingCost).toFixed(2)),
+    supplierCostAvailable: true as const,
+    supplierCurrency: "USD" as const,
+  };
+}
+
+/** Reads a current stock snapshot only; it neither quotes freight nor creates a supplier order. */
+export async function fetchCjInventorySnapshot(input: { productSku: string; preferredVariantId?: string | null }) {
+  const token = await accessToken();
+  const detail = await queryCjProductDetail(token, input.productSku);
+  const selected = selectCjAvailableVariant(detail.variants, input.preferredVariantId);
+  return { externalProductId: detail.pid, externalVariantId: selected?.vid ?? input.preferredVariantId ?? null, stockQuantity: selected?.inventoryQuantity ?? 0, inventoryCountryCode: selected?.inventoryCountryCode ?? null };
 }
 
 export type CjCreateOrderInput = {

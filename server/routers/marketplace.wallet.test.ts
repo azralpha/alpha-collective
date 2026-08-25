@@ -124,6 +124,18 @@ describe("marketplace wallet escrow release", () => {
     }));
   });
 
+  it("blocks a stock-managed official product when the requested quantity is unavailable", async () => {
+    mocks.getWalletForUser.mockResolvedValue({ id: 8, userId: 7, pinHash: await hashTransactionPin("1234"), pinFailedAttempts: 0, pinLockedUntil: null });
+    mocks.listApprovedVendorProducts.mockResolvedValue([]);
+    mocks.listActiveOfficialProductsWithSourcing.mockResolvedValue([{ id: 22, title: "Official stock-managed bag", category: "Fashion", price: 18_500, formerPrice: null, badge: null, description: "A white-labeled official product for customer checkout.", detail: "A product detail suitable for the official catalogue.", imageUrl: "/manus-storage/official-products/1/bag.jpg", imageUrls: ["/manus-storage/official-products/1/bag.jpg"], stockQuantity: 0, fulfillmentProvider: "auto_fulfill_api", externalSkuId: "CJ-BAG-002" }]);
+
+    await expect(buyerCaller().wallet.checkout({ ...checkoutBase, items: [{ productId: "official-22", quantity: 1 }] })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Official stock-managed bag is currently unavailable in the requested quantity.",
+    });
+    expect(mocks.createWalletEscrowOrder).not.toHaveBeenCalled();
+  });
+
   it("returns only white-label catalog fields for an official product and omits all sourcing metadata", async () => {
     mocks.listApprovedVendorProducts.mockResolvedValue([]);
     mocks.listActiveOfficialProducts.mockResolvedValue([{ id: 21, title: "Official travel bag", category: "Fashion", price: 18_500, formerPrice: null, badge: null, description: "A white-labeled official product for customer checkout.", detail: "A product detail suitable for the official catalogue.", imageUrl: "/manus-storage/official-products/1/bag.jpg", imageUrls: ["/manus-storage/official-products/1/bag.jpg"] }]);
