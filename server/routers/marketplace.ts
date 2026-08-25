@@ -64,6 +64,8 @@ import {
   updateWalletPin,
 } from "../db";
 import { storagePut } from "../storage";
+import { decodeProductImageDataUrl, importCjProductImage, ProductImageProcessingError, storeProcessedProductImage } from "../productImageProcessing";
+import { CjDropshippingError, fetchCjProductForImport } from "../cjDropshipping";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { hashTransactionPin, validateTransactionPin, verifyTransactionPin } from "../walletSecurity";
 import { generateWithdrawalOtp, hashWithdrawalOtp } from "../withdrawalOtpSecurity";
@@ -194,7 +196,7 @@ const officialProductInputSchema = z.object({
   status: z.enum(["draft", "active", "rejected"]),
   fulfillmentProvider: z.enum(["local_vendor", "auto_fulfill_api", "manual_admin"]),
   externalSkuId: z.string().trim().max(120).transform(sanitizePlainText).nullable().optional(),
-  supplierCost: z.number().int().min(0).max(100_000_000).nullable().optional(),
+  supplierCost: z.number().min(0).max(100_000_000).nullable().optional(),
   supplierCurrency: z.enum(["NGN", "USD"]),
 }).superRefine((value, ctx) => {
   if (value.fulfillmentProvider === "auto_fulfill_api" && !value.externalSkuId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["externalSkuId"], message: "An External SKU ID is required for Auto-Fulfill API products." });
@@ -211,7 +213,7 @@ function toOfficialProductInput(input: z.infer<typeof officialProductInputSchema
     detail: input.detail,
     imageUrls: input.imageUrls,
     status: input.status,
-    sourcing: { fulfillmentProvider: input.fulfillmentProvider, externalSkuId: input.externalSkuId ?? null, supplierCost: input.supplierCost ?? null, supplierCurrency: input.supplierCurrency },
+    sourcing: { fulfillmentProvider: input.fulfillmentProvider, externalSkuId: input.externalSkuId ?? null, supplierCost: input.supplierCost === null || input.supplierCost === undefined ? null : input.supplierCost.toFixed(2), supplierCurrency: input.supplierCurrency },
   };
 }
 
@@ -425,9 +427,26 @@ export const marketplaceRouter = router({
     uploadOfficialProductImage: adminProcedure
       .input(z.object({ dataUrl: productImageDataUrlSchema }))
       .mutation(async ({ ctx, input }) => {
-        const { contentType, data, extension } = decodeProductImage(input.dataUrl);
-        const result = await storagePut(`official-products/${ctx.user.id}/${Date.now()}.${extension}`, data, contentType);
-        return { imageUrl: result.url };
+        try {
+          const data = decodeProductImageDataUrl(input.dataUrl);
+          const result = await storeProcessedProductImage({ source: data, storagePrefix: `official-products/${ctx.user.id}/${Date.now()}` });
+          return { imageUrl: result.url };
+        } catch (error) {
+          if (error instanceof ProductImageProcessingError) throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          throw error;
+        }
+      }),
+    importCjProduct: adminProcedure
+      .input(z.object({ sku: z.string().trim().min(3).max(120).regex(/^[A-Za-z0-9_-]+$/, "Enter a valid CJ product SKU.") }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const product = await fetchCjProductForImport(input.sku);
+          const imageUrls = await Promise.all(product.imageUrls.map((imageUrl, index) => importCjProductImage({ imageUrl, storagePrefix: `official-products/${ctx.user.id}/cj-import/${Date.now()}-${index}` }).then(result => result.url)));
+          return { ...product, imageUrls, fulfillmentProvider: "auto_fulfill_api" as const, status: "draft" as const };
+        } catch (error) {
+          const message = error instanceof CjDropshippingError || error instanceof ProductImageProcessingError ? error.message : "CJ product import could not be completed.";
+          throw new TRPCError({ code: "BAD_REQUEST", message });
+        }
       }),
     createOfficialProduct: adminProcedure
       .input(officialProductInputSchema)
@@ -612,9 +631,14 @@ export const marketplaceRouter = router({
     uploadProductImage: protectedProcedure
       .input(z.object({ dataUrl: productImageDataUrlSchema }))
       .mutation(async ({ ctx, input }) => {
-        const { contentType, data, extension } = decodeProductImage(input.dataUrl);
-        const result = await storagePut(`vendor-products/${ctx.user.id}/${Date.now()}.${extension}`, data, contentType);
-        return { imageUrl: result.url };
+        try {
+          const data = decodeProductImageDataUrl(input.dataUrl);
+          const result = await storeProcessedProductImage({ source: data, storagePrefix: `vendor-products/${ctx.user.id}/${Date.now()}` });
+          return { imageUrl: result.url };
+        } catch (error) {
+          if (error instanceof ProductImageProcessingError) throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          throw error;
+        }
       }),
     createProduct: protectedProcedure
       .input(vendorProductInputSchema)

@@ -2,8 +2,9 @@ import MarketplaceShell from "@/components/MarketplaceShell";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
+import { hasManualRetailPrice } from "@/lib/officialProductPricing";
 import { MARKETPLACE_CATEGORIES, formatNaira } from "@shared/marketplace";
-import { FileUp, LockKeyhole, Pencil, Plus, Save, ShieldCheck } from "lucide-react";
+import { Download, FileUp, Loader2, LockKeyhole, Pencil, Plus, Save, ShieldCheck } from "lucide-react";
 import { ChangeEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -20,12 +21,14 @@ export default function AdminOfficialProducts() {
   const utils = trpc.useUtils();
   const products = trpc.marketplace.admin.officialProducts.useQuery(undefined, { enabled: isAuthenticated });
   const upload = trpc.marketplace.admin.uploadOfficialProductImage.useMutation();
+  const importCj = trpc.marketplace.admin.importCjProduct.useMutation();
   const create = trpc.marketplace.admin.createOfficialProduct.useMutation({ onSuccess: async () => { await Promise.all([utils.marketplace.admin.officialProducts.invalidate(), utils.marketplace.publicProducts.invalidate()]); toast.success("Official catalogue product saved."); setEditingId(null); setForm(blankForm()); } });
   const update = trpc.marketplace.admin.updateOfficialProduct.useMutation({ onSuccess: async () => { await Promise.all([utils.marketplace.admin.officialProducts.invalidate(), utils.marketplace.publicProducts.invalidate()]); toast.success("Official catalogue product updated."); setEditingId(null); setForm(blankForm()); } });
   const [editingId, setEditingId] = useState<number | null>(null);
   const [form, setForm] = useState(blankForm);
+  const [cjSku, setCjSku] = useState("");
 
-  const busy = upload.isPending || create.isPending || update.isPending;
+  const busy = upload.isPending || importCj.isPending || create.isPending || update.isPending;
   const canAutoFulfil = form.fulfillmentProvider !== "auto_fulfill_api" || form.externalSkuId.trim().length > 0;
 
   function edit(product: NonNullable<typeof products.data>[number]) {
@@ -48,8 +51,31 @@ export default function AdminOfficialProducts() {
     } catch (error) { toast.error(error instanceof Error ? error.message : "Image upload failed."); }
   }
 
+  async function onCjImport() {
+    if (!cjSku.trim()) return toast.error("Enter a CJ product SKU first.");
+    try {
+      const imported = await importCj.mutateAsync({ sku: cjSku.trim() });
+      setForm(current => ({
+        ...current,
+        title: imported.title,
+        description: imported.description,
+        detail: imported.description,
+        imageUrls: imported.imageUrls,
+        price: "",
+        formerPrice: "",
+        status: "draft",
+        fulfillmentProvider: imported.fulfillmentProvider,
+        externalSkuId: imported.sku,
+        supplierCost: String(imported.supplierCost),
+        supplierCurrency: imported.supplierCurrency,
+      }));
+      toast.success("CJ details imported into an unpublished draft. Set your Naira retail price before saving.");
+    } catch (error) { toast.error(error instanceof Error ? error.message : "CJ product import failed."); }
+  }
+
   async function save() {
     if (!form.imageUrls.length) return toast.error("Add at least one public product image.");
+    if (!hasManualRetailPrice(form.price)) return toast.error("Enter your own retail price in Naira before saving this product.");
     if (!canAutoFulfil) return toast.error("Auto-Fulfill API products require an External SKU ID.");
     const payload = { title: form.title, category: form.category, price: Number(form.price), formerPrice: form.formerPrice ? Number(form.formerPrice) : null, badge: form.badge || null, description: form.description, detail: form.detail, imageUrls: form.imageUrls, status: form.status, fulfillmentProvider: form.fulfillmentProvider, externalSkuId: form.externalSkuId || null, supplierCost: form.supplierCost ? Number(form.supplierCost) : null, supplierCurrency: form.supplierCurrency };
     try { if (editingId) await update.mutateAsync({ ...payload, id: editingId }); else await create.mutateAsync(payload); } catch (error) { toast.error(error instanceof Error ? error.message : "The official product could not be saved."); }
@@ -62,17 +88,18 @@ export default function AdminOfficialProducts() {
   return <MarketplaceShell><main className="page-shell dropship-admin-page">
     <section className="admin-review-hero"><div><span className="eyebrow">Administrator workspace</span><h1 className="page-title">Official catalogue products.</h1><p className="section-kicker">Create white-labeled Alpha Collective products. Buyers never receive the sourcing information shown below.</p></div><a className="button button-secondary" href="/admin/dropship-integrations">Dropship Integrations</a></section>
     <section className="official-product-form"><div className="section-title-row"><h2>{editingId ? "Edit official product" : "Create official product"}</h2><span className="private-source-label"><LockKeyhole size={14} /> Administrator only</span></div>
+      <section className="cj-import-panel"><div><span className="eyebrow">Auto-Import from CJ Dropshipping</span><h3>Start with a CJ product SKU.</h3><p>CJ details and images are imported into an unpublished draft. Supplier information remains private and no supplier order is created.</p></div><div className="cj-import-actions"><label>Enter CJ Product SKU<input value={cjSku} onChange={event => setCjSku(event.target.value)} placeholder="e.g. CJNSSYWY01847" disabled={busy} /></label><button className="button button-primary" disabled={busy || !cjSku.trim()} onClick={onCjImport}>{importCj.isPending ? <Loader2 className="spin" size={17} /> : <Download size={17} />}{importCj.isPending ? "Fetching CJ details…" : "Fetch Product Details"}</button></div></section>
       <div className="admin-form-grid">
         <label>Product title<input value={form.title} onChange={event => setForm({ ...form, title: event.target.value })} /></label>
         <label>Category<select value={form.category} onChange={event => setForm({ ...form, category: event.target.value as typeof form.category })}>{MARKETPLACE_CATEGORIES.map(category => <option key={category}>{category}</option>)}</select></label>
-        <label>Customer price (₦)<input inputMode="numeric" value={form.price} onChange={event => setForm({ ...form, price: event.target.value })} /></label>
+        <label>Customer price (₦)<input inputMode="numeric" value={form.price} placeholder="Set your retail price" onChange={event => setForm({ ...form, price: event.target.value })} /><small className="field-helper">Required manually; CJ supplier cost is not used as the buyer price.</small></label>
         <label>Former price (optional ₦)<input inputMode="numeric" value={form.formerPrice} onChange={event => setForm({ ...form, formerPrice: event.target.value })} /></label>
         <label>Badge (optional)<input value={form.badge} onChange={event => setForm({ ...form, badge: event.target.value })} /></label>
         <label>Publication<select value={form.status} onChange={event => setForm({ ...form, status: event.target.value as typeof form.status })}><option value="draft">Draft</option><option value="active">Active</option><option value="rejected">Rejected</option></select></label>
       </div>
       <label>Product description<textarea value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} /></label>
       <label>Product detail<textarea value={form.detail} onChange={event => setForm({ ...form, detail: event.target.value })} /></label>
-      <label className="image-upload-field"><span>Public product images</span><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={onImages} disabled={busy} /><span className="file-helper"><FileUp size={15} /> Up to five JPG, PNG, or WebP images</span></label>
+      <label className="image-upload-field"><span>Public product images</span><input type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={onImages} disabled={busy} /><span className="file-helper"><FileUp size={15} /> Up to five JPG, PNG, or WebP images — each is watermarked and optimized as WebP.</span></label>
       {form.imageUrls.length ? <div className="official-image-preview">{form.imageUrls.map(url => <img key={url} src={url} alt="Official product preview" />)}</div> : null}
       <section className="hidden-source-section"><div><span className="eyebrow">Dropship / Source Details (Hidden)</span><p>Strictly server-side. This information is never included in public or vendor APIs.</p></div><div className="admin-form-grid"><label>Fulfilment provider<select value={form.fulfillmentProvider} onChange={event => setForm({ ...form, fulfillmentProvider: event.target.value as Provider })}><option value="local_vendor">Local Vendor</option><option value="auto_fulfill_api">Auto-Fulfill API</option><option value="manual_admin">Manual Admin</option></select></label><label>External SKU ID{form.fulfillmentProvider === "auto_fulfill_api" ? " (required)" : " (optional)"}<input value={form.externalSkuId} onChange={event => setForm({ ...form, externalSkuId: event.target.value })} /></label><label>Supplier cost<input inputMode="numeric" value={form.supplierCost} onChange={event => setForm({ ...form, supplierCost: event.target.value })} /></label><label>Supplier currency<select value={form.supplierCurrency} onChange={event => setForm({ ...form, supplierCurrency: event.target.value as Currency })}><option value="USD">USD</option><option value="NGN">NGN</option></select></label></div></section>
       <div className="admin-review-actions"><button className="button button-primary" disabled={busy} onClick={save}>{editingId ? <Save size={17} /> : <Plus size={17} />}{editingId ? "Save official product" : "Create official product"}</button>{editingId ? <button className="button button-secondary" onClick={() => { setEditingId(null); setForm(blankForm()); }}>Cancel edit</button> : null}</div>

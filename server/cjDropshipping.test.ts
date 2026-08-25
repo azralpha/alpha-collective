@@ -40,4 +40,17 @@ describe("CJ Dropshipping adapter", () => {
     const { createCjOrder, CjDropshippingError } = await import("./cjDropshipping");
     await expect(createCjOrder({ orderNumber: "AC-TEST", externalSkuId: "CJ-001", quantity: 1, buyerName: "Ada Okafor", buyerPhone: "08000000000", state: "Lagos", lga: "Ikeja", streetDetails: "12 Oyan Road", logisticsName: "CJPacket", fromCountryCode: "CN", orderMode: "create_only" })).rejects.toMatchObject({ constructor: CjDropshippingError, retryable: false });
   });
+
+  it("fetches a matching CJ SKU for an unpublished draft without creating a supplier order", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { content: [{ productList: [{ sku: "CJ-001", nameEn: "Portable Desk Fan", nowPrice: "9.50", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/fan.png", description: "<p>Quiet <b>portable</b> desk fan for everyday cooling.</p>" }] }] } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductForImport } = await import("./cjDropshipping");
+
+    await expect(fetchCjProductForImport("cj-001")).resolves.toMatchObject({ sku: "CJ-001", title: "Portable Desk Fan", description: "Quiet portable desk fan for everyday cooling.", supplierCost: 9.5, supplierCurrency: "USD", imageUrls: ["https://cc-west-usa.oss-us-west-1.aliyuncs.com/fan.png"] });
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/product/listV2?");
+    expect(String(fetchMock.mock.calls[1]?.[0])).not.toContain("createOrder");
+  });
 });

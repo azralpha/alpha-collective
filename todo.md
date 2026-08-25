@@ -1,5 +1,14 @@
 # Project TODO
 
+- [x] Audit the CJ product-details API, administrator official-product editor, and shared vendor/imported image paths
+- [x] Add a protected CJ SKU import procedure that maps only product data and never creates a supplier order
+- [x] Add an admin Auto-Import from CJ Dropshipping interface with loading state, image-gallery import, and manual retail-price requirement
+- [x] Add a shared server-side product-image pipeline that applies an Alpha Collective watermark, outputs optimized WebP, and stores only processed images
+- [x] Route vendor draft uploads and CJ-imported external images through the same watermark and WebP pipeline
+- [x] Add a transparent Alpha Collective watermark logo asset and support it as the default image overlay
+- [x] Add explicit importer authorization, description-sanitization, and manual-retail-price automated coverage
+- [x] Revalidate the authenticated administrator importer and mobile public-shop rendering without creating a supplier order
+
 - [x] Verify the referral-band “Bring your people” label renders white and save the requested visual-edit checkpoint
 
 - [x] Audit product, order, and admin flows for secure dropship fulfilment integration points

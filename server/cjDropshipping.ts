@@ -2,6 +2,7 @@ const CJ_API_ROOT = "https://developers.cjdropshipping.com/api2.0/v1";
 
 type CjTokenResponse = { code?: number; result?: boolean; message?: string; data?: { accessToken?: string; accessTokenExpiryDate?: string; openId?: number } };
 type CjOrderResponse = { code?: number; result?: boolean; success?: boolean; message?: string; requestId?: string; data?: { orderId?: string; orderNumber?: string } };
+type CjProductListResponse = { code?: number; result?: boolean; message?: string; data?: { content?: Array<{ productList?: Array<{ sku?: string; spu?: string; nameEn?: string; productNameEn?: string; bigImage?: string; productImage?: string; description?: string; sellPrice?: string | number; nowPrice?: string | number; discountPrice?: string | number }> }> } };
 
 export class CjDropshippingError extends Error {
   constructor(message: string, readonly statusCode?: number, readonly retryable = false) { super(message); }
@@ -44,6 +45,41 @@ export function isCjDropshippingConfigured() {
 export async function validateCjDropshippingCredential() {
   await accessToken();
   return true;
+}
+
+function uniqueImageUrls(values: Array<string | undefined>) {
+  return Array.from(new Set(values.filter((value): value is string => Boolean(value && /^https:\/\//.test(value))))).slice(0, 5);
+}
+
+function imageUrlsFromDescription(description: string | undefined) {
+  if (!description) return [];
+  return Array.from(description.matchAll(/<img[^>]+src=["'](https:\/\/[^"']+)["']/gi)).map(match => match[1]);
+}
+
+function plainDescription(value: string | undefined, fallback: string) {
+  const text = (value ?? "").replace(/<[^>]*>/g, " ").replace(/&nbsp;/gi, " ").replace(/\s+/g, " ").trim();
+  return text.length >= 12 ? text.slice(0, 1200) : `${fallback}. Imported from CJ Dropshipping; review the product details before publishing.`;
+}
+
+/** Fetches CJ catalogue data only. It never creates an order or sends customer information. */
+export async function fetchCjProductForImport(sku: string) {
+  const token = await accessToken();
+  const normalizedSku = sku.trim().toUpperCase();
+  const payload = await cjFetch<CjProductListResponse>(`/product/listV2?page=1&size=20&keyWord=${encodeURIComponent(normalizedSku)}&features=enable_description`, {
+    method: "GET",
+    headers: { "CJ-Access-Token": token },
+  });
+  if (!payload) throw new CjDropshippingError("CJ Dropshipping returned an empty product response.", 502, true);
+  const candidates = payload.data?.content?.flatMap(section => section.productList ?? []) ?? [];
+  const product = candidates.find(candidate => (candidate.sku ?? candidate.spu ?? "").toUpperCase() === normalizedSku);
+  if (!payload.result || !product) throw new CjDropshippingError("CJ could not find that product SKU.", 404, false);
+  const title = (product.nameEn ?? product.productNameEn ?? "").trim();
+  if (!title) throw new CjDropshippingError("CJ returned a product without a usable English title.", 422, false);
+  const supplierCost = Number(product.nowPrice ?? product.discountPrice ?? product.sellPrice);
+  if (!Number.isFinite(supplierCost) || supplierCost < 0) throw new CjDropshippingError("CJ returned an invalid supplier price.", 422, false);
+  const imageUrls = uniqueImageUrls([product.bigImage, product.productImage, ...imageUrlsFromDescription(product.description)]);
+  if (!imageUrls.length) throw new CjDropshippingError("CJ returned no importable product images.", 422, false);
+  return { sku: normalizedSku, title, description: plainDescription(product.description, title), imageUrls, supplierCost: Number(supplierCost.toFixed(2)), supplierCurrency: "USD" as const };
 }
 
 export type CjCreateOrderInput = {

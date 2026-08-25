@@ -1,4 +1,4 @@
-import { int, json, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
+import { decimal, int, json, mysqlEnum, mysqlTable, text, timestamp, varchar } from "drizzle-orm/mysql-core";
 import type { MarketplaceCategory } from "../shared/marketplace";
 
 export const users = mysqlTable("users", {
@@ -214,7 +214,7 @@ export const officialProductSourcing = mysqlTable("officialProductSourcing", {
   officialProductId: int("officialProductId").notNull().unique(),
   fulfillmentProvider: mysqlEnum("fulfillmentProvider", ["local_vendor", "auto_fulfill_api", "manual_admin"]).notNull().default("manual_admin"),
   externalSkuId: varchar("externalSkuId", { length: 120 }),
-  supplierCost: int("supplierCost"),
+  supplierCost: decimal("supplierCost", { precision: 12, scale: 2 }),
   supplierCurrency: mysqlEnum("supplierCurrency", ["NGN", "USD"]).notNull().default("USD"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

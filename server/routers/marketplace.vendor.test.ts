@@ -18,12 +18,17 @@ const mocks = vi.hoisted(() => ({
   qualifyReferralShare: vi.fn(),
   redeemReferralReward: vi.fn(),
   storagePut: vi.fn(),
+  storeProcessedProductImage: vi.fn(),
   updateVendorProductStatus: vi.fn(),
   updateVendorDraftProduct: vi.fn(),
 }));
 
 vi.mock("../db", () => mocks);
 vi.mock("../storage", () => ({ storagePut: mocks.storagePut }));
+vi.mock("../productImageProcessing", async importOriginal => {
+  const actual = await importOriginal<typeof import("../productImageProcessing")>();
+  return { ...actual, storeProcessedProductImage: mocks.storeProcessedProductImage };
+});
 
 import { marketplaceRouter } from "./marketplace";
 
@@ -57,9 +62,13 @@ describe("marketplace vendor image workflow", () => {
     expect(mocks.storagePut).not.toHaveBeenCalled();
   });
 
+  it("blocks non-administrators from importing CJ catalogue details", async () => {
+    await expect(caller().admin.importCjProduct({ sku: "CJ-001" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
   it("stores uploaded product images and persists their ordered gallery with the draft", async () => {
     mocks.getVendorApplicationForUser.mockResolvedValue(application);
-    mocks.storagePut.mockResolvedValue({ key: "vendor-products/7/product_123.jpg", url: "/manus-storage/vendor-products/7/product_123.jpg" });
+    mocks.storeProcessedProductImage.mockResolvedValue({ key: "vendor-products/7/product_123.webp", url: "/manus-storage/vendor-products/7/product_123.webp" });
     mocks.createVendorProduct.mockResolvedValue(91);
     const dataUrl = `data:image/png;base64,${Buffer.from("image-bytes").toString("base64")}`;
 
@@ -73,11 +82,11 @@ describe("marketplace vendor image workflow", () => {
       imageUrls: [uploaded.imageUrl, additionalImage],
     });
 
-    expect(mocks.storagePut).toHaveBeenCalledWith(expect.stringMatching(/^vendor-products\/7\//), expect.any(Buffer), "image/png");
+    expect(mocks.storeProcessedProductImage).toHaveBeenCalledWith(expect.objectContaining({ storagePrefix: expect.stringMatching(/^vendor-products\/7\//) }));
     expect(mocks.createVendorProduct).toHaveBeenCalledWith(expect.objectContaining({
       vendorApplicationId: 31,
-      imageUrl: "/manus-storage/vendor-products/7/product_123.jpg",
-      imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg", "/manus-storage/vendor-products/7/product_456.jpg"],
+      imageUrl: "/manus-storage/vendor-products/7/product_123.webp",
+      imageUrls: ["/manus-storage/vendor-products/7/product_123.webp", "/manus-storage/vendor-products/7/product_456.jpg"],
       status: "draft",
     }));
   });

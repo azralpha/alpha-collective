@@ -670,7 +670,7 @@ export type OfficialProductInput = {
   sourcing: {
     fulfillmentProvider: "local_vendor" | "auto_fulfill_api" | "manual_admin";
     externalSkuId?: string | null;
-    supplierCost?: number | null;
+    supplierCost?: string | null;
     supplierCurrency: "NGN" | "USD";
   };
 };

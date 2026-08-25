@@ -1,0 +1,1 @@
+ALTER TABLE `officialProductSourcing` MODIFY COLUMN `supplierCost` decimal(12,2);
