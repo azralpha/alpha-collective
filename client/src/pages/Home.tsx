@@ -3,9 +3,10 @@ import ProductCard from "@/components/ProductCard";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
+import { HERO_CAROUSEL_SLIDES, nextHeroSlide } from "@/lib/heroCarousel";
 import { MARKETPLACE_CATEGORIES, MARKETPLACE_PRODUCTS, type MarketplaceCategory } from "@shared/marketplace";
-import { ArrowRight, CheckCircle2, Flame, MessageCircle, PackageCheck, ShieldCheck, Tag, Truck } from "lucide-react";
-import { useState } from "react";
+import { ArrowRight, CheckCircle2, Flame, MessageCircle, PackageCheck, Pause, Play, ShieldCheck, Tag, Truck } from "lucide-react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
 
@@ -26,6 +27,9 @@ const categoryCards = MARKETPLACE_CATEGORIES.flatMap(name => {
 export default function Home() {
   const { isAuthenticated } = useAuth();
   const [shareCode, setShareCode] = useState<string | null>(null);
+  const [activeHeroSlide, setActiveHeroSlide] = useState(0);
+  const [isHeroPaused, setIsHeroPaused] = useState(false);
+  const [reduceHeroMotion, setReduceHeroMotion] = useState(false);
   const referralStatus = trpc.marketplace.myReferralStatus.useQuery(undefined, { enabled: isAuthenticated });
   const createReferralShare = trpc.marketplace.createReferralShare.useMutation({
     onSuccess: async data => {
@@ -52,10 +56,26 @@ export default function Home() {
     createReferralShare.mutate({ channel: "whatsapp" });
   };
 
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const syncPreference = () => setReduceHeroMotion(media.matches);
+    syncPreference();
+    media.addEventListener("change", syncPreference);
+    return () => media.removeEventListener("change", syncPreference);
+  }, []);
+
+  useEffect(() => {
+    if (isHeroPaused || reduceHeroMotion) return;
+    const timer = window.setInterval(() => setActiveHeroSlide(current => nextHeroSlide(current)), 4500);
+    return () => window.clearInterval(timer);
+  }, [isHeroPaused, reduceHeroMotion]);
+
   return (
     <MarketplaceShell>
       <section className="deal-hero">
-        <img src="/manus-storage/alpha-collective-hero_3f1a59b7.jpg" alt="A collection of local fashion, beauty, home and technology finds" />
+        <div className="deal-hero-carousel" role="region" aria-roledescription="carousel" aria-label="Alpha Collective shopping lifestyle highlights">
+          {HERO_CAROUSEL_SLIDES.map((slide, index) => <img key={slide.src} src={slide.src} alt="" aria-hidden="true" className={index === activeHeroSlide ? "active" : ""} />)}
+        </div>
         <div className="deal-hero-overlay" />
         <div className="deal-hero-content">
           <span className="deal-hero-kicker"><Flame size={17} /> Local sellers. Good prices.</span>
@@ -70,6 +90,14 @@ export default function Home() {
             <span><PackageCheck size={19} /> Order saved</span>
             <a href={WHATSAPP_SUPPORT_URL} target="_blank" rel="noreferrer"><MessageCircle size={19} /> WhatsApp help</a>
           </div>
+        </div>
+        <div className="deal-hero-carousel-controls" aria-label="Hero carousel controls">
+          <div className="deal-hero-carousel-dots" role="tablist" aria-label="Choose a lifestyle highlight">
+            {HERO_CAROUSEL_SLIDES.map((slide, index) => <button key={slide.src} type="button" role="tab" aria-label={`Show slide ${index + 1}: ${slide.label}`} aria-selected={index === activeHeroSlide} className={index === activeHeroSlide ? "active" : ""} onClick={() => setActiveHeroSlide(index)} />)}
+          </div>
+          <button type="button" className="deal-hero-carousel-toggle" onClick={() => setIsHeroPaused(current => !current)} aria-label={isHeroPaused ? "Resume automatic hero carousel" : "Pause automatic hero carousel"}>
+            {isHeroPaused ? <Play size={15} /> : <Pause size={15} />}<span>{isHeroPaused ? "Play" : "Pause"}</span>
+          </button>
         </div>
       </section>
 

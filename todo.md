@@ -81,6 +81,12 @@
 - [x] Build the authenticated /rewards dashboard with Buyer Rewards and Vendor Rewards tabs and add clear navigation from the marketplace shell
 - [x] Prepare project-owned schedule handlers for monthly vendor reward evaluation and deferred pending-reward release without creating jobs before publication
 - [x] Re-run focused tests and save a checkpoint after public badge and live commission-override validation
+
+- [x] Audit the current homepage hero structure and static artwork references for carousel replacement
+- [x] Source and upload three to four high-quality African retail lifestyle images as durable web assets
+- [x] Replace the static hero background with an infinite four-to-five-second auto-scrolling carousel that respects reduced-motion preferences
+- [x] Maintain strong text contrast, mobile readability, and accessible carousel progress controls across all slides
+- [x] Add focused carousel tests, validate desktop and mobile rendering, and save a checkpoint
 - [x] Create a compact wolf-logo asset from the supplied Alpha identity for navigation and footer use
 - [x] Rename Phones to Gadgets and add Vehicles, Home & Furniture, and Animals & Pets to marketplace categories
 - [x] Update the brand lockup, homepage category discovery, shop filters, and seller categories for the expanded catalogue
