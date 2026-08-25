@@ -113,7 +113,7 @@ export default function Home() {
       <section id="rewards" className="section">
         <div className="referral-band">
           <div>
-            <span className="eyebrow eyebrow-dark">Bring your people</span>
+            <span className="eyebrow eyebrow-dark" style={{color: '#ffffff'}}>Bring your people</span>
             <h2>Share and get ₦500 off.</h2>
             <p>Sign in, make a code, then send it to a different shopper. When their eligible order qualifies, they get ₦500 off and a separate ₦500 reward is issued to your account.</p>
           </div>

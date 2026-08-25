@@ -1,5 +1,7 @@
 # Project TODO
 
+- [x] Verify the referral-band “Bring your people” label renders white and save the requested visual-edit checkpoint
+
 - [x] Audit product, order, and admin flows for secure dropship fulfilment integration points
 - [x] Add admin-only hidden product sourcing fields: external SKU, supplier cost, and fulfilment-provider selection
 - [x] Ensure supplier metadata is excluded from every public and vendor product response and rendered as Alpha Collective Official on buyer storefronts
