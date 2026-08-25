@@ -65,6 +65,17 @@ describe("marketplace wallet escrow release", () => {
     expect(mocks.createWalletEscrowOrder).not.toHaveBeenCalled();
   });
 
+  it("locks wallet authorization for fifteen minutes on the third incorrect PIN attempt", async () => {
+    mocks.getWalletForUser.mockResolvedValue({ id: 8, userId: 7, pinHash: await hashTransactionPin("1234"), pinFailedAttempts: 2, pinLockedUntil: null });
+
+    await expect(buyerCaller().wallet.checkout({ ...checkoutBase, transactionPin: "0000", items: [{ productId: MARKETPLACE_PRODUCTS[0].id, quantity: 1 }] })).rejects.toMatchObject({
+      code: "TOO_MANY_REQUESTS",
+      message: "Wallet PIN is locked for 15 minutes after three failed attempts.",
+    });
+    expect(mocks.recordWalletPinFailure).toHaveBeenCalledWith(7, 3, expect.any(Date));
+    expect(mocks.createWalletEscrowOrder).not.toHaveBeenCalled();
+  });
+
   it("blocks a vendor from using Alpha Wallet to buy their own approved listing", async () => {
     mocks.getWalletForUser.mockResolvedValue({ id: 8, userId: 7, pinHash: await hashTransactionPin("1234"), pinFailedAttempts: 0, pinLockedUntil: null });
     mocks.listApprovedVendorProducts.mockResolvedValue([{ id: 91, title: "Own listing", category: "Fashion", price: 4_500, description: "An approved vendor listing for self-purchase prevention.", imageUrl: "/manus-storage/vendor-products/7/product.jpg", imageUrls: ["/manus-storage/vendor-products/7/product.jpg"], vendor: "Ada Store", vendorUserId: 7, commissionRate: 0 }]);

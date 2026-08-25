@@ -130,7 +130,38 @@ export const walletBankRecipients = mysqlTable("walletBankRecipients", {
   accountNumberMasked: varchar("accountNumberMasked", { length: 24 }).notNull(),
   accountName: varchar("accountName", { length: 160 }).notNull(),
   paystackRecipientCode: varchar("paystackRecipientCode", { length: 64 }).notNull(),
+  kycBindingStatus: mysqlEnum("kycBindingStatus", ["unverified", "verified", "locked"]).notNull().default("unverified"),
   verifiedAt: timestamp("verifiedAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const kycProfiles = mysqlTable("kycProfiles", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  status: mysqlEnum("status", ["not_started", "identity_pending", "identity_verified", "bank_pending", "verified", "rejected"]).notNull().default("not_started"),
+  submittedLegalName: varchar("submittedLegalName", { length: 160 }),
+  verifiedLegalName: varchar("verifiedLegalName", { length: 160 }),
+  governmentIdImageUrl: text("governmentIdImageUrl"),
+  smileJobId: varchar("smileJobId", { length: 120 }),
+  failureReason: varchar("failureReason", { length: 255 }),
+  identityVerifiedAt: timestamp("identityVerifiedAt"),
+  bankVerifiedAt: timestamp("bankVerifiedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const withdrawalOtpChallenges = mysqlTable("withdrawalOtpChallenges", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  recipientId: int("recipientId").notNull(),
+  amount: int("amount").notNull(),
+  otpHash: varchar("otpHash", { length: 255 }).notNull(),
+  status: mysqlEnum("status", ["pending_delivery", "delivered", "consumed", "expired", "failed", "locked"]).notNull().default("pending_delivery"),
+  attempts: int("attempts").notNull().default(0),
+  lockedUntil: timestamp("lockedUntil"),
+  expiresAt: timestamp("expiresAt").notNull(),
+  consumedAt: timestamp("consumedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -180,5 +211,9 @@ export type WithdrawalRequest = typeof withdrawalRequests.$inferSelect;
 export type InsertWithdrawalRequest = typeof withdrawalRequests.$inferInsert;
 export type WalletBankRecipient = typeof walletBankRecipients.$inferSelect;
 export type InsertWalletBankRecipient = typeof walletBankRecipients.$inferInsert;
+export type KycProfile = typeof kycProfiles.$inferSelect;
+export type InsertKycProfile = typeof kycProfiles.$inferInsert;
+export type WithdrawalOtpChallenge = typeof withdrawalOtpChallenges.$inferSelect;
+export type InsertWithdrawalOtpChallenge = typeof withdrawalOtpChallenges.$inferInsert;
 export type WalletFundingAttempt = typeof walletFundingAttempts.$inferSelect;
 export type InsertWalletFundingAttempt = typeof walletFundingAttempts.$inferInsert;

@@ -1,5 +1,20 @@
 # Project TODO
 
+- [x] Review the supplied update specification and implement all applicable internal Alpha Collective requirements that do not require unconfigured external providers
+- [x] Assess current password, PIN, login, and wallet authorization safeguards against the supplied anti-fraud requirements
+- [x] Add wallet PIN lockout-after-three-attempts and defer account-alert delivery until a configured email provider is available
+- [x] Defer live withdrawal-OTP and account-lock email delivery until a verified email provider credential is available
+- [x] Defer real user email delivery for account-lock alerts and withdrawal OTPs, plus OTP verification and final transfer initiation, until a provider validates successfully
+- [x] Defer Smile ID asynchronous verification and signed callback handling, then use provider legal-name confirmation to approve KYC, until credentials and a public callback URL are available
+- [x] Document the third-party chat boundary: no first-party chat text is persisted by Alpha Collective, while Tawk.to remains governed by its external embed and cannot be server-side sanitized by this app
+- [x] Add a server-side six-digit, expiring withdrawal OTP challenge before any provider transfer is initiated
+- [x] Build a privacy-minimizing KYC profile, legal-name, and locked verified-bank-account model
+- [x] Add vendor KYC dashboard requirements and prevent unverified vendors from requesting withdrawals
+- [x] Add conditional buyer KYC enforcement for Pay on Delivery while retaining prepaid and wallet checkout access
+- [x] Defer Smile ID’s asynchronous identity-verification workflow and signed callback handling until credentials and a public callback URL are available
+- [x] Add safe input-validation and output-encoding coverage for persisted marketplace and checkout data paths
+- [x] Add focused automated coverage and validate the revised security and KYC journeys
+
 - [x] Inspect the copied marketplace implementation, database schema, migrations, and task tracker before changing behavior
 - [x] Reconcile marketplace persistence and tRPC procedures for orders, referrals, vendor applications, and vendor products
 - [x] Replace advertised local-only marketplace workflows with persistent flows and explicit loading, error, empty, and confirmation states
@@ -108,7 +123,7 @@
 - [x] Defer authenticated balance-changing PIN, ledger, and escrow-release validation until a controlled non-production wallet test is authorized
 - [x] Confirm the signed-in Wallet funding form, Nigerian-bank recipient form, and Alpha Wallet checkout option render without initiating a financial action
 - [x] Add automated checks that block static and self-owned listings from the Alpha Wallet escrow path
-- [ ] Save a checkpoint containing the verified unified wallet implementation
+- [x] Save a checkpoint containing the verified unified wallet implementation
 - [x] Add durable Paystack funding-attempt and withdrawal transfer-reference records with a safe migration
 - [x] Implement server-only Paystack banking, transaction, transfer, and webhook-signature helpers without exposing credentials
 - [x] Add protected wallet procedures for bank listing, account resolution, recipient creation, funding initialization, and confirmed PIN-authorized withdrawals

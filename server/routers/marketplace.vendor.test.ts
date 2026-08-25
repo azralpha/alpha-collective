@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   createReferralShare: vi.fn(),
   createVendorApplication: vi.fn(),
   createVendorProduct: vi.fn(),
+  getKycProfileForUser: vi.fn(),
   getReferralShareByCode: vi.fn(),
   getReferralShareByRewardCode: vi.fn(),
   getVendorApplicationForUser: vi.fn(),
@@ -106,6 +107,7 @@ describe("marketplace vendor image workflow", () => {
   });
 
   it("stores a standardized address and dynamic delivery fee for approved vendor products in the cart", async () => {
+    mocks.getKycProfileForUser.mockResolvedValue({ status: "verified" });
     mocks.listApprovedVendorProducts.mockResolvedValue([{
       id: 91,
       title: "Approved image find",

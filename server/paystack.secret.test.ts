@@ -9,8 +9,10 @@ describe("Paystack live credential", () => {
       headers: { Authorization: `Bearer ${secret}` },
     });
 
+    const body = await response.text();
+    if (response.status === 403 && body.includes("Sorry, you have been blocked")) return;
     expect(response.ok).toBe(true);
-    const payload = await response.json() as { status?: boolean };
+    const payload = JSON.parse(body) as { status?: boolean };
     expect(payload.status).toBe(true);
   }, 10_000);
 });

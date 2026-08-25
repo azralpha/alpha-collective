@@ -5,6 +5,7 @@ import AdminProductReview from "@/pages/AdminProductReview";
 import AdminWalletOrders from "@/pages/AdminWalletOrders";
 import Checkout from "@/pages/Checkout";
 import Home from "@/pages/Home";
+import KycVerification from "@/pages/KycVerification";
 import NotFound from "@/pages/NotFound";
 import Product from "@/pages/Product";
 import Sell from "@/pages/Sell";
@@ -27,6 +28,7 @@ function Router() {
       <Route path="/sell" component={Sell} />
       <Route path="/vendor/dashboard" component={VendorDashboard} />
       <Route path="/wallet" component={Wallet} />
+      <Route path="/kyc" component={KycVerification} />
       <Route path="/admin/products" component={AdminProductReview} />
       <Route path="/admin/wallet-orders" component={AdminWalletOrders} />
       <Route path="/404" component={NotFound} />

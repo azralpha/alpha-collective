@@ -60,13 +60,13 @@ export default function Home() {
         <div className="deal-hero-content">
           <span className="deal-hero-kicker"><Flame size={17} /> Local sellers. Good prices.</span>
           <h1>Naija deals,<br />straight from<br />independent sellers.</h1>
-          <p>Fashion, gadgets, beauty, home, vehicles and pet essentials in Naira — with Pay on Delivery so your order is saved before delivery.</p>
+          <p>Fashion, gadgets, beauty, home, vehicles and pet essentials in Naira — with KYC-verified Pay on Delivery so your order is protected before delivery.</p>
           <div className="deal-hero-actions">
             <Link href="/shop" className="deal-cta deal-cta-primary">Shop Naija’s Good Finds <ArrowRight size={19} /></Link>
             <Link href="/sell" className="deal-cta deal-cta-secondary">Sell on Alpha Collective <ArrowRight size={19} /></Link>
           </div>
           <div className="deal-hero-trust">
-            <span><Truck size={19} /> Pay on Delivery</span>
+            <span><Truck size={19} /> KYC-verified delivery</span>
             <span><PackageCheck size={19} /> Order saved</span>
             <a href={WHATSAPP_SUPPORT_URL} target="_blank" rel="noreferrer"><MessageCircle size={19} /> WhatsApp help</a>
           </div>
@@ -104,7 +104,7 @@ export default function Home() {
           {MARKETPLACE_PRODUCTS.map(product => <ProductCard key={product.id} product={product} />)}
         </div>
         <div className="trust-row">
-          <div className="trust-item"><Truck className="trust-icon" size={22} /><div><strong>Pay on Delivery</strong><p>Choose delivery payment at checkout. Your order is saved before the hand-off.</p></div></div>
+          <div className="trust-item"><Truck className="trust-icon" size={22} /><div><strong>Pay on Delivery</strong><p>KYC-verified buyers can choose delivery payment at checkout. Their order is saved before the hand-off.</p></div></div>
           <div className="trust-item"><MessageCircle className="trust-icon" size={22} /><div><strong>WhatsApp support</strong><p><a href={WHATSAPP_SUPPORT_URL} target="_blank" rel="noreferrer">Ask a real question</a> when you need help with an order or seller.</p></div></div>
           <div className="trust-item"><ShieldCheck className="trust-icon" size={22} /><div><strong>Seller-led delivery</strong><p>Each listing keeps the vendor name close, so your local find stays traceable.</p></div></div>
         </div>

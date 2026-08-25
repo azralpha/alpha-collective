@@ -38,7 +38,7 @@ export default function Product() {
             <p className="detail-description">{product.detail}</p>
             <div className="detail-actions">{isVendorFind ? <><a className="button button-primary" href={WHATSAPP_SUPPORT_URL} target="_blank" rel="noreferrer"><MessageCircle size={17} /> Ask about this product</a><button className="button button-secondary" onClick={() => { addItem(product.id); toast.success(`${product.title} added to your cart.`); }}><ShoppingBag size={17} /> Add to Cart</button></> : <button className="button button-primary" onClick={() => { addItem(product.id); toast.success(`${product.title} added to your cart.`); }}><ShoppingBag size={17} /> Add to cart</button>}</div>
             <div className="detail-facts">
-              <div className="detail-fact"><Truck size={19} /><span><strong>Pay on Delivery is available.</strong><br />Your saved order is confirmed before delivery coordination begins.</span></div>
+              <div className="detail-fact"><Truck size={19} /><span><strong>Pay on Delivery is available after KYC verification.</strong><br />Your saved order is confirmed before delivery coordination begins.</span></div>
               <div className="detail-fact"><CheckCircle2 size={19} /><span><strong>Seller details stay close.</strong><br />Use WhatsApp support if you need a product or delivery clarification.</span></div>
             </div>
           </div>

@@ -58,7 +58,7 @@ export default function Shop() {
             <Search size={15} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="Search the collective" style={{ border: 0, outline: 0, background: "transparent", width: "100%" }} />
           </label>
         </section>
-        {referralCode ? <div className="application-status"><strong>Referral code saved: {referralCode}</strong><p>It will be offered at checkout for an eligible order from ₦5,000. The code is checked before your Pay on Delivery order is saved.</p></div> : null}
+        {referralCode ? <div className="application-status"><strong>Referral code saved: {referralCode}</strong><p>It will be offered at checkout for an eligible order from ₦5,000. The code is checked before your KYC-verified Pay on Delivery order is saved.</p></div> : null}
         <div className="shop-results">
           <p className="result-count"><SlidersHorizontal size={12} style={{ display: "inline", marginRight: 5 }} />{products.length} {products.length === 1 ? "find" : "finds"} in view</p>
           {products.length > 0 ? <div className="product-grid">{products.map(product => <ProductCard key={product.id} product={product} />)}</div> : (

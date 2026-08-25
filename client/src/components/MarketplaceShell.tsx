@@ -32,7 +32,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
       <div className="announcement-bar">
         <span>Fresh finds for African products</span>
         <span className="announcement-dot" aria-hidden="true" />
-        <span><strong>Pay on Delivery</strong> available at checkout</span>
+        <span><strong>Pay on Delivery</strong> available after KYC verification</span>
       </div>
       <header className="site-header">
         <div className="header-main">
@@ -75,7 +75,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
           <Link href="/sell">Sell on Alpha Collective</Link>
           <a href={WHATSAPP_SUPPORT_URL} target="_blank" rel="noreferrer">WhatsApp support</a>
         </div>
-        <p className="footer-note">Pay on Delivery keeps checkout simple. Online payment options will be available once secure gateway processing is enabled.</p>
+        <p className="footer-note">Pay on Delivery is available to KYC-verified buyers. Online payment options will be available once secure gateway processing is enabled.</p>
       </footer>
     </div>
   );

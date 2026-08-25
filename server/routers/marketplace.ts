@@ -16,15 +16,18 @@ import { formatNigerianDeliveryAddress, isNigerianLga, isNigerianState } from ".
 import {
   createOrder,
   createReferralShare,
+  createWithdrawalOtpChallenge,
   createWalletEscrowOrder,
   createVendorApplication,
   createVendorProduct,
+  ensureKycProfileForUser,
   createPendingWalletWithdrawal,
   createWalletFundingAttempt,
   ensureWalletForUser,
   failWalletWithdrawalBeforeTransfer,
   getReferralShareByCode,
   getReferralShareByRewardCode,
+  getKycProfileForUser,
   getVendorApplicationForUser,
   getVendorProductForApplication,
   getWalletBankRecipientForUser,
@@ -45,6 +48,7 @@ import {
   releaseWalletEscrowOrder,
   resetWalletPinFailures,
   saveWalletBankRecipient,
+  submitKycGovernmentId,
   updateVendorProductStatus,
   updateVendorDraftProduct,
   updateWalletPin,
@@ -52,6 +56,9 @@ import {
 import { storagePut } from "../storage";
 import { adminProcedure, protectedProcedure, publicProcedure, router } from "../_core/trpc";
 import { hashTransactionPin, validateTransactionPin, verifyTransactionPin } from "../walletSecurity";
+import { generateWithdrawalOtp, hashWithdrawalOtp } from "../withdrawalOtpSecurity";
+import { sanitizePlainText } from "../securityText";
+import { isWithdrawalOtpEmailDeliveryConfigured } from "../withdrawalOtpEmail";
 import {
   PaystackProviderError,
   createPaystackTransferRecipient,
@@ -77,9 +84,9 @@ const walletAmountSchema = z.number().int().min(100, "Enter at least ₦100.").m
 const paystackFundingReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
 const paystackWithdrawalReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
 const walletCheckoutInputSchema = z.object({
-  buyerName: z.string().trim().min(2).max(120),
+  buyerName: z.string().trim().min(2).max(120).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid buyer name."),
   buyerPhone: z.string().trim().min(7).max(32),
-  deliveryAddress: z.object({ country: z.literal("Nigeria"), state: z.string().trim().min(2).max(80), lga: z.string().trim().min(2).max(120), streetDetails: z.string().trim().min(8).max(350) }),
+  deliveryAddress: z.object({ country: z.literal("Nigeria"), state: z.string().trim().min(2).max(80).transform(sanitizePlainText), lga: z.string().trim().min(2).max(120).transform(sanitizePlainText), streetDetails: z.string().trim().min(8).max(350).transform(sanitizePlainText).refine(value => value.length >= 8, "Enter valid street details.") }),
   packageWeightKg: z.number().positive().max(5000),
   deliveryTier: z.enum(DELIVERY_SERVICE_TIERS),
   items: z.array(cartLineSchema).min(1).max(12),
@@ -115,9 +122,9 @@ async function authorizeWalletPin(userId: number, pin: string) {
     return wallet;
   }
   const failedAttempts = wallet.pinFailedAttempts + 1;
-  const lockedUntil = failedAttempts >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
+  const lockedUntil = failedAttempts >= 3 ? new Date(Date.now() + 15 * 60 * 1000) : null;
   await recordWalletPinFailure(userId, failedAttempts, lockedUntil);
-  throw new TRPCError({ code: "UNAUTHORIZED", message: lockedUntil ? "Wallet PIN is locked for 15 minutes after repeated failed attempts." : "Incorrect transaction PIN." });
+  throw new TRPCError({ code: lockedUntil ? "TOO_MANY_REQUESTS" : "UNAUTHORIZED", message: lockedUntil ? "Wallet PIN is locked for 15 minutes after three failed attempts." : "Incorrect transaction PIN." });
 }
 
 function createVendorCatalog(products: Awaited<ReturnType<typeof listApprovedVendorProducts>>): MarketplaceProduct[] {
@@ -143,7 +150,7 @@ function createVendorCatalog(products: Awaited<ReturnType<typeof listApprovedVen
 }
 
 const productImageDataUrlSchema = z.string().max(7_000_000);
-const vendorProductInputSchema = z.object({ title: z.string().trim().min(2).max(180), category: z.enum(MARKETPLACE_CATEGORIES), price: z.number().int().min(500).max(5000000), description: z.string().trim().min(12).max(1200), imageUrls: z.array(z.string().startsWith("/manus-storage/").max(500)).min(1).max(5) });
+const vendorProductInputSchema = z.object({ title: z.string().trim().min(2).max(180).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid product title."), category: z.enum(MARKETPLACE_CATEGORIES), price: z.number().int().min(500).max(5000000), description: z.string().trim().min(12).max(1200).transform(sanitizePlainText).refine(value => value.length >= 12, "Enter a valid product description."), imageUrls: z.array(z.string().startsWith("/manus-storage/").max(500)).min(1).max(5) });
 
 function decodeProductImage(dataUrl: string) {
   const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
@@ -155,6 +162,15 @@ function decodeProductImage(dataUrl: string) {
   }
   const extension = contentType === "image/jpeg" ? "jpg" : contentType.split("/")[1];
   return { contentType, data, extension };
+}
+
+function decodeKycGovernmentId(dataUrl: string) {
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
+  if (!match) throw new TRPCError({ code: "BAD_REQUEST", message: "Upload a JPG, PNG, or WebP government ID image." });
+  const [, contentType, base64] = match;
+  const data = Buffer.from(base64, "base64");
+  if (data.length === 0 || data.length > 5 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "Government ID images must be 5 MB or smaller." });
+  return { contentType, data, extension: contentType === "image/jpeg" ? "jpg" : contentType.split("/")[1] };
 }
 
 export const marketplaceRouter = router({
@@ -182,7 +198,7 @@ export const marketplaceRouter = router({
         availableBalance: wallet.availableBalance,
         escrowBalance: wallet.escrowBalance,
         hasPin: Boolean(wallet.pinHash),
-        recipient: recipient ? { bankName: recipient.bankName, accountNumberMasked: recipient.accountNumberMasked, accountName: recipient.accountName, verifiedAt: recipient.verifiedAt } : null,
+        recipient: recipient ? { bankName: recipient.bankName, accountNumberMasked: recipient.accountNumberMasked, accountName: recipient.accountName, kycBindingStatus: recipient.kycBindingStatus, verifiedAt: recipient.verifiedAt } : null,
         withdrawals: withdrawals.map(request => ({ id: request.id, amount: request.amount, status: request.status, createdAt: request.createdAt })),
         fundingAttempts: fundingAttempts.map(attempt => ({ reference: attempt.reference, amount: attempt.amount, status: attempt.status, createdAt: attempt.createdAt })),
         transactions,
@@ -246,30 +262,18 @@ export const marketplaceRouter = router({
       .input(z.object({ amount: walletAmountSchema, transactionPin: walletPinSchema, confirmed: z.literal(true) }))
       .mutation(async ({ ctx, input }) => {
         const wallet = await authorizeWalletPin(ctx.user.id, input.transactionPin);
+        const vendor = await getVendorApplicationForUser(ctx.user.id);
+        if (!vendor) throw new TRPCError({ code: "FORBIDDEN", message: "Wallet withdrawals are available to KYC-verified vendors only." });
+        const kyc = await getKycProfileForUser(ctx.user.id);
+        if (kyc?.status !== "verified") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Please complete KYC Verification in your dashboard to enable withdrawals." });
         const recipient = await getWalletBankRecipientForUser(ctx.user.id);
         if (!recipient) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Verify your Nigerian bank account before requesting a withdrawal." });
-        const reference = newPaystackWithdrawalReference();
-        let pending;
-        try {
-          pending = await createPendingWalletWithdrawal({ walletId: wallet.id, userId: ctx.user.id, recipientId: recipient.id, amount: input.amount, transferReference: reference });
-        } catch (error) {
-          if (error instanceof Error && error.message === "INSUFFICIENT_WALLET_BALANCE") {
-            throw new TRPCError({ code: "BAD_REQUEST", message: "Your available Alpha Wallet balance is not enough for this withdrawal." });
-          }
-          throw error;
-        }
-        try {
-          const transfer = await initiatePaystackTransfer({ recipientCode: recipient.paystackRecipientCode, reference, amountNaira: input.amount });
-          await markWalletWithdrawalProcessing({ reference, providerTransferCode: transfer.transferCode });
-          return { id: pending.id, reference, status: "processing" as const };
-        } catch (error) {
-          if (isDefinitivePaystackRequestFailure(error)) {
-            await failWalletWithdrawalBeforeTransfer(reference);
-            throw paystackErrorToTrpc(error, "Paystack could not start this withdrawal. Your wallet balance has been restored.");
-          }
-          await markWalletWithdrawalProcessing({ reference, providerTransferCode: "pending-provider-confirmation" });
-          return { id: pending.id, reference, status: "processing" as const, pendingProviderConfirmation: true };
-        }
+        if (recipient.kycBindingStatus !== "locked") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Complete KYC bank-name matching before requesting a withdrawal." });
+        if (wallet.availableBalance < input.amount) throw new TRPCError({ code: "BAD_REQUEST", message: "Your available Alpha Wallet balance is not enough for this withdrawal." });
+        if (!isWithdrawalOtpEmailDeliveryConfigured()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Withdrawal OTP email delivery is not configured yet. No bank transfer has been started." });
+        const otp = generateWithdrawalOtp();
+        const challengeId = await createWithdrawalOtpChallenge({ userId: ctx.user.id, recipientId: recipient.id, amount: input.amount, otpHash: await hashWithdrawalOtp(otp), expiresAt: new Date(Date.now() + 10 * 60 * 1000) });
+        return { challengeId, otpDelivery: "unavailable" as const };
       }),
     checkout: protectedProcedure
       .input(walletCheckoutInputSchema)
@@ -303,6 +307,27 @@ export const marketplaceRouter = router({
           throw error;
         }
         return { reference, paymentStatus: "wallet_escrow" as const, subtotal, deliveryFee: deliveryQuote.deliveryFee, total, deliveryQuote };
+      }),
+  }),
+  kyc: router({
+    status: protectedProcedure.query(async ({ ctx }) => {
+      const [profile, vendor] = await Promise.all([ensureKycProfileForUser(ctx.user.id), getVendorApplicationForUser(ctx.user.id)]);
+      return {
+        status: profile.status,
+        submittedLegalName: profile.submittedLegalName,
+        verifiedLegalName: profile.verifiedLegalName,
+        hasGovernmentId: Boolean(profile.governmentIdImageUrl),
+        vendorKycRequired: Boolean(vendor),
+        failureReason: profile.failureReason,
+      };
+    }),
+    submitGovernmentId: protectedProcedure
+      .input(z.object({ legalName: z.string().trim().min(3).max(160), imageDataUrl: z.string().max(7_000_000) }))
+      .mutation(async ({ ctx, input }) => {
+        const { contentType, data, extension } = decodeKycGovernmentId(input.imageDataUrl);
+        const uploaded = await storagePut(`kyc-private/${ctx.user.id}/${Date.now()}.${extension}`, data, contentType);
+        const profile = await submitKycGovernmentId({ userId: ctx.user.id, submittedLegalName: input.legalName, governmentIdImageUrl: uploaded.url });
+        return { status: profile?.status ?? "identity_pending", message: "Your ID was securely submitted. Smile ID verification will begin only after the provider is configured." };
       }),
   }),
   admin: router({
@@ -344,15 +369,15 @@ export const marketplaceRouter = router({
     }));
   }),
 
-  submitOrder: publicProcedure
+  submitOrder: protectedProcedure
     .input(z.object({
-      buyerName: z.string().trim().min(2).max(120),
+      buyerName: z.string().trim().min(2).max(120).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid buyer name."),
       buyerPhone: z.string().trim().min(7).max(32),
       deliveryAddress: z.object({
         country: z.literal("Nigeria"),
-        state: z.string().trim().min(2).max(80),
-        lga: z.string().trim().min(2).max(120),
-        streetDetails: z.string().trim().min(8).max(350),
+        state: z.string().trim().min(2).max(80).transform(sanitizePlainText),
+        lga: z.string().trim().min(2).max(120).transform(sanitizePlainText),
+        streetDetails: z.string().trim().min(8).max(350).transform(sanitizePlainText).refine(value => value.length >= 8, "Enter valid street details."),
       }),
       packageWeightKg: z.number().positive().max(5000),
       deliveryTier: z.enum(DELIVERY_SERVICE_TIERS),
@@ -379,10 +404,12 @@ export const marketplaceRouter = router({
       let discountType: "none" | "referral" | "reward" = "none";
       let discount = 0;
 
+      const kyc = await getKycProfileForUser(ctx.user.id);
+      if (kyc?.status !== "verified") {
+        throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Complete KYC Verification before confirming a Pay on Delivery order." });
+      }
+
       if (input.referralCode) {
-        if (!ctx.user) {
-          throw new TRPCError({ code: "UNAUTHORIZED", message: "Sign in to redeem a referral or earned reward code." });
-        }
         if (!qualifiesForReferralDiscount(subtotal)) {
           throw new TRPCError({ code: "BAD_REQUEST", message: `Discount codes apply to orders from ₦${REFERRAL_MINIMUM_SUBTOTAL.toLocaleString("en-NG")}.` });
         }
@@ -416,7 +443,7 @@ export const marketplaceRouter = router({
       const total = subtotal - discount + deliveryQuote.deliveryFee;
       await createOrder({
         reference,
-        buyerUserId: ctx.user?.id,
+        buyerUserId: ctx.user.id,
         buyerName: input.buyerName,
         buyerPhone: input.buyerPhone,
         deliveryAddress: formatNigerianDeliveryAddress(input.deliveryAddress),
@@ -432,19 +459,19 @@ export const marketplaceRouter = router({
       });
 
       if (discountType === "referral" && appliedCode) await qualifyReferralShare(appliedCode, reference, newRewardCode());
-      if (discountType === "reward" && appliedCode && ctx.user) await redeemReferralReward(appliedCode, ctx.user.id);
+      if (discountType === "reward" && appliedCode) await redeemReferralReward(appliedCode, ctx.user.id);
       return { reference, paymentStatus: "cod_pending" as const, subtotal, discount, deliveryFee: deliveryQuote.deliveryFee, total, deliveryQuote };
     }),
 
   vendor: router({
     dashboard: protectedProcedure.query(async ({ ctx }) => {
-      const application = await getVendorApplicationForUser(ctx.user.id);
+      const [application, kyc] = await Promise.all([getVendorApplicationForUser(ctx.user.id), ensureKycProfileForUser(ctx.user.id)]);
       if (!application) return { application: null, products: [] };
       const products = await listVendorProducts(application.id);
-      return { application, products };
+      return { application, products, kyc: { status: kyc.status, hasGovernmentId: Boolean(kyc.governmentIdImageUrl) } };
     }),
     submitApplication: protectedProcedure
-      .input(z.object({ name: z.string().trim().min(2).max(120), storeName: z.string().trim().min(2).max(160), whatsapp: z.string().trim().min(7).max(32), category: z.enum(MARKETPLACE_CATEGORIES) }))
+      .input(z.object({ name: z.string().trim().min(2).max(120).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid name."), storeName: z.string().trim().min(2).max(160).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid store name."), whatsapp: z.string().trim().min(7).max(32), category: z.enum(MARKETPLACE_CATEGORIES) }))
       .mutation(async ({ ctx, input }) => {
         const existing = await getVendorApplicationForUser(ctx.user.id);
         if (existing) return { application: existing, alreadySubmitted: true };

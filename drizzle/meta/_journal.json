@@ -71,6 +71,13 @@
       "when": 1787610854549,
       "tag": "0009_modern_jubilee",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "5",
+      "when": 1787618814091,
+      "tag": "0010_strange_skullbuster",
+      "breakpoints": true
     }
   ]
 }

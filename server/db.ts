@@ -8,6 +8,7 @@ import {
   type InsertVendorProduct,
   type InsertWalletTransaction,
   escrowAllocations,
+  kycProfiles,
   orders,
   referralShares,
   users,
@@ -17,6 +18,7 @@ import {
   walletFundingAttempts,
   walletTransactions,
   wallets,
+  withdrawalOtpChallenges,
   withdrawalRequests,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
@@ -124,6 +126,48 @@ export async function getWalletBankRecipientForUser(userId: number) {
   return result[0];
 }
 
+export async function getKycProfileForUser(userId: number) {
+  const db = await requireDb();
+  const result = await db.select().from(kycProfiles).where(eq(kycProfiles.userId, userId)).limit(1);
+  return result[0];
+}
+
+export async function ensureKycProfileForUser(userId: number) {
+  const db = await requireDb();
+  await db.insert(kycProfiles).values({ userId }).onDuplicateKeyUpdate({ set: { userId: sql`${kycProfiles.userId}` } });
+  const profile = await getKycProfileForUser(userId);
+  if (!profile) throw new Error("KYC profile provisioning failed.");
+  return profile;
+}
+
+export async function submitKycGovernmentId(input: { userId: number; submittedLegalName: string; governmentIdImageUrl: string }) {
+  const db = await requireDb();
+  await db.insert(kycProfiles).values({
+    userId: input.userId,
+    submittedLegalName: input.submittedLegalName,
+    governmentIdImageUrl: input.governmentIdImageUrl,
+    status: "identity_pending",
+    failureReason: null,
+  }).onDuplicateKeyUpdate({ set: {
+    submittedLegalName: input.submittedLegalName,
+    governmentIdImageUrl: input.governmentIdImageUrl,
+    status: "identity_pending",
+    failureReason: null,
+    verifiedLegalName: null,
+    identityVerifiedAt: null,
+    bankVerifiedAt: null,
+  } });
+  return getKycProfileForUser(input.userId);
+}
+
+export async function lockKycVerifiedBankRecipient(input: { userId: number; recipientId: number; verifiedLegalName: string }) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    await tx.update(walletBankRecipients).set({ kycBindingStatus: "locked" }).where(and(eq(walletBankRecipients.id, input.recipientId), eq(walletBankRecipients.userId, input.userId)));
+    await tx.update(kycProfiles).set({ status: "verified", verifiedLegalName: input.verifiedLegalName, identityVerifiedAt: new Date(), bankVerifiedAt: new Date(), failureReason: null }).where(eq(kycProfiles.userId, input.userId));
+  });
+}
+
 export async function saveWalletBankRecipient(input: {
   userId: number;
   bankCode: string;
@@ -133,14 +177,28 @@ export async function saveWalletBankRecipient(input: {
   paystackRecipientCode: string;
 }) {
   const db = await requireDb();
+  const existing = await getWalletBankRecipientForUser(input.userId);
+  if (existing?.kycBindingStatus === "locked") throw new Error("KYC_LOCKED_BANK_RECIPIENT");
   await db.insert(walletBankRecipients).values(input).onDuplicateKeyUpdate({ set: {
     bankCode: input.bankCode,
     bankName: input.bankName,
     accountNumberMasked: input.accountNumberMasked,
     accountName: input.accountName,
     paystackRecipientCode: input.paystackRecipientCode,
+    kycBindingStatus: "unverified",
     verifiedAt: new Date(),
   } });
+}
+
+export async function createWithdrawalOtpChallenge(input: { userId: number; recipientId: number; amount: number; otpHash: string; expiresAt: Date }) {
+  const db = await requireDb();
+  const result = await db.insert(withdrawalOtpChallenges).values({ ...input, status: "pending_delivery" });
+  return Number(result[0].insertId);
+}
+
+export async function markWithdrawalOtpChallengeDelivered(id: number) {
+  const db = await requireDb();
+  await db.update(withdrawalOtpChallenges).set({ status: "delivered" }).where(and(eq(withdrawalOtpChallenges.id, id), eq(withdrawalOtpChallenges.status, "pending_delivery")));
 }
 
 export async function listWalletFundingAttemptsForUser(userId: number) {
