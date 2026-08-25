@@ -96,7 +96,7 @@
 - [x] Inspect the reported CJ SKU lookup failure, current response adapter, and importer error evidence
 - [x] Harden valid CJ SKU/SPU matching and actionable administrator error handling without exposing supplier details
 - [x] Add regression coverage for the reported CJ identifier shape and verify no supplier order path is called
-- [ ] Revalidate the protected administrator import workflow and save a checkpoint
+- [x] Revalidate the protected administrator import workflow and save a checkpoint
 - [x] Add a read-only CJ product-list fallback for identifiers the V2 catalogue search does not return, while retaining draft-only import and no-order safeguards
 - [x] Cover the fallback with a regression test and verify the reported CJ identifier again
 - [x] Run a final read-only diagnostic against CJ-supported identifier lookup routes for the reported code and record the outcome without creating an order
@@ -112,7 +112,7 @@
 - [x] Audit CJ supplier-price field variations and current hidden sourcing contract assumptions
 - [x] Parse valid numeric CJ price formats safely and allow a draft import with blank supplier cost when CJ provides no trustworthy single amount
 - [x] Keep mandatory manual Naira retail-price validation and show an administrator-only review notice for unresolved CJ cost
-- [ ] Add comprehensive CJ price-format coverage, validate multiple draft imports, and save a checkpoint
+- [x] Add comprehensive CJ price-format coverage, validate multiple draft imports, and save a checkpoint
 - [x] Create a compact wolf-logo asset from the supplied Alpha identity for navigation and footer use
 - [x] Rename Phones to Gadgets and add Vehicles, Home & Furniture, and Animals & Pets to marketplace categories
 - [x] Update the brand lockup, homepage category discovery, shop filters, and seller categories for the expanded catalogue
