@@ -20,11 +20,13 @@ describe("Alpha Market public legal and cookie experience", () => {
     expect(cookieSource).toContain('Alpha Market');
   });
 
-  it("retains the legal parent and required KYC, dropshipping, escrow, and crypto clauses", () => {
+  it("retains the legal parent and required KYC, dropshipping, escrow, and crypto clauses without draft wording", () => {
     expect(legalSource).toContain('Alpha Collective Corporation');
     expect(legalSource).toContain('Smile ID');
-    expect(legalSource).toContain('dropshipping fulfilment');
-    expect(legalSource).toContain('buyer confirms receipt');
-    expect(legalSource).toContain('not withdrawable to a fiat bank account');
+    expect(legalSource).toContain('dropshipping or logistics partners');
+    expect(legalSource).toContain('buyer may confirm receipt');
+    expect(legalSource).toContain('non-withdrawable shopping balance');
+    expect(legalSource).not.toContain('Draft for legal review');
+    expect(legalSource).not.toContain('Pi Network');
   });
 });

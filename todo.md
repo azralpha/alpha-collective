@@ -237,3 +237,7 @@
 - [x] Add a persistent, accessible Alpha Market cookie-consent banner with Terms of Use and Privacy Policy links
 - [x] Create responsive Terms of Use and Privacy Policy routes that name Alpha Collective Corporation as the legal entity and disclose KYC, dropshipping, local-vendor escrow, crypto address, and non-withdrawable crypto-credit practices
 - [x] Add route, cookie-consent, and branding regression tests; complete desktop/mobile checks and save a checkpoint
+
+- [x] Review the supplied legal Terms and Privacy text, removing inactive Pi, invented infrastructure, and unsupported live-payment assertions while preserving approved legal clauses
+- [x] Replace the standard legal-page copy with the supplied Alpha Market terms and privacy structure, remove draft language, and retain accurate KYC, escrow, dropshipping, NOWPayments, and crypto-credit disclosures
+- [x] Revalidate legal-route content and responsive presentation, then save a standardized legal-page checkpoint
