@@ -4,7 +4,7 @@ type CjTokenResponse = { code?: number; result?: boolean; message?: string; data
 type CjOrderResponse = { code?: number; result?: boolean; success?: boolean; message?: string; requestId?: string; data?: { orderId?: string; orderNumber?: string } };
 type CjProductListResponse = { code?: number; result?: boolean; message?: string; data?: { content?: Array<{ productList?: Array<{ id?: string; sku?: string; spu?: string; nameEn?: string; productNameEn?: string; bigImage?: string; productImage?: string; description?: string; sellPrice?: string | number; nowPrice?: string | number; discountPrice?: string | number }> }> } };
 type CjProductFallbackResponse = { code?: number; result?: boolean; message?: string; data?: { list?: Array<{ pid?: string; productSku?: string; productNameEn?: string; productImage?: string; sellPrice?: string | number }> } };
-type CjProductVariant = { vid?: string; variantSku?: string; variantSellPrice?: string | number; inventories?: Array<{ countryCode?: string; totalInventory?: number | string; cjInventory?: number | string; factoryInventory?: number | string }> };
+type CjProductVariant = { vid?: string; variantSku?: string; variantSellPrice?: string | number; inventoryNum?: number | string; inventories?: Array<{ countryCode?: string; totalInventory?: number | string; cjInventory?: number | string; factoryInventory?: number | string }> };
 type CjProductQueryResponse = { code?: number; result?: boolean; message?: string; data?: { pid?: string; productSku?: string; sellPrice?: string | number; variants?: CjProductVariant[] } };
 type CjFreightResponse = { code?: number; result?: boolean; message?: string; data?: Array<{ logisticPrice?: string | number; totalPostageFee?: string | number }> };
 
@@ -102,23 +102,54 @@ type CjAvailableVariant = {
   vid: string;
   variantSku: string;
   inventoryCountryCode: string;
-  inventoryQuantity: number;
+  inventoryQuantity: number | null;
+  inventoryKnown: boolean;
   variantSellPrice?: string | number;
 };
 
-function selectCjAvailableVariant(variants: CjProductVariant[] | undefined, preferredVariantId?: string | null) {
+function firstReportedInventory(...values: Array<string | number | undefined>) {
+  for (const value of values) {
+    const quantity = parseCjInventory(value);
+    if (quantity !== null) return quantity;
+  }
+  return null;
+}
+
+/**
+ * CJ product/query sometimes returns variant rows before its warehouse stock blocks
+ * are populated. Missing inventory is therefore unknown, not proof of zero stock.
+ * A confirmed zero remains unavailable; an unknown variant can be drafted, but starts
+ * with public stock zero and a stale snapshot until a later inventory refresh succeeds.
+ */
+function selectCjAvailableVariant(variants: CjProductVariant[] | undefined, preferredVariantId?: string | null, preferredVariantSku?: string | null) {
   const candidates: CjAvailableVariant[] = [];
   for (const variant of variants ?? []) {
     if (!variant.vid || !variant.variantSku) continue;
-    for (const inventory of variant.inventories ?? []) {
-      const quantity = parseCjInventory(inventory.totalInventory) ?? ((parseCjInventory(inventory.cjInventory) ?? 0) + (parseCjInventory(inventory.factoryInventory) ?? 0));
-      const country = inventory.countryCode?.trim().toUpperCase();
-      if (!country || quantity <= 0) continue;
-      candidates.push({ vid: variant.vid, variantSku: variant.variantSku.trim().toUpperCase(), inventoryCountryCode: country, inventoryQuantity: quantity, variantSellPrice: variant.variantSellPrice });
+    const inventoryRows = variant.inventories ?? [];
+    const usableRows = inventoryRows.map(inventory => ({
+      country: inventory.countryCode?.trim().toUpperCase() || "CN",
+      quantity: firstReportedInventory(inventory.totalInventory, inventory.cjInventory, inventory.factoryInventory),
+    })).filter((inventory): inventory is { country: string; quantity: number } => inventory.quantity !== null);
+    if (usableRows.length) {
+      for (const inventory of usableRows) candidates.push({ vid: variant.vid, variantSku: variant.variantSku.trim().toUpperCase(), inventoryCountryCode: inventory.country, inventoryQuantity: inventory.quantity, inventoryKnown: true, variantSellPrice: variant.variantSellPrice });
+    } else {
+      const aggregateQuantity = parseCjInventory(variant.inventoryNum);
+      candidates.push({ vid: variant.vid, variantSku: variant.variantSku.trim().toUpperCase(), inventoryCountryCode: "CN", inventoryQuantity: aggregateQuantity, inventoryKnown: aggregateQuantity !== null, variantSellPrice: variant.variantSellPrice });
     }
   }
-  const preferred = preferredVariantId ? candidates.find(candidate => candidate.vid === preferredVariantId) : undefined;
-  return preferredVariantId ? preferred ?? null : candidates.sort((left, right) => right.inventoryQuantity - left.inventoryQuantity)[0] ?? null;
+  const chooseFrom = (pool: CjAvailableVariant[]) => {
+    const available = pool.filter(candidate => candidate.inventoryQuantity !== null && candidate.inventoryQuantity > 0).sort((left, right) => (right.inventoryQuantity ?? 0) - (left.inventoryQuantity ?? 0))[0];
+    if (available) return available;
+    const unknown = pool.find(candidate => !candidate.inventoryKnown);
+    return unknown ?? null;
+  };
+  const normalizedPreferredSku = preferredVariantSku?.trim().toUpperCase();
+  if (normalizedPreferredSku) {
+    const exactSubmittedVariant = candidates.filter(candidate => candidate.variantSku === normalizedPreferredSku);
+    if (exactSubmittedVariant.length) return chooseFrom(exactSubmittedVariant);
+  }
+  if (preferredVariantId) return chooseFrom(candidates.filter(candidate => candidate.vid === preferredVariantId));
+  return chooseFrom(candidates);
 }
 
 async function queryCjProductDetail(token: string, productSku: string) {
@@ -166,7 +197,7 @@ export async function fetchCjProductForMassImport(sku: string, destinationCountr
   const imported = await fetchCjProductForImport(sku);
   const token = await accessToken();
   const detail = await queryCjProductDetail(token, imported.sku);
-  const selected = selectCjAvailableVariant(detail.variants);
+  const selected = selectCjAvailableVariant(detail.variants, undefined, sku);
   if (!selected) throw new CjDropshippingError("CJ reports this product as out of stock, so no draft was created.", 422, false);
 
   const freight = await cjFetch<CjFreightResponse>("/logistic/freightCalculate", {
@@ -185,7 +216,8 @@ export async function fetchCjProductForMassImport(sku: string, destinationCountr
     sku: selected.variantSku,
     externalProductId: detail.pid,
     externalVariantId: selected.vid,
-    stockQuantity: selected.inventoryQuantity,
+    stockQuantity: selected.inventoryQuantity ?? 0,
+    inventoryKnown: selected.inventoryKnown,
     inventoryCountryCode: selected.inventoryCountryCode,
     supplierProductCost,
     supplierShippingCost,

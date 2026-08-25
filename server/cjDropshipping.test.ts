@@ -128,6 +128,21 @@ describe("CJ Dropshipping adapter", () => {
     expect(fetchMock.mock.calls.map(call => String(call[0])).join(" ")).not.toContain("createOrder");
   });
 
+  it("creates an unpublished mass-import draft when CJ returns a matching variant but omits warehouse inventory detail", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { content: [{ productList: [{ sku: "CJBASE1234", nameEn: "Inventory Pending Product", sellPrice: "11.00", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/pending.png", description: "<p>Inventory pending supplier product.</p>" }] }] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { pid: "cj-product-id", sellPrice: 11, variants: [{ vid: "cj-variant-id", variantSku: "CJBASE123408HS", variantSellPrice: 11, inventories: [] }] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: [{ logisticPrice: 3.5 }] }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductForMassImport } = await import("./cjDropshipping");
+
+    await expect(fetchCjProductForMassImport("CJBASE123408HS")).resolves.toMatchObject({ sku: "CJBASE123408HS", externalVariantId: "cj-variant-id", stockQuantity: 0, inventoryKnown: false, inventoryCountryCode: "CN", supplierCost: 14.5 });
+    expect(JSON.parse(fetchMock.mock.calls[3]?.[1].body)).toEqual({ startCountryCode: "CN", endCountryCode: "NG", products: [{ quantity: 1, vid: "cj-variant-id" }] });
+    expect(fetchMock.mock.calls.map(call => String(call[0])).join(" ")).not.toContain("createOrder");
+  });
+
   it("returns a zero stock snapshot when CJ no longer reports the mapped variant as available", async () => {
     process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
     const fetchMock = vi.fn()

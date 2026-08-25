@@ -241,3 +241,7 @@
 - [x] Review the supplied legal Terms and Privacy text, removing inactive Pi, invented infrastructure, and unsupported live-payment assertions while preserving approved legal clauses
 - [x] Replace the standard legal-page copy with the supplied Alpha Market terms and privacy structure, remove draft language, and retain accurate KYC, escrow, dropshipping, NOWPayments, and crypto-credit disclosures
 - [x] Revalidate legal-route content and responsive presentation, then save a standardized legal-page checkpoint
+
+- [x] Compare reported CJ batch SKU stock results against the successful single-SKU importer without creating a supplier order
+- [x] Correct the mass-import stock-resolution logic so unambiguously available CJ products create unpublished drafts and genuinely unavailable products remain blocked
+- [x] Add reported-SKU-shaped regression coverage, validate batch progress messaging, and save a checkpoint
