@@ -14,6 +14,7 @@ import Sell from "@/pages/Sell";
 import Shop from "@/pages/Shop";
 import VendorDashboard from "@/pages/VendorDashboard";
 import Wallet from "@/pages/Wallet";
+import Rewards from "@/pages/Rewards";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { CartProvider } from "./contexts/CartContext";
@@ -30,6 +31,7 @@ function Router() {
       <Route path="/sell" component={Sell} />
       <Route path="/vendor/dashboard" component={VendorDashboard} />
       <Route path="/wallet" component={Wallet} />
+      <Route path="/rewards" component={Rewards} />
       <Route path="/kyc" component={KycVerification} />
       <Route path="/admin/products" component={AdminProductReview} />
       <Route path="/admin/wallet-orders" component={AdminWalletOrders} />

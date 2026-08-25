@@ -149,6 +149,74 @@ export const bonusRewardHolds = mysqlTable("bonusRewardHolds", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+/** Idempotent non-withdrawable grants that are not tied to a buyer order reward hold. */
+export const rewardGrants = mysqlTable("rewardGrants", {
+  id: int("id").autoincrement().primaryKey(),
+  walletId: int("walletId").notNull(),
+  userId: int("userId").notNull(),
+  type: mysqlEnum("type", ["kyc_completion", "vendor_dispatch", "vendor_leaderboard"]).notNull(),
+  amount: int("amount").notNull(),
+  status: mysqlEnum("status", ["pending", "released", "cancelled", "voided"]).notNull().default("pending"),
+  sourceOrderReference: varchar("sourceOrderReference", { length: 40 }),
+  rewardMonth: varchar("rewardMonth", { length: 7 }),
+  releaseAt: timestamp("releaseAt"),
+  releasedAt: timestamp("releasedAt"),
+  cancelledAt: timestamp("cancelledAt"),
+  idempotencyKey: varchar("idempotencyKey", { length: 140 }).notNull().unique(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+/** One free-delivery redemption earned after qualifying calendar-month buyer spend. */
+export const freeDeliveryVouchers = mysqlTable("freeDeliveryVouchers", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  earnedMonth: varchar("earnedMonth", { length: 7 }).notNull(),
+  status: mysqlEnum("status", ["active", "redeemed", "cancelled", "expired"]).notNull().default("active"),
+  earnedOrderReference: varchar("earnedOrderReference", { length: 40 }).notNull(),
+  redeemedOrderReference: varchar("redeemedOrderReference", { length: 40 }),
+  idempotencyKey: varchar("idempotencyKey", { length: 140 }).notNull().unique(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  redeemedAt: timestamp("redeemedAt"),
+});
+
+/** Public seller reward state, derived only from verified marketplace delivery events. */
+export const vendorRewardProfiles = mysqlTable("vendorRewardProfiles", {
+  id: int("id").autoincrement().primaryKey(),
+  vendorUserId: int("vendorUserId").notNull().unique(),
+  hasLightningSellerBadge: int("hasLightningSellerBadge").notNull().default(0),
+  lightningBadgeAwardedAt: timestamp("lightningBadgeAwardedAt"),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Verified logistics hand-over records; never inferred from a buyer claim. */
+export const vendorDispatchEvents = mysqlTable("vendorDispatchEvents", {
+  id: int("id").autoincrement().primaryKey(),
+  orderReference: varchar("orderReference", { length: 40 }).notNull(),
+  vendorUserId: int("vendorUserId").notNull(),
+  dispatchedAt: timestamp("dispatchedAt").notNull(),
+  onTime: int("onTime").notNull().default(0),
+  idempotencyKey: varchar("idempotencyKey", { length: 140 }).notNull().unique(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+/** Month-scoped zero-commission status for a qualifying approved vendor. */
+export const vendorCommissionOverrides = mysqlTable("vendorCommissionOverrides", {
+  id: int("id").autoincrement().primaryKey(),
+  vendorUserId: int("vendorUserId").notNull(),
+  rewardMonth: varchar("rewardMonth", { length: 7 }).notNull(),
+  commissionRate: int("commissionRate").notNull().default(0),
+  qualifyingDeliveries: int("qualifyingDeliveries").notNull(),
+  idempotencyKey: varchar("idempotencyKey", { length: 140 }).notNull().unique(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+/** Project-owned recurring reward-job identifiers. Jobs are created only after publication. */
+export const rewardsAutomationSettings = mysqlTable("rewardsAutomationSettings", {
+  id: int("id").primaryKey(),
+  monthlyVendorRewardsScheduleTaskUid: varchar("monthlyVendorRewardsScheduleTaskUid", { length: 65 }),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export const escrowAllocations = mysqlTable("escrowAllocations", {
   id: int("id").autoincrement().primaryKey(),
   orderReference: varchar("orderReference", { length: 40 }).notNull(),

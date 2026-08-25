@@ -72,6 +72,15 @@
 - [x] Update wallet and referral interfaces to show total, withdrawable, shopping bonus, and pending reward balances clearly
 - [x] Revalidate signed-in wallet and administrator reward interfaces, then save a checkpoint after focused test coverage passes
 - [x] Add a persistent on-device hide-and-reveal control for all wallet balance amounts and validate the privacy state
+
+- [x] Audit current reward, delivery, KYC, vendor, checkout, and marketplace-navigation flows for a dedicated Rewards dashboard
+- [x] Add idempotent persistence for KYC rewards, delivery vouchers, badge state, commission overrides, and dynamically calculated approved-vendor monthly reward metrics
+- [x] Credit a 2% pending Shopping Bonus after eligible delivery and expose free-delivery progress and one-time voucher redemption without reducing withdrawable cash
+- [x] Add one-time verified-KYC reward eligibility while deferring live Smile ID credit until its secure callback activation is available
+- [x] Preserve the 0% Launch Promo in live vendor allocations while layering the monthly commission override, add regression coverage, and revalidate
+- [x] Build the authenticated /rewards dashboard with Buyer Rewards and Vendor Rewards tabs and add clear navigation from the marketplace shell
+- [x] Prepare project-owned schedule handlers for monthly vendor reward evaluation and deferred pending-reward release without creating jobs before publication
+- [x] Re-run focused tests and save a checkpoint after public badge and live commission-override validation
 - [x] Create a compact wolf-logo asset from the supplied Alpha identity for navigation and footer use
 - [x] Rename Phones to Gadgets and add Vehicles, Home & Furniture, and Animals & Pets to marketplace categories
 - [x] Update the brand lockup, homepage category discovery, shop filters, and seller categories for the expanded catalogue

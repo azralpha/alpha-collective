@@ -9,6 +9,7 @@ import {
   type InsertWalletTransaction,
   bonusRewardHolds,
   escrowAllocations,
+  freeDeliveryVouchers,
   kycProfiles,
   fulfilmentIntegrations,
   fulfilmentJobs,
@@ -18,10 +19,15 @@ import {
   referralFraudChecks,
   referralRewardSettings,
   referralShares,
+  rewardGrants,
+  rewardsAutomationSettings,
   userSecuritySignals,
   users,
   vendorApplications,
+  vendorCommissionOverrides,
+  vendorDispatchEvents,
   vendorProducts,
+  vendorRewardProfiles,
   walletBankRecipients,
   walletFundingAttempts,
   walletTransactions,
@@ -105,10 +111,33 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
-export async function createOrder(order: InsertOrder) {
+export async function createOrder(order: InsertOrder, freeDeliveryVoucherId?: number) {
   const db = await requireDb();
-  await db.insert(orders).values(order);
+  await db.transaction(async tx => {
+    if (freeDeliveryVoucherId) {
+      const claim = await tx.update(freeDeliveryVouchers).set({ status: "redeemed", redeemedAt: new Date(), redeemedOrderReference: order.reference }).where(and(eq(freeDeliveryVouchers.id, freeDeliveryVoucherId), eq(freeDeliveryVouchers.userId, order.buyerUserId ?? -1), eq(freeDeliveryVouchers.status, "active")));
+      if (affectedRows(claim) !== 1) throw new Error("That free-delivery voucher is no longer available.");
+    }
+    await tx.insert(orders).values(order);
+  });
   return order.reference;
+}
+
+export const CASHBACK_RATE = 0.02;
+export const FREE_DELIVERY_MONTHLY_THRESHOLD = 50_000;
+export const KYC_COMPLETION_BONUS = 500;
+export const LIGHTNING_SELLER_BONUS = 250;
+export const LEADERBOARD_BONUSES = [5_000, 3_000, 2_000, 1_500, 1_000] as const;
+
+export function rewardMonthKey(date = new Date()) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function rewardMonthRange(month = rewardMonthKey()) {
+  const [year, rawMonth] = month.split("-").map(Number);
+  const start = new Date(Date.UTC(year, (rawMonth ?? 1) - 1, 1));
+  const end = new Date(Date.UTC(year, rawMonth ?? 1, 1));
+  return { start, end };
 }
 
 export async function getWalletForUser(userId: number) {
@@ -404,6 +433,7 @@ export async function createWalletEscrowOrder(input: {
   order: InsertOrder;
   allocations: WalletEscrowAllocationInput[];
   fulfilmentJobInputs?: FulfilmentJobInput[];
+  freeDeliveryVoucherId?: number;
 }) {
   const db = await requireDb();
   return db.transaction(async tx => {
@@ -428,6 +458,10 @@ export async function createWalletEscrowOrder(input: {
     if (affectedRows(debitResult) !== 1) throw new Error("INSUFFICIENT_WALLET_BALANCE");
 
     await tx.insert(orders).values(input.order);
+    if (input.freeDeliveryVoucherId) {
+      const claim = await tx.update(freeDeliveryVouchers).set({ status: "redeemed", redeemedAt: new Date(), redeemedOrderReference: input.order.reference }).where(and(eq(freeDeliveryVouchers.id, input.freeDeliveryVoucherId), eq(freeDeliveryVouchers.userId, input.buyerUserId), eq(freeDeliveryVouchers.status, "active")));
+      if (affectedRows(claim) !== 1) throw new Error("That free-delivery voucher is no longer available.");
+    }
     const walletAfterDebit = await tx.select().from(wallets).where(eq(wallets.id, wallet.id)).limit(1);
     const walletAfter = walletAfterDebit[0];
     if (!walletAfter) throw new Error("Wallet checkout balance could not be loaded.");
@@ -778,8 +812,26 @@ export async function releaseMatureBonusRewards(now = new Date(), limit = 100) {
       if (hold.referralShareId) await tx.update(referralShares).set({ status: "rewarded", rewardStatus: "released" }).where(eq(referralShares.id, hold.referralShareId));
       released += 1;
     }
+    const grants = await tx.select().from(rewardGrants).where(and(eq(rewardGrants.status, "pending"), lte(rewardGrants.releaseAt, now))).orderBy(rewardGrants.releaseAt).limit(Math.max(0, limit - released));
+    for (const grant of grants) {
+      const claimed = await tx.update(rewardGrants).set({ status: "released", releasedAt: now }).where(and(eq(rewardGrants.id, grant.id), eq(rewardGrants.status, "pending")));
+      if (affectedRows(claimed) !== 1) continue;
+      await tx.update(wallets).set({ bonusBalance: sql`${wallets.bonusBalance} + ${grant.amount}` }).where(eq(wallets.id, grant.walletId));
+      const wallet = (await tx.select().from(wallets).where(eq(wallets.id, grant.walletId)).limit(1))[0];
+      if (!wallet) throw new Error("Vendor reward wallet was not found.");
+      await tx.insert(walletTransactions).values({ walletId: grant.walletId, userId: grant.userId, type: "reward_bonus", direction: "in", status: "released", amount: grant.amount, balanceBucket: "bonus", balanceAfter: wallet.bonusBalance, reference: `reward-grant-${grant.id}`, idempotencyKey: `reward-grant-release-${grant.id}`, orderReference: grant.sourceOrderReference ?? undefined, description: `${grant.type === "vendor_leaderboard" ? "Leaderboard" : grant.type === "vendor_dispatch" ? "Lightning Seller" : "KYC"} shopping bonus released` });
+      released += 1;
+    }
     return { released };
   });
+}
+
+export async function getRewardsAutomationSettings() {
+  const db = await requireDb();
+  await db.insert(rewardsAutomationSettings).values({ id: 1 }).onDuplicateKeyUpdate({ set: { id: sql`${rewardsAutomationSettings.id}` } });
+  const settings = (await db.select().from(rewardsAutomationSettings).where(eq(rewardsAutomationSettings.id, 1)).limit(1))[0];
+  if (!settings) throw new Error("Rewards automation settings could not be loaded.");
+  return settings;
 }
 
 export async function cancelPendingBonusRewardsForReturnedOrder(reference: string) {
@@ -790,6 +842,161 @@ export async function cancelPendingBonusRewardsForReturnedOrder(reference: strin
     const shareIds = holds.flatMap(hold => hold.referralShareId ? [hold.referralShareId] : []);
     for (const shareId of shareIds) await tx.update(referralShares).set({ status: "voided", rewardStatus: "cancelled" }).where(eq(referralShares.id, shareId));
     return { cancelled: affectedRows(result) };
+  });
+}
+
+export async function queueCashbackAfterDeliveredOrder(reference: string) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const order = (await tx.select().from(orders).where(eq(orders.reference, reference)).limit(1))[0];
+    if (!order?.buyerUserId || order.fulfillmentStatus !== "delivered") return { queued: false, reason: "not_delivered" as const };
+    const amount = Math.floor(order.total * CASHBACK_RATE);
+    if (amount < 1) return { queued: false, reason: "zero_value" as const };
+    await tx.insert(wallets).values({ userId: order.buyerUserId }).onDuplicateKeyUpdate({ set: { userId: sql`${wallets.userId}` } });
+    const wallet = (await tx.select().from(wallets).where(eq(wallets.userId, order.buyerUserId)).limit(1))[0];
+    if (!wallet) throw new Error("Cashback wallet could not be provisioned.");
+    const releaseAt = new Date((order.deliveredAt ?? new Date()).getTime() + 48 * 60 * 60 * 1000);
+    await tx.insert(bonusRewardHolds).values({ walletId: wallet.id, userId: order.buyerUserId, orderReference: reference, type: "cashback", beneficiary: "customer", amount, status: "pending", releaseAt, idempotencyKey: `cashback-${reference}-${order.buyerUserId}` }).onDuplicateKeyUpdate({ set: { idempotencyKey: sql`${bonusRewardHolds.idempotencyKey}` } });
+    return { queued: true, amount, releaseAt };
+  });
+}
+
+export async function issueFreeDeliveryVoucherIfQualified(reference: string) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const order = (await tx.select().from(orders).where(eq(orders.reference, reference)).limit(1))[0];
+    if (!order?.buyerUserId || order.fulfillmentStatus !== "delivered") return { issued: false, reason: "not_delivered" as const };
+    const month = rewardMonthKey(order.deliveredAt ?? order.createdAt);
+    const { start, end } = rewardMonthRange(month);
+    const deliveredOrders = await tx.select({ total: orders.total }).from(orders).where(and(eq(orders.buyerUserId, order.buyerUserId), eq(orders.fulfillmentStatus, "delivered"), gte(orders.deliveredAt, start), lt(orders.deliveredAt, end)));
+    const deliveredSpend = deliveredOrders.reduce((total, item) => total + item.total, 0);
+    if (deliveredSpend < FREE_DELIVERY_MONTHLY_THRESHOLD) return { issued: false, reason: "threshold_not_met" as const, deliveredSpend };
+    await tx.insert(freeDeliveryVouchers).values({ userId: order.buyerUserId, earnedMonth: month, earnedOrderReference: reference, idempotencyKey: `free-delivery-${order.buyerUserId}-${month}` }).onDuplicateKeyUpdate({ set: { idempotencyKey: sql`${freeDeliveryVouchers.idempotencyKey}` } });
+    return { issued: true, deliveredSpend, month };
+  });
+}
+
+export async function listActiveFreeDeliveryVouchers(userId: number) {
+  const db = await requireDb();
+  return db.select().from(freeDeliveryVouchers).where(and(eq(freeDeliveryVouchers.userId, userId), eq(freeDeliveryVouchers.status, "active"))).orderBy(desc(freeDeliveryVouchers.createdAt));
+}
+
+export async function claimFreeDeliveryVoucher(input: { userId: number; voucherId: number; orderReference: string }) {
+  const db = await requireDb();
+  const claim = await db.update(freeDeliveryVouchers).set({ status: "redeemed", redeemedAt: new Date(), redeemedOrderReference: input.orderReference }).where(and(eq(freeDeliveryVouchers.id, input.voucherId), eq(freeDeliveryVouchers.userId, input.userId), eq(freeDeliveryVouchers.status, "active")));
+  if (affectedRows(claim) !== 1) throw new Error("That free-delivery voucher is no longer available.");
+}
+
+export async function grantKycCompletionBonus(userId: number) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const profile = (await tx.select().from(kycProfiles).where(eq(kycProfiles.userId, userId)).limit(1))[0];
+    if (profile?.status !== "verified") return { granted: false, reason: "identity_not_verified" as const };
+    await tx.insert(wallets).values({ userId }).onDuplicateKeyUpdate({ set: { userId: sql`${wallets.userId}` } });
+    const wallet = (await tx.select().from(wallets).where(eq(wallets.userId, userId)).limit(1))[0];
+    if (!wallet) throw new Error("KYC reward wallet could not be provisioned.");
+    const key = `kyc-completion-${userId}`;
+    await tx.insert(rewardGrants).values({ walletId: wallet.id, userId, type: "kyc_completion", amount: KYC_COMPLETION_BONUS, status: "released", releasedAt: new Date(), idempotencyKey: key }).onDuplicateKeyUpdate({ set: { idempotencyKey: sql`${rewardGrants.idempotencyKey}` } });
+    const existing = await tx.select().from(walletTransactions).where(eq(walletTransactions.idempotencyKey, key)).limit(1);
+    if (!existing.length) {
+      await tx.update(wallets).set({ bonusBalance: sql`${wallets.bonusBalance} + ${KYC_COMPLETION_BONUS}` }).where(eq(wallets.id, wallet.id));
+      const after = (await tx.select().from(wallets).where(eq(wallets.id, wallet.id)).limit(1))[0];
+      if (!after) throw new Error("KYC reward wallet was not found.");
+      await tx.insert(walletTransactions).values({ walletId: wallet.id, userId, type: "reward_bonus", direction: "in", status: "released", amount: KYC_COMPLETION_BONUS, balanceBucket: "bonus", balanceAfter: after.bonusBalance, reference: "kyc-completion", idempotencyKey: key, description: "KYC completion shopping bonus released" });
+    }
+    return { granted: true, amount: KYC_COMPLETION_BONUS };
+  });
+}
+
+export async function getBuyerRewardSummary(userId: number) {
+  const db = await requireDb();
+  const month = rewardMonthKey();
+  const { start, end } = rewardMonthRange(month);
+  const [kyc, referrals, delivered, vouchers, pending] = await Promise.all([getKycProfileForUser(userId), listReferralSharesForUser(userId), db.select({ total: orders.total }).from(orders).where(and(eq(orders.buyerUserId, userId), eq(orders.fulfillmentStatus, "delivered"), gte(orders.deliveredAt, start), lt(orders.deliveredAt, end))), listActiveFreeDeliveryVouchers(userId), listPendingBonusRewardsForUser(userId)]);
+  const monthlySpend = delivered.reduce((total, order) => total + order.total, 0);
+  return { kycStatus: kyc?.status ?? "not_started", kycBonusAmount: KYC_COMPLETION_BONUS, monthlySpend, freeDeliveryThreshold: FREE_DELIVERY_MONTHLY_THRESHOLD, activeVouchers: vouchers, referrals, pending };
+}
+
+export type VendorRewardMetric = { vendorUserId: number; deliveries: number; returns: number };
+
+export async function listMonthlyApprovedVendorMetrics(month = rewardMonthKey()) {
+  const db = await requireDb();
+  const { start, end } = rewardMonthRange(month);
+  const [approved, deliveredOrders, returnedOrders] = await Promise.all([
+    db.select({ userId: vendorApplications.userId, storeName: vendorApplications.storeName }).from(vendorApplications).where(eq(vendorApplications.status, "approved")),
+    db.select({ orderLines: orders.orderLines }).from(orders).where(and(eq(orders.fulfillmentStatus, "delivered"), gte(orders.deliveredAt, start), lt(orders.deliveredAt, end))),
+    db.select({ orderLines: orders.orderLines }).from(orders).where(and(eq(orders.fulfillmentStatus, "returned"), gte(orders.returnedAt, start), lt(orders.returnedAt, end))),
+  ]);
+  const approvedByUserId = new Map(approved.map(vendor => [vendor.userId, vendor.storeName]));
+  const metrics = new Map<number, VendorRewardMetric>();
+  for (const order of deliveredOrders) for (const userId of Array.from(new Set(order.orderLines.flatMap(line => line.vendorUserId ? [line.vendorUserId] : [])))) {
+    if (!approvedByUserId.has(userId)) continue;
+    const metric = metrics.get(userId) ?? { vendorUserId: userId, deliveries: 0, returns: 0 };
+    metric.deliveries += 1; metrics.set(userId, metric);
+  }
+  for (const order of returnedOrders) for (const userId of Array.from(new Set(order.orderLines.flatMap(line => line.vendorUserId ? [line.vendorUserId] : [])))) {
+    if (!approvedByUserId.has(userId)) continue;
+    const metric = metrics.get(userId) ?? { vendorUserId: userId, deliveries: 0, returns: 0 };
+    metric.returns += 1; metrics.set(userId, metric);
+  }
+  return Array.from(metrics.values()).map(metric => ({ ...metric, storeName: approvedByUserId.get(metric.vendorUserId) ?? "Approved vendor" })).sort((a, b) => b.deliveries - a.deliveries || a.returns - b.returns || a.storeName.localeCompare(b.storeName));
+}
+
+export async function getVendorRewardSummary(userId: number) {
+  const db = await requireDb();
+  const month = rewardMonthKey();
+  const [application, profile, leaderboard, overrides] = await Promise.all([
+    getVendorApplicationForUser(userId), db.select().from(vendorRewardProfiles).where(eq(vendorRewardProfiles.vendorUserId, userId)).limit(1), listMonthlyApprovedVendorMetrics(month), db.select().from(vendorCommissionOverrides).where(and(eq(vendorCommissionOverrides.vendorUserId, userId), eq(vendorCommissionOverrides.rewardMonth, month))).limit(1),
+  ]);
+  const metrics = leaderboard.find(metric => metric.vendorUserId === userId) ?? { vendorUserId: userId, deliveries: 0, returns: 0, storeName: application?.storeName ?? "Your store" };
+  return { month, vendor: application ? { status: application.status, storeName: application.storeName } : null, metrics, leaderboard: leaderboard.slice(0, 5), hasLightningSellerBadge: Boolean(profile[0]?.hasLightningSellerBadge), commissionOverride: overrides[0] ? { rate: overrides[0].commissionRate, qualifyingDeliveries: overrides[0].qualifyingDeliveries } : null };
+}
+
+export async function recordVerifiedVendorDispatch(input: { reference: string; vendorUserId: number; dispatchedAt: Date }) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const [order, vendor] = await Promise.all([
+      tx.select().from(orders).where(eq(orders.reference, input.reference)).limit(1),
+      tx.select().from(vendorApplications).where(and(eq(vendorApplications.userId, input.vendorUserId), eq(vendorApplications.status, "approved"))).limit(1),
+    ]);
+    if (!order[0] || !vendor[0] || !order[0].orderLines.some(line => line.vendorUserId === input.vendorUserId)) throw new Error("A verified dispatch can only be recorded for an approved vendor’s order line.");
+    const onTime = input.dispatchedAt.getTime() <= order[0].createdAt.getTime() + 24 * 60 * 60 * 1000;
+    await tx.insert(vendorDispatchEvents).values({ orderReference: input.reference, vendorUserId: input.vendorUserId, dispatchedAt: input.dispatchedAt, onTime: onTime ? 1 : 0, idempotencyKey: `dispatch-${input.reference}-${input.vendorUserId}` }).onDuplicateKeyUpdate({ set: { idempotencyKey: sql`${vendorDispatchEvents.idempotencyKey}` } });
+    if (!onTime) return { onTime: false, awarded: false };
+    await tx.insert(vendorRewardProfiles).values({ vendorUserId: input.vendorUserId, hasLightningSellerBadge: 1, lightningBadgeAwardedAt: input.dispatchedAt }).onDuplicateKeyUpdate({ set: { hasLightningSellerBadge: 1, lightningBadgeAwardedAt: input.dispatchedAt } });
+    const wallet = (await tx.select().from(wallets).where(eq(wallets.userId, input.vendorUserId)).limit(1))[0] ?? await (async () => { await tx.insert(wallets).values({ userId: input.vendorUserId }); return (await tx.select().from(wallets).where(eq(wallets.userId, input.vendorUserId)).limit(1))[0]; })();
+    if (!wallet) throw new Error("Vendor reward wallet could not be provisioned.");
+    const key = `lightning-dispatch-${input.reference}-${input.vendorUserId}`;
+    await tx.insert(rewardGrants).values({ walletId: wallet.id, userId: input.vendorUserId, type: "vendor_dispatch", amount: LIGHTNING_SELLER_BONUS, status: "released", sourceOrderReference: input.reference, releasedAt: new Date(), idempotencyKey: key }).onDuplicateKeyUpdate({ set: { idempotencyKey: sql`${rewardGrants.idempotencyKey}` } });
+    const existing = await tx.select().from(walletTransactions).where(eq(walletTransactions.idempotencyKey, key)).limit(1);
+    if (!existing.length) {
+      await tx.update(wallets).set({ bonusBalance: sql`${wallets.bonusBalance} + ${LIGHTNING_SELLER_BONUS}` }).where(eq(wallets.id, wallet.id));
+      const after = (await tx.select().from(wallets).where(eq(wallets.id, wallet.id)).limit(1))[0];
+      if (!after) throw new Error("Vendor reward wallet was not found.");
+      await tx.insert(walletTransactions).values({ walletId: wallet.id, userId: input.vendorUserId, type: "reward_bonus", direction: "in", status: "released", amount: LIGHTNING_SELLER_BONUS, balanceBucket: "bonus", balanceAfter: after.bonusBalance, reference: `dispatch-${input.reference}`, idempotencyKey: key, orderReference: input.reference, description: "Lightning Seller shopping bonus released" });
+    }
+    return { onTime: true, awarded: true, amount: LIGHTNING_SELLER_BONUS };
+  });
+}
+
+export async function evaluateMonthlyVendorRewards(month: string) {
+  const db = await requireDb();
+  const metrics = await listMonthlyApprovedVendorMetrics(month);
+  return db.transaction(async tx => {
+    const { end } = rewardMonthRange(month);
+    const releaseAt = new Date(end.getTime() + 48 * 60 * 60 * 1000);
+    let pendingPayouts = 0;
+    for (let index = 0; index < metrics.slice(0, 5).length; index += 1) {
+      const metric = metrics[index]!;
+      const wallet = (await tx.select().from(wallets).where(eq(wallets.userId, metric.vendorUserId)).limit(1))[0];
+      if (!wallet) { await tx.insert(wallets).values({ userId: metric.vendorUserId }); }
+      const ensured = wallet ?? (await tx.select().from(wallets).where(eq(wallets.userId, metric.vendorUserId)).limit(1))[0];
+      if (!ensured) throw new Error("Leaderboard wallet could not be provisioned.");
+      await tx.insert(rewardGrants).values({ walletId: ensured.id, userId: metric.vendorUserId, type: "vendor_leaderboard", amount: LEADERBOARD_BONUSES[index] ?? 0, status: "pending", rewardMonth: month, releaseAt, idempotencyKey: `vendor-leaderboard-${month}-${metric.vendorUserId}` }).onDuplicateKeyUpdate({ set: { idempotencyKey: sql`${rewardGrants.idempotencyKey}` } });
+      pendingPayouts += 1;
+    }
+    for (const metric of metrics.filter(metric => metric.deliveries >= 50 && metric.returns === 0)) await tx.insert(vendorCommissionOverrides).values({ vendorUserId: metric.vendorUserId, rewardMonth: month, commissionRate: 0, qualifyingDeliveries: metric.deliveries, idempotencyKey: `zero-commission-${month}-${metric.vendorUserId}` }).onDuplicateKeyUpdate({ set: { idempotencyKey: sql`${vendorCommissionOverrides.idempotencyKey}` } });
+    return { pendingPayouts, commissionOverrides: metrics.filter(metric => metric.deliveries >= 50 && metric.returns === 0).length, releaseAt };
   });
 }
 
@@ -838,11 +1045,19 @@ export async function listApprovedVendorProducts() {
       vendor: vendorApplications.storeName,
       vendorUserId: vendorApplications.userId,
       commissionRate: vendorApplications.commissionRate,
+      lightningSeller: vendorRewardProfiles.hasLightningSellerBadge,
     })
     .from(vendorProducts)
     .innerJoin(vendorApplications, eq(vendorProducts.vendorApplicationId, vendorApplications.id))
-    .where(eq(vendorProducts.status, "active"))
+    .leftJoin(vendorRewardProfiles, eq(vendorRewardProfiles.vendorUserId, vendorApplications.userId))
+    .where(and(eq(vendorProducts.status, "active"), eq(vendorApplications.status, "approved")))
     .orderBy(desc(vendorProducts.createdAt));
+}
+
+export async function getCurrentVendorCommissionRate(vendorUserId: number, baseRate: number) {
+  const db = await requireDb();
+  const override = (await db.select().from(vendorCommissionOverrides).where(and(eq(vendorCommissionOverrides.vendorUserId, vendorUserId), eq(vendorCommissionOverrides.rewardMonth, rewardMonthKey()))).limit(1))[0];
+  return override?.commissionRate ?? baseRate;
 }
 
 export async function listAdminReviewProducts() {

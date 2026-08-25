@@ -11,6 +11,7 @@ import { serveStatic, setupVite } from "./vite";
 import { registerPaystackWebhook } from "../paystackWebhook";
 import { registerCjFulfilmentSchedule } from "../cjFulfilmentSchedule";
 import { registerRewardReleaseSchedule } from "../rewardReleaseSchedule";
+import { registerVendorRewardsSchedule } from "../vendorRewardsSchedule";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -37,6 +38,7 @@ async function startServer() {
   registerPaystackWebhook(app);
   registerCjFulfilmentSchedule(app);
   registerRewardReleaseSchedule(app);
+  registerVendorRewardsSchedule(app);
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));

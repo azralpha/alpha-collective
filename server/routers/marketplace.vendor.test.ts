@@ -147,7 +147,7 @@ describe("marketplace vendor image workflow", () => {
       deliveryFee: 15750,
       total: 24750,
       orderLines: [expect.objectContaining({ productId: "vendor-91", quantity: 2 })],
-    }));
+    }), undefined);
   });
 
   it("allows administrators to review and publish a vendor draft", async () => {

@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   createWalletEscrowOrder: vi.fn(),
   getReferralRewardSettings: vi.fn(),
   getReferralShareByCode: vi.fn(),
+  getCurrentVendorCommissionRate: vi.fn(),
   getWalletForUser: vi.fn(),
   isReferralEligibleUser: vi.fn(),
   listActiveOfficialProducts: vi.fn(),
@@ -16,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   recordWalletPinFailure: vi.fn(),
   releaseWalletEscrowOrder: vi.fn(),
   queueReferralBonusAfterDeliveredOrder: vi.fn(),
+  queueCashbackAfterDeliveredOrder: vi.fn(),
   queueVerifiedPostSaleBonus: vi.fn(),
   resetWalletPinFailures: vi.fn(),
 }));
@@ -47,7 +49,10 @@ describe("marketplace wallet escrow release", () => {
     mocks.listActiveOfficialProducts.mockResolvedValue([]);
     mocks.listActiveOfficialProductsWithSourcing.mockResolvedValue([]);
     mocks.queueReferralBonusAfterDeliveredOrder.mockResolvedValue({ queued: false, reason: "not_eligible" });
+    mocks.queueCashbackAfterDeliveredOrder.mockResolvedValue({ queued: false, reason: "not_delivered" });
+    mocks.issueFreeDeliveryVoucherIfQualified = vi.fn().mockResolvedValue({ issued: false, reason: "not_delivered" });
     mocks.isReferralEligibleUser.mockResolvedValue(true);
+    mocks.getCurrentVendorCommissionRate.mockResolvedValue(0);
   });
 
   it("releases a held wallet order once and reports vendor allocations", async () => {
@@ -57,9 +62,12 @@ describe("marketplace wallet escrow release", () => {
       reference: "AC-WALLET-001",
       releasedVendors: [{ userId: 42, amount: 15_000 }],
       bonusReward: { queued: false, reason: "not_eligible" },
+      cashback: { queued: false, reason: "not_delivered" },
+      freeDeliveryVoucher: { issued: false, reason: "not_delivered" },
     });
     expect(mocks.releaseWalletEscrowOrder).toHaveBeenCalledTimes(1);
     expect(mocks.queueReferralBonusAfterDeliveredOrder).toHaveBeenCalledWith("AC-WALLET-001");
+    expect(mocks.queueCashbackAfterDeliveredOrder).toHaveBeenCalledWith("AC-WALLET-001");
   });
 
   it("rejects a second delivery-release attempt after the held escrow state has changed", async () => {
@@ -154,5 +162,16 @@ describe("marketplace wallet escrow release", () => {
     await expect(buyerCaller().wallet.checkout({ ...checkoutBase, items: [{ productId: "vendor-92", quantity: 1 }], referralCode: "ALPHA-SAFE001" })).resolves.toMatchObject({ discount: 0 });
     expect(mocks.assessReferralFraudBeforeCheckout).toHaveBeenCalledWith({ referralShareId: 14, sharerUserId: 12, referredUserId: 7 });
     expect(mocks.createWalletEscrowOrder).toHaveBeenCalledWith(expect.objectContaining({ order: expect.objectContaining({ referralCode: undefined, referralDiscount: 0, discountType: "none" }) }));
+  });
+
+  it("preserves the 0% launch-promo allocation baseline while checking for a current monthly override", async () => {
+    mocks.getWalletForUser.mockResolvedValue({ id: 8, userId: 7, pinHash: await hashTransactionPin("1234"), pinFailedAttempts: 0, pinLockedUntil: null });
+    mocks.listApprovedVendorProducts.mockResolvedValue([{ id: 94, title: "Launch promo listing", category: "Fashion", price: 6_000, description: "An approved vendor listing for commission reward testing.", imageUrl: "/manus-storage/vendor-products/9/commission.jpg", imageUrls: ["/manus-storage/vendor-products/9/commission.jpg"], vendor: "Another Store", vendorUserId: 9, commissionRate: 12 }]);
+    mocks.getCurrentVendorCommissionRate.mockResolvedValue(0);
+    mocks.createWalletEscrowOrder.mockResolvedValue({});
+
+    await buyerCaller().wallet.checkout({ ...checkoutBase, items: [{ productId: "vendor-94", quantity: 1 }] });
+    expect(mocks.getCurrentVendorCommissionRate).toHaveBeenCalledWith(9, 0);
+    expect(mocks.createWalletEscrowOrder).toHaveBeenCalledWith(expect.objectContaining({ allocations: [{ vendorUserId: 9, grossAmount: 6_000, commissionAmount: 0, netAmount: 6_000 }] }));
   });
 });

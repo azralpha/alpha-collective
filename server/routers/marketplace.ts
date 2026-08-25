@@ -32,8 +32,12 @@ import {
   getReferralShareByRewardCode,
   getReferralRewardSettings,
   getKycProfileForUser,
+  grantKycCompletionBonus,
   getFulfilmentIntegration,
+  getBuyerRewardSummary,
+  getVendorRewardSummary,
   getVendorApplicationForUser,
+  getCurrentVendorCommissionRate,
   getVendorProductForApplication,
   getWalletBankRecipientForUser,
   getWalletForUser,
@@ -41,6 +45,7 @@ import {
   listAdminReviewProducts,
   listAdminFulfilmentJobs,
   listAdminOfficialProducts,
+  listActiveFreeDeliveryVouchers,
   listActiveOfficialProducts,
   listActiveOfficialProductsWithSourcing,
   listApprovedVendorProducts,
@@ -59,9 +64,12 @@ import {
   markNonWalletOrderDelivered,
   markWalletWithdrawalProcessing,
   qualifyReferralShare,
+  issueFreeDeliveryVoucherIfQualified,
   queueReferralBonusAfterDeliveredOrder,
+  queueCashbackAfterDeliveredOrder,
   queueVerifiedPostSaleBonus,
   recordUserRequestSecuritySignal,
+  recordVerifiedVendorDispatch,
   recordWalletPinFailure,
   redeemReferralReward,
   releaseWalletEscrowOrder,
@@ -119,6 +127,7 @@ const walletCheckoutInputSchema = z.object({
   items: z.array(cartLineSchema).min(1).max(12),
   transactionPin: walletPinSchema,
   referralCode: z.string().trim().max(32).optional(),
+  freeDeliveryVoucherId: z.number().int().positive().optional(),
 });
 
 function newShareCode() { return `ALPHA-${shareCodeAlphabet()}`; }
@@ -168,7 +177,7 @@ function createVendorCatalog(products: Awaited<ReturnType<typeof listApprovedVen
       category: product.category,
       price: product.price,
       formerPrice: undefined,
-      badge: "Verified seller find",
+      badge: product.lightningSeller ? "Lightning Seller • Verified" : "Verified seller find",
       imageUrl: imageUrls[0],
       imageUrls,
       description: product.description,
@@ -254,6 +263,12 @@ function decodeKycGovernmentId(dataUrl: string) {
 }
 
 export const marketplaceRouter = router({
+  rewards: router({
+    dashboard: protectedProcedure.query(async ({ ctx }) => {
+      const [buyer, vendor] = await Promise.all([getBuyerRewardSummary(ctx.user.id), getVendorRewardSummary(ctx.user.id)]);
+      return { buyer, vendor };
+    }),
+  }),
   publicProducts: publicProcedure.query(async () => {
     const [products, officialProducts] = await Promise.all([listApprovedVendorProducts(), listActiveOfficialProducts()]);
     return [...createOfficialCatalog(officialProducts), ...createVendorCatalog(products)];
@@ -366,7 +381,11 @@ export const marketplaceRouter = router({
         await authorizeWalletPin(ctx.user.id, input.transactionPin);
         validateNigerianState(input.deliveryAddress.state);
         if (!isNigerianLga(input.deliveryAddress.state, input.deliveryAddress.lga)) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a valid local government area for the selected state." });
-        const deliveryQuote = calculateDeliveryQuote({ destinationState: input.deliveryAddress.state, weightKg: input.packageWeightKg, serviceTier: input.deliveryTier });
+        const baseDeliveryQuote = calculateDeliveryQuote({ destinationState: input.deliveryAddress.state, weightKg: input.packageWeightKg, serviceTier: input.deliveryTier });
+        const activeVouchers = input.freeDeliveryVoucherId ? await listActiveFreeDeliveryVouchers(ctx.user.id) : [];
+        const freeDeliveryVoucher = activeVouchers.find(voucher => voucher.id === input.freeDeliveryVoucherId);
+        if (input.freeDeliveryVoucherId && !freeDeliveryVoucher) throw new TRPCError({ code: "BAD_REQUEST", message: "That free-delivery voucher is no longer available." });
+        const deliveryQuote = freeDeliveryVoucher ? { ...baseDeliveryQuote, deliveryFee: 0 } : baseDeliveryQuote;
         const [vendorProducts, officialProducts] = await Promise.all([listApprovedVendorProducts(), listActiveOfficialProductsWithSourcing()]);
         const officialCatalog = createOfficialCatalog(officialProducts);
         const catalog = [...MARKETPLACE_PRODUCTS, ...officialCatalog, ...createVendorCatalog(vendorProducts)];
@@ -393,7 +412,12 @@ export const marketplaceRouter = router({
         }
         const reference = newOrderReference();
         const total = subtotal - discount + deliveryQuote.deliveryFee;
-        const allocations = resolvedLines.flatMap(line => line.product.vendorUserId ? [{ vendorUserId: line.product.vendorUserId, grossAmount: line.lineTotal, commissionAmount: 0, netAmount: line.lineTotal }] : []);
+        const allocations = (await Promise.all(resolvedLines.map(async line => {
+          if (!line.product.vendorUserId) return [];
+          const commissionRate = await getCurrentVendorCommissionRate(line.product.vendorUserId, 0);
+          const commissionAmount = Math.round(line.lineTotal * commissionRate / 100);
+          return [{ vendorUserId: line.product.vendorUserId, grossAmount: line.lineTotal, commissionAmount, netAmount: line.lineTotal - commissionAmount }];
+        }))).flat();
         const deliveryAddress = formatNigerianDeliveryAddress(input.deliveryAddress);
         const fulfilmentJobInputs = resolvedLines.flatMap(line => {
           const official = officialByProductId.get(line.product.id);
@@ -419,6 +443,7 @@ export const marketplaceRouter = router({
             },
             allocations,
             fulfilmentJobInputs,
+            freeDeliveryVoucherId: freeDeliveryVoucher?.id,
           });
           if (fulfilmentJobInputs.length) void processCjFulfilmentQueue(5).catch(() => undefined);
         } catch (error) {
@@ -431,6 +456,7 @@ export const marketplaceRouter = router({
   kyc: router({
     status: protectedProcedure.query(async ({ ctx }) => {
       const [profile, vendor] = await Promise.all([ensureKycProfileForUser(ctx.user.id), getVendorApplicationForUser(ctx.user.id)]);
+      if (profile.status === "verified") await grantKycCompletionBonus(ctx.user.id);
       return {
         status: profile.status,
         submittedLegalName: profile.submittedLegalName,
@@ -528,7 +554,8 @@ export const marketplaceRouter = router({
         try {
           const result = await releaseWalletEscrowOrder(input.reference);
           const bonusReward = await queueReferralBonusAfterDeliveredOrder(input.reference);
-          return { reference: input.reference, releasedVendors: result.releasedVendors, bonusReward };
+          const [cashback, freeDeliveryVoucher] = await Promise.all([queueCashbackAfterDeliveredOrder(input.reference), issueFreeDeliveryVoucherIfQualified(input.reference)]);
+          return { reference: input.reference, releasedVendors: result.releasedVendors, bonusReward, cashback, freeDeliveryVoucher };
         } catch (error) {
           throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not release wallet escrow." });
         }
@@ -541,7 +568,8 @@ export const marketplaceRouter = router({
         try {
           await markNonWalletOrderDelivered(input.reference);
           const bonusReward = await queueReferralBonusAfterDeliveredOrder(input.reference);
-          return { reference: input.reference, bonusReward };
+          const [cashback, freeDeliveryVoucher] = await Promise.all([queueCashbackAfterDeliveredOrder(input.reference), issueFreeDeliveryVoucherIfQualified(input.reference)]);
+          return { reference: input.reference, bonusReward, cashback, freeDeliveryVoucher };
         } catch (error) {
           throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not confirm order delivery." });
         }
@@ -564,6 +592,15 @@ export const marketplaceRouter = router({
           return await queueVerifiedPostSaleBonus(input);
         } catch (error) {
           throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not create the post-sale Shopping Bonus." });
+        }
+      }),
+    recordVendorDispatch: adminProcedure
+      .input(z.object({ reference: z.string().trim().min(8).max(40), vendorUserId: z.number().int().positive(), dispatchedAt: z.coerce.date() }))
+      .mutation(async ({ input }) => {
+        try {
+          return await recordVerifiedVendorDispatch(input);
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Could not record the verified logistics hand-over." });
         }
       }),
     referralRewardSettings: adminProcedure.query(() => getReferralRewardSettings()),
@@ -607,6 +644,7 @@ export const marketplaceRouter = router({
       deliveryTier: z.enum(DELIVERY_SERVICE_TIERS),
       items: z.array(cartLineSchema).min(1).max(12),
       referralCode: z.string().trim().max(32).optional(),
+      freeDeliveryVoucherId: z.number().int().positive().optional(),
     }))
     .mutation(async ({ ctx, input }) => {
       validateNigerianState(input.deliveryAddress.state);
@@ -614,11 +652,15 @@ export const marketplaceRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a valid local government area for the selected state." });
       }
 
-      const deliveryQuote = calculateDeliveryQuote({
+      const baseDeliveryQuote = calculateDeliveryQuote({
         destinationState: input.deliveryAddress.state,
         weightKg: input.packageWeightKg,
         serviceTier: input.deliveryTier,
       });
+      const activeVouchers = input.freeDeliveryVoucherId ? await listActiveFreeDeliveryVouchers(ctx.user.id) : [];
+      const freeDeliveryVoucher = activeVouchers.find(voucher => voucher.id === input.freeDeliveryVoucherId);
+      if (input.freeDeliveryVoucherId && !freeDeliveryVoucher) throw new TRPCError({ code: "BAD_REQUEST", message: "That free-delivery voucher is no longer available." });
+      const deliveryQuote = freeDeliveryVoucher ? { ...baseDeliveryQuote, deliveryFee: 0 } : baseDeliveryQuote;
       const catalog = [...MARKETPLACE_PRODUCTS, ...createVendorCatalog(await listApprovedVendorProducts())];
       const resolvedLines = resolveCartLines(input.items, catalog);
       if (resolvedLines.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Your cart does not contain a valid product." });
@@ -674,7 +716,7 @@ export const marketplaceRouter = router({
         referralCode: appliedCode,
         discountType,
         orderLines: resolvedLines.map(line => ({ productId: line.product.id, title: line.product.title, quantity: line.quantity, unitPrice: line.product.price, lineTotal: line.lineTotal })),
-      });
+      }, freeDeliveryVoucher?.id);
 
       return { reference, paymentStatus: "cod_pending" as const, subtotal, discount, deliveryFee: deliveryQuote.deliveryFee, total, deliveryQuote };
     }),

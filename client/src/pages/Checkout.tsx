@@ -25,6 +25,7 @@ export default function Checkout() {
   const [deliveryTier, setDeliveryTier] = useState<DeliveryServiceTier>("standard");
   const [paymentMethod, setPaymentMethod] = useState<"delivery" | "wallet">("delivery");
   const [transactionPin, setTransactionPin] = useState("");
+  const [freeDeliveryVoucherId, setFreeDeliveryVoucherId] = useState<number | undefined>();
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const publicProducts = trpc.marketplace.publicProducts.useQuery();
   const catalog = useMemo<MarketplaceProduct[]>(() => [...MARKETPLACE_PRODUCTS, ...(publicProducts.data ?? [])], [publicProducts.data]);
@@ -42,6 +43,7 @@ export default function Checkout() {
     },
   });
   const wallet = trpc.marketplace.wallet.dashboard.useQuery(undefined, { enabled: isAuthenticated });
+  const rewards = trpc.marketplace.rewards.dashboard.useQuery(undefined, { enabled: isAuthenticated });
   const kyc = trpc.marketplace.kyc.status.useQuery(undefined, { enabled: isAuthenticated });
   const payOnDeliveryEligible = isAuthenticated && kyc.data?.status === "verified";
   const walletCheckout = trpc.marketplace.wallet.checkout.useMutation({
@@ -62,7 +64,7 @@ export default function Checkout() {
     const form = new FormData(event.currentTarget);
     if (paymentMethod === "wallet") {
       if (!isAuthenticated) { toast.info("Sign in to pay with Alpha Wallet."); startLogin(); return; }
-      walletCheckout.mutate({ buyerName: String(form.get("buyerName") ?? ""), buyerPhone: String(form.get("buyerPhone") ?? ""), deliveryAddress: { country: NIGERIA_COUNTRY, state, lga, streetDetails }, packageWeightKg: weightKg, deliveryTier, items, transactionPin, referralCode: referralCode.trim() || undefined });
+      walletCheckout.mutate({ buyerName: String(form.get("buyerName") ?? ""), buyerPhone: String(form.get("buyerPhone") ?? ""), deliveryAddress: { country: NIGERIA_COUNTRY, state, lga, streetDetails }, packageWeightKg: weightKg, deliveryTier, items, transactionPin, referralCode: referralCode.trim() || undefined, freeDeliveryVoucherId });
       return;
     }
     if (!isAuthenticated) { toast.info("Sign in and complete KYC before saving a Pay on Delivery order."); startLogin(); return; }
@@ -80,6 +82,7 @@ export default function Checkout() {
       deliveryTier,
       items,
       referralCode: referralCode.trim() || undefined,
+      freeDeliveryVoucherId,
     });
   };
 
@@ -125,6 +128,7 @@ export default function Checkout() {
             {deliveryQuote.isFetching ? <p className="form-help">Calculating delivery…</p> : deliveryQuote.data ? <div className="delivery-quote"><div><span>Zone</span><strong>{deliveryQuote.data.zoneLabel}</strong></div><div><span>Base rate</span><strong>{formatNaira(deliveryQuote.data.baseRate)}</strong></div><div><span>Weight surcharge</span><strong>{formatNaira(deliveryQuote.data.weightSurcharge)}</strong></div><div><span>{deliveryQuote.data.serviceLabel}</span><strong>{formatNaira(deliveryQuote.data.deliveryFee)}</strong></div></div> : <p className="form-help">Choose a Nigerian state to see the delivery quote.</p>}
           </section>
           <div className="form-field" style={{ marginTop: 20 }}><label htmlFor="referralCode">Referral or earned reward code</label><input id="referralCode" value={referralCode} onChange={event => setReferralCode(event.target.value.toUpperCase())} placeholder="ALPHA-XXXXXXXX or THANKS-XXXXXXXX" /><p className="form-help">A shared code gives the referred buyer ₦500 off an eligible order from ₦5,000. The sharer’s separate reward is issued after qualification. Sign in is required to apply either code.</p></div>
+          {rewards.data?.buyer.activeVouchers.length ? <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950"><input className="mt-1 size-4 accent-emerald-700" type="checkbox" checked={Boolean(freeDeliveryVoucherId)} onChange={event => setFreeDeliveryVoucherId(event.target.checked ? rewards.data?.buyer.activeVouchers[0]?.id : undefined)} /><span><strong>Use your free delivery voucher</strong><br />One voucher will be redeemed only if this order is saved successfully. Your delivery charge becomes ₦0.</span></label> : null}
           <div className="payment-options">
             <label className={`payment-option ${paymentMethod === "delivery" ? "selected" : ""} ${!payOnDeliveryEligible ? "disabled" : ""}`}><input type="radio" name="payment" checked={paymentMethod === "delivery"} onChange={() => setPaymentMethod("delivery")} disabled={!payOnDeliveryEligible} /><span><strong><Truck size={14} style={{ display: "inline", marginRight: 5 }} />Pay on Delivery</strong><span>{!isAuthenticated ? "Sign in and complete KYC to prevent fraudulent delivery orders." : kyc.isLoading ? "Checking KYC eligibility…" : !payOnDeliveryEligible ? "Complete KYC Verification before confirming a Pay on Delivery order." : "Your order is stored now; payment is coordinated at delivery."}</span>{!payOnDeliveryEligible && isAuthenticated ? <Link href="/kyc" className="text-link" style={{ marginTop: 8 }}>Complete KYC Verification <ArrowRight size={14} /></Link> : null}</span></label>
             <label className={`payment-option ${paymentMethod === "wallet" ? "selected" : ""}`}><input type="radio" name="payment" checked={paymentMethod === "wallet"} onChange={() => setPaymentMethod("wallet")} disabled={!isAuthenticated || !wallet.data?.hasPin || !walletEligible} /><span><strong><WalletCards size={14} style={{ display: "inline", marginRight: 5 }} />Alpha Wallet</strong><span>{!walletEligible ? "Alpha Wallet currently supports approved vendor listings only." : !isAuthenticated ? "Sign in to use your wallet." : !wallet.data?.hasPin ? "Set a transaction PIN in Wallet first." : `Total: ${formatNaira(wallet.data.totalBalance)} · Shopping Bonus ${formatNaira(wallet.data.bonusBalance)} is used first.`}</span></span></label>
