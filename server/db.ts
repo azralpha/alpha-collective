@@ -1,4 +1,4 @@
-import { and, desc, eq, gte, sql } from "drizzle-orm";
+import { and, desc, eq, gte, lt, lte, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import {
   type InsertOrder,
@@ -9,6 +9,10 @@ import {
   type InsertWalletTransaction,
   escrowAllocations,
   kycProfiles,
+  fulfilmentIntegrations,
+  fulfilmentJobs,
+  officialProducts,
+  officialProductSourcing,
   orders,
   referralShares,
   users,
@@ -388,6 +392,7 @@ export async function createWalletEscrowOrder(input: {
   buyerUserId: number;
   order: InsertOrder;
   allocations: WalletEscrowAllocationInput[];
+  fulfilmentJobInputs?: FulfilmentJobInput[];
 }) {
   const db = await requireDb();
   return db.transaction(async tx => {
@@ -433,6 +438,9 @@ export async function createWalletEscrowOrder(input: {
         netAmount: allocation.netAmount,
         status: "held" as const,
       })));
+    }
+    if (input.fulfilmentJobInputs?.length) {
+      await tx.insert(fulfilmentJobs).values(input.fulfilmentJobInputs.map(job => ({ ...job, status: "queued" as const }))).onDuplicateKeyUpdate({ set: { idempotencyKey: sql`${fulfilmentJobs.idempotencyKey}` } });
     }
     return { wallet, balanceAfter };
   });
@@ -647,4 +655,242 @@ export async function updateVendorDraftProduct(
 export async function updateVendorProductStatus(id: number, status: "draft" | "active" | "rejected") {
   const db = await requireDb();
   await db.update(vendorProducts).set({ status }).where(eq(vendorProducts.id, id));
+}
+
+export type OfficialProductInput = {
+  title: string;
+  category: (typeof import("../shared/marketplace"))["MARKETPLACE_CATEGORIES"][number];
+  price: number;
+  formerPrice?: number | null;
+  badge?: string | null;
+  description: string;
+  detail: string;
+  imageUrls: string[];
+  status: "draft" | "active" | "rejected";
+  sourcing: {
+    fulfillmentProvider: "local_vendor" | "auto_fulfill_api" | "manual_admin";
+    externalSkuId?: string | null;
+    supplierCost?: number | null;
+    supplierCurrency: "NGN" | "USD";
+  };
+};
+
+export async function listActiveOfficialProducts() {
+  const db = await requireDb();
+  return db.select({
+    id: officialProducts.id,
+    title: officialProducts.title,
+    category: officialProducts.category,
+    price: officialProducts.price,
+    formerPrice: officialProducts.formerPrice,
+    badge: officialProducts.badge,
+    description: officialProducts.description,
+    detail: officialProducts.detail,
+    imageUrl: officialProducts.imageUrl,
+    imageUrls: officialProducts.imageUrls,
+  }).from(officialProducts).where(eq(officialProducts.status, "active")).orderBy(desc(officialProducts.createdAt));
+}
+
+export async function listActiveOfficialProductsWithSourcing() {
+  const db = await requireDb();
+  return db.select({
+    id: officialProducts.id,
+    title: officialProducts.title,
+    category: officialProducts.category,
+    price: officialProducts.price,
+    formerPrice: officialProducts.formerPrice,
+    badge: officialProducts.badge,
+    description: officialProducts.description,
+    detail: officialProducts.detail,
+    imageUrl: officialProducts.imageUrl,
+    imageUrls: officialProducts.imageUrls,
+    fulfillmentProvider: officialProductSourcing.fulfillmentProvider,
+    externalSkuId: officialProductSourcing.externalSkuId,
+  }).from(officialProducts).leftJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id)).where(eq(officialProducts.status, "active")).orderBy(desc(officialProducts.createdAt));
+}
+
+export async function listAdminOfficialProducts() {
+  const db = await requireDb();
+  return db.select({
+    id: officialProducts.id,
+    title: officialProducts.title,
+    category: officialProducts.category,
+    price: officialProducts.price,
+    formerPrice: officialProducts.formerPrice,
+    badge: officialProducts.badge,
+    description: officialProducts.description,
+    detail: officialProducts.detail,
+    imageUrl: officialProducts.imageUrl,
+    imageUrls: officialProducts.imageUrls,
+    status: officialProducts.status,
+    createdAt: officialProducts.createdAt,
+    updatedAt: officialProducts.updatedAt,
+    sourcingId: officialProductSourcing.id,
+    fulfillmentProvider: officialProductSourcing.fulfillmentProvider,
+    externalSkuId: officialProductSourcing.externalSkuId,
+    supplierCost: officialProductSourcing.supplierCost,
+    supplierCurrency: officialProductSourcing.supplierCurrency,
+  }).from(officialProducts).leftJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id)).orderBy(desc(officialProducts.createdAt));
+}
+
+export async function getOfficialProductWithSourcing(id: number) {
+  const db = await requireDb();
+  const results = await db.select({
+    id: officialProducts.id,
+    title: officialProducts.title,
+    category: officialProducts.category,
+    price: officialProducts.price,
+    formerPrice: officialProducts.formerPrice,
+    badge: officialProducts.badge,
+    description: officialProducts.description,
+    detail: officialProducts.detail,
+    imageUrl: officialProducts.imageUrl,
+    imageUrls: officialProducts.imageUrls,
+    status: officialProducts.status,
+    fulfillmentProvider: officialProductSourcing.fulfillmentProvider,
+    externalSkuId: officialProductSourcing.externalSkuId,
+    supplierCost: officialProductSourcing.supplierCost,
+    supplierCurrency: officialProductSourcing.supplierCurrency,
+  }).from(officialProducts).leftJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id)).where(eq(officialProducts.id, id)).limit(1);
+  return results[0];
+}
+
+export async function createOfficialProduct(input: OfficialProductInput) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const productResult = await tx.insert(officialProducts).values({
+      title: input.title,
+      category: input.category,
+      price: input.price,
+      formerPrice: input.formerPrice ?? null,
+      badge: input.badge ?? null,
+      description: input.description,
+      detail: input.detail,
+      imageUrl: input.imageUrls[0] ?? null,
+      imageUrls: input.imageUrls,
+      status: input.status,
+    });
+    const id = Number(productResult[0].insertId);
+    await tx.insert(officialProductSourcing).values({ officialProductId: id, ...input.sourcing });
+    return id;
+  });
+}
+
+export async function updateOfficialProduct(id: number, input: OfficialProductInput) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    await tx.update(officialProducts).set({
+      title: input.title,
+      category: input.category,
+      price: input.price,
+      formerPrice: input.formerPrice ?? null,
+      badge: input.badge ?? null,
+      description: input.description,
+      detail: input.detail,
+      imageUrl: input.imageUrls[0] ?? null,
+      imageUrls: input.imageUrls,
+      status: input.status,
+    }).where(eq(officialProducts.id, id));
+    await tx.insert(officialProductSourcing).values({ officialProductId: id, ...input.sourcing }).onDuplicateKeyUpdate({ set: input.sourcing });
+  });
+}
+
+export async function updateOfficialProductStatus(id: number, status: "draft" | "active" | "rejected") {
+  const db = await requireDb();
+  await db.update(officialProducts).set({ status }).where(eq(officialProducts.id, id));
+}
+
+export async function getFulfilmentIntegration(provider: "cj_dropshipping" | "custom_webhook") {
+  const db = await requireDb();
+  const results = await db.select().from(fulfilmentIntegrations).where(eq(fulfilmentIntegrations.provider, provider)).limit(1);
+  return results[0];
+}
+
+export async function saveFulfilmentIntegration(input: {
+  provider: "cj_dropshipping" | "custom_webhook";
+  enabled: boolean;
+  apiBaseUrl?: string | null;
+  callbackUrl?: string | null;
+  defaultLogisticsName?: string | null;
+  defaultFromCountryCode?: string | null;
+  orderMode: "create_only" | "balance_payment";
+}) {
+  const db = await requireDb();
+  const values = { ...input, enabled: input.enabled ? 1 : 0 };
+  await db.insert(fulfilmentIntegrations).values(values).onDuplicateKeyUpdate({ set: values });
+  return getFulfilmentIntegration(input.provider);
+}
+
+export type FulfilmentJobInput = {
+  orderReference: string;
+  officialProductId: number;
+  provider: "cj_dropshipping" | "custom_webhook";
+  externalSkuSnapshot: string;
+  quantity: number;
+  deliverySnapshot: { buyerName: string; buyerPhone: string; deliveryAddress: string; countryCode: "NG"; state: string; lga: string; streetDetails: string };
+  idempotencyKey: string;
+};
+
+export async function enqueueFulfilmentJobs(inputs: FulfilmentJobInput[]) {
+  if (!inputs.length) return [];
+  const db = await requireDb();
+  for (const input of inputs) {
+    await db.insert(fulfilmentJobs).values({ ...input, status: "queued" }).onDuplicateKeyUpdate({ set: { idempotencyKey: sql`${fulfilmentJobs.idempotencyKey}` } });
+  }
+  return db.select().from(fulfilmentJobs).where(eq(fulfilmentJobs.orderReference, inputs[0].orderReference));
+}
+
+export async function listAdminFulfilmentJobs() {
+  const db = await requireDb();
+  return db.select({
+    id: fulfilmentJobs.id,
+    orderReference: fulfilmentJobs.orderReference,
+    officialProductId: fulfilmentJobs.officialProductId,
+    productTitle: officialProducts.title,
+    provider: fulfilmentJobs.provider,
+    status: fulfilmentJobs.status,
+    quantity: fulfilmentJobs.quantity,
+    providerOrderId: fulfilmentJobs.providerOrderId,
+    errorSummary: fulfilmentJobs.errorSummary,
+    attemptCount: fulfilmentJobs.attemptCount,
+    nextAttemptAt: fulfilmentJobs.nextAttemptAt,
+    submittedAt: fulfilmentJobs.submittedAt,
+    createdAt: fulfilmentJobs.createdAt,
+  }).from(fulfilmentJobs).innerJoin(officialProducts, eq(officialProducts.id, fulfilmentJobs.officialProductId)).orderBy(desc(fulfilmentJobs.createdAt));
+}
+
+export async function markFulfilmentJobRetryQueued(id: number) {
+  const db = await requireDb();
+  await db.update(fulfilmentJobs).set({ status: "queued", errorSummary: null, nextAttemptAt: new Date(), claimedAt: null }).where(and(eq(fulfilmentJobs.id, id), eq(fulfilmentJobs.status, "manual_required")));
+}
+
+export async function claimDueFulfilmentJobs(limit = 10) {
+  const db = await requireDb();
+  const candidates = await db.select().from(fulfilmentJobs).where(or(eq(fulfilmentJobs.status, "queued"), and(eq(fulfilmentJobs.status, "retry_pending"), lte(fulfilmentJobs.nextAttemptAt, new Date())))).orderBy(fulfilmentJobs.createdAt).limit(limit);
+  const claimed: typeof candidates = [];
+  for (const candidate of candidates) {
+    const claimedResult = await db.update(fulfilmentJobs).set({ status: "processing", claimedAt: new Date(), attemptCount: sql`${fulfilmentJobs.attemptCount} + 1` }).where(and(eq(fulfilmentJobs.id, candidate.id), eq(fulfilmentJobs.status, candidate.status)));
+    if (affectedRows(claimedResult) === 1) claimed.push({ ...candidate, status: "processing", attemptCount: candidate.attemptCount + 1 });
+  }
+  return claimed;
+}
+
+export async function recoverStaleFulfilmentJobClaims(staleBefore: Date) {
+  const db = await requireDb();
+  await db.update(fulfilmentJobs).set({
+    status: "retry_pending",
+    claimedAt: null,
+    nextAttemptAt: new Date(),
+    errorSummary: "A previous dispatch attempt did not complete and was safely returned to the queue.",
+  }).where(and(eq(fulfilmentJobs.status, "processing"), lt(fulfilmentJobs.claimedAt, staleBefore)));
+}
+
+export async function markFulfilmentJobSubmitted(input: { id: number; providerOrderId?: string | null; providerRequestId?: string | null }) {
+  const db = await requireDb();
+  await db.update(fulfilmentJobs).set({ status: "submitted", providerOrderId: input.providerOrderId ?? null, providerRequestId: input.providerRequestId ?? null, submittedAt: new Date(), errorSummary: null, nextAttemptAt: null }).where(and(eq(fulfilmentJobs.id, input.id), eq(fulfilmentJobs.status, "processing")));
+}
+
+export async function markFulfilmentJobFailed(input: { id: number; errorSummary: string; retryAt: Date | null }) {
+  const db = await requireDb();
+  await db.update(fulfilmentJobs).set({ status: input.retryAt ? "retry_pending" : "manual_required", errorSummary: input.errorSummary.slice(0, 255), nextAttemptAt: input.retryAt, claimedAt: null }).where(and(eq(fulfilmentJobs.id, input.id), eq(fulfilmentJobs.status, "processing")));
 }

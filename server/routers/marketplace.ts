@@ -14,6 +14,7 @@ import {
 import { DELIVERY_SERVICE_TIERS, calculateDeliveryQuote } from "../../shared/delivery";
 import { formatNigerianDeliveryAddress, isNigerianLga, isNigerianState } from "../../shared/nigeriaAddress";
 import {
+  createOfficialProduct,
   createOrder,
   createReferralShare,
   createWithdrawalOtpChallenge,
@@ -28,11 +29,16 @@ import {
   getReferralShareByCode,
   getReferralShareByRewardCode,
   getKycProfileForUser,
+  getFulfilmentIntegration,
   getVendorApplicationForUser,
   getVendorProductForApplication,
   getWalletBankRecipientForUser,
   getWalletForUser,
   listAdminReviewProducts,
+  listAdminFulfilmentJobs,
+  listAdminOfficialProducts,
+  listActiveOfficialProducts,
+  listActiveOfficialProductsWithSourcing,
   listApprovedVendorProducts,
   listWalletFundingAttemptsForUser,
   listHeldWalletOrders,
@@ -41,6 +47,7 @@ import {
   listWalletTransactionsForUser,
   listWithdrawalRequestsForUser,
   markWalletFundingAttemptFailed,
+  markFulfilmentJobRetryQueued,
   markWalletWithdrawalProcessing,
   qualifyReferralShare,
   recordWalletPinFailure,
@@ -48,8 +55,11 @@ import {
   releaseWalletEscrowOrder,
   resetWalletPinFailures,
   saveWalletBankRecipient,
+  saveFulfilmentIntegration,
   submitKycGovernmentId,
   updateVendorProductStatus,
+  updateOfficialProduct,
+  updateOfficialProductStatus,
   updateVendorDraftProduct,
   updateWalletPin,
 } from "../db";
@@ -59,6 +69,7 @@ import { hashTransactionPin, validateTransactionPin, verifyTransactionPin } from
 import { generateWithdrawalOtp, hashWithdrawalOtp } from "../withdrawalOtpSecurity";
 import { sanitizePlainText } from "../securityText";
 import { isWithdrawalOtpEmailDeliveryConfigured } from "../withdrawalOtpEmail";
+import { processCjFulfilmentQueue } from "../fulfilmentQueue";
 import {
   PaystackProviderError,
   createPaystackTransferRecipient,
@@ -149,8 +160,60 @@ function createVendorCatalog(products: Awaited<ReturnType<typeof listApprovedVen
   });
 }
 
+function createOfficialCatalog(products: Awaited<ReturnType<typeof listActiveOfficialProducts>>): MarketplaceProduct[] {
+  return products.flatMap(product => {
+    const imageUrls = (product.imageUrls?.length ? product.imageUrls : product.imageUrl ? [product.imageUrl] : []).filter(Boolean);
+    if (!imageUrls.length) return [];
+    return [{
+      id: `official-${product.id}`,
+      title: product.title,
+      vendor: "Alpha Collective Official",
+      category: product.category,
+      price: product.price,
+      formerPrice: product.formerPrice ?? undefined,
+      badge: product.badge ?? "Alpha Collective pick",
+      imageUrl: imageUrls[0],
+      imageUrls,
+      description: product.description,
+      detail: product.detail,
+    }];
+  });
+}
+
 const productImageDataUrlSchema = z.string().max(7_000_000);
 const vendorProductInputSchema = z.object({ title: z.string().trim().min(2).max(180).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid product title."), category: z.enum(MARKETPLACE_CATEGORIES), price: z.number().int().min(500).max(5000000), description: z.string().trim().min(12).max(1200).transform(sanitizePlainText).refine(value => value.length >= 12, "Enter a valid product description."), imageUrls: z.array(z.string().startsWith("/manus-storage/").max(500)).min(1).max(5) });
+const officialProductInputSchema = z.object({
+  title: z.string().trim().min(2).max(180).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid product title."),
+  category: z.enum(MARKETPLACE_CATEGORIES),
+  price: z.number().int().min(500).max(5_000_000),
+  formerPrice: z.number().int().min(500).max(5_000_000).nullable().optional(),
+  badge: z.string().trim().max(80).transform(sanitizePlainText).nullable().optional(),
+  description: z.string().trim().min(12).max(1200).transform(sanitizePlainText).refine(value => value.length >= 12, "Enter a valid product description."),
+  detail: z.string().trim().min(12).max(1600).transform(sanitizePlainText).refine(value => value.length >= 12, "Enter valid product details."),
+  imageUrls: z.array(z.string().startsWith("/manus-storage/official-products/").max(500)).min(1).max(5),
+  status: z.enum(["draft", "active", "rejected"]),
+  fulfillmentProvider: z.enum(["local_vendor", "auto_fulfill_api", "manual_admin"]),
+  externalSkuId: z.string().trim().max(120).transform(sanitizePlainText).nullable().optional(),
+  supplierCost: z.number().int().min(0).max(100_000_000).nullable().optional(),
+  supplierCurrency: z.enum(["NGN", "USD"]),
+}).superRefine((value, ctx) => {
+  if (value.fulfillmentProvider === "auto_fulfill_api" && !value.externalSkuId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["externalSkuId"], message: "An External SKU ID is required for Auto-Fulfill API products." });
+});
+
+function toOfficialProductInput(input: z.infer<typeof officialProductInputSchema>) {
+  return {
+    title: input.title,
+    category: input.category,
+    price: input.price,
+    formerPrice: input.formerPrice ?? null,
+    badge: input.badge ?? null,
+    description: input.description,
+    detail: input.detail,
+    imageUrls: input.imageUrls,
+    status: input.status,
+    sourcing: { fulfillmentProvider: input.fulfillmentProvider, externalSkuId: input.externalSkuId ?? null, supplierCost: input.supplierCost ?? null, supplierCurrency: input.supplierCurrency },
+  };
+}
 
 function decodeProductImage(dataUrl: string) {
   const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
@@ -175,8 +238,8 @@ function decodeKycGovernmentId(dataUrl: string) {
 
 export const marketplaceRouter = router({
   publicProducts: publicProcedure.query(async () => {
-    const products = await listApprovedVendorProducts();
-    return createVendorCatalog(products);
+    const [products, officialProducts] = await Promise.all([listApprovedVendorProducts(), listActiveOfficialProducts()]);
+    return [...createOfficialCatalog(officialProducts), ...createVendorCatalog(products)];
   }),
   deliveryQuote: publicProcedure
     .input(deliveryQuoteInputSchema)
@@ -282,26 +345,45 @@ export const marketplaceRouter = router({
         validateNigerianState(input.deliveryAddress.state);
         if (!isNigerianLga(input.deliveryAddress.state, input.deliveryAddress.lga)) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a valid local government area for the selected state." });
         const deliveryQuote = calculateDeliveryQuote({ destinationState: input.deliveryAddress.state, weightKg: input.packageWeightKg, serviceTier: input.deliveryTier });
-        const catalog = [...MARKETPLACE_PRODUCTS, ...createVendorCatalog(await listApprovedVendorProducts())];
+        const [vendorProducts, officialProducts] = await Promise.all([listApprovedVendorProducts(), listActiveOfficialProductsWithSourcing()]);
+        const officialCatalog = createOfficialCatalog(officialProducts);
+        const catalog = [...MARKETPLACE_PRODUCTS, ...officialCatalog, ...createVendorCatalog(vendorProducts)];
         const resolvedLines = resolveCartLines(input.items, catalog);
         if (resolvedLines.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Your cart does not contain a valid product." });
-        if (resolvedLines.some(line => !line.product.vendorUserId)) throw new TRPCError({ code: "BAD_REQUEST", message: "Alpha Wallet currently supports approved vendor listings only." });
+        const officialByProductId = new Map(officialProducts.map(product => [`official-${product.id}`, product]));
+        if (resolvedLines.some(line => !line.product.vendorUserId && !officialByProductId.has(line.product.id))) throw new TRPCError({ code: "BAD_REQUEST", message: "Alpha Wallet currently supports approved vendor listings and Alpha Collective Official products only." });
         if (resolvedLines.some(line => line.product.vendorUserId === ctx.user.id)) throw new TRPCError({ code: "FORBIDDEN", message: "Use Alpha Wallet to purchase from other vendors, not your own listing." });
         const subtotal = getCartSubtotal(input.items, catalog);
         const reference = newOrderReference();
         const total = subtotal + deliveryQuote.deliveryFee;
         const allocations = resolvedLines.flatMap(line => line.product.vendorUserId ? [{ vendorUserId: line.product.vendorUserId, grossAmount: line.lineTotal, commissionAmount: 0, netAmount: line.lineTotal }] : []);
+        const deliveryAddress = formatNigerianDeliveryAddress(input.deliveryAddress);
+        const fulfilmentJobInputs = resolvedLines.flatMap(line => {
+          const official = officialByProductId.get(line.product.id);
+          if (!official || official.fulfillmentProvider !== "auto_fulfill_api" || !official.externalSkuId) return [];
+          return [{
+            orderReference: reference,
+            officialProductId: official.id,
+            provider: "cj_dropshipping" as const,
+            externalSkuSnapshot: official.externalSkuId,
+            quantity: line.quantity,
+            deliverySnapshot: { buyerName: input.buyerName, buyerPhone: input.buyerPhone, deliveryAddress, countryCode: "NG" as const, state: input.deliveryAddress.state, lga: input.deliveryAddress.lga, streetDetails: input.deliveryAddress.streetDetails },
+            idempotencyKey: `cj-wallet-${reference}-${official.id}`,
+          }];
+        });
         try {
           await createWalletEscrowOrder({
             buyerUserId: ctx.user.id,
             order: {
               reference, buyerUserId: ctx.user.id, buyerName: input.buyerName, buyerPhone: input.buyerPhone,
-              deliveryAddress: formatNigerianDeliveryAddress(input.deliveryAddress), paymentMethod: "wallet", paymentStatus: "wallet_escrow", fulfillmentStatus: "pending",
+              deliveryAddress, paymentMethod: "wallet", paymentStatus: "wallet_escrow", fulfillmentStatus: "pending",
               subtotal, referralDiscount: 0, deliveryFee: deliveryQuote.deliveryFee, total, discountType: "none",
               orderLines: resolvedLines.map(line => ({ productId: line.product.id, title: line.product.title, quantity: line.quantity, unitPrice: line.product.price, lineTotal: line.lineTotal, vendorUserId: line.product.vendorUserId })),
             },
             allocations,
+            fulfilmentJobInputs,
           });
+          if (fulfilmentJobInputs.length) void processCjFulfilmentQueue(5).catch(() => undefined);
         } catch (error) {
           if (error instanceof Error && error.message === "INSUFFICIENT_WALLET_BALANCE") throw new TRPCError({ code: "BAD_REQUEST", message: "Your available Alpha Wallet balance is not enough for this order." });
           throw error;
@@ -338,6 +420,53 @@ export const marketplaceRouter = router({
       .mutation(async ({ input }) => {
         await updateVendorProductStatus(input.id, input.status);
         return { id: input.id, status: input.status };
+      }),
+    officialProducts: adminProcedure.query(() => listAdminOfficialProducts()),
+    uploadOfficialProductImage: adminProcedure
+      .input(z.object({ dataUrl: productImageDataUrlSchema }))
+      .mutation(async ({ ctx, input }) => {
+        const { contentType, data, extension } = decodeProductImage(input.dataUrl);
+        const result = await storagePut(`official-products/${ctx.user.id}/${Date.now()}.${extension}`, data, contentType);
+        return { imageUrl: result.url };
+      }),
+    createOfficialProduct: adminProcedure
+      .input(officialProductInputSchema)
+      .mutation(async ({ input }) => {
+        const id = await createOfficialProduct(toOfficialProductInput(input));
+        return { id };
+      }),
+    updateOfficialProduct: adminProcedure
+      .input(officialProductInputSchema.safeExtend({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        await updateOfficialProduct(input.id, toOfficialProductInput(input));
+        return { id: input.id };
+      }),
+    setOfficialProductStatus: adminProcedure
+      .input(z.object({ id: z.number().int().positive(), status: z.enum(["draft", "active", "rejected"]) }))
+      .mutation(async ({ input }) => {
+        await updateOfficialProductStatus(input.id, input.status);
+        return input;
+      }),
+    fulfilmentIntegration: adminProcedure.query(async () => {
+      const integration = await getFulfilmentIntegration("cj_dropshipping");
+      return integration
+        ? { enabled: Boolean(integration.enabled), callbackUrl: integration.callbackUrl, defaultLogisticsName: integration.defaultLogisticsName, defaultFromCountryCode: integration.defaultFromCountryCode, orderMode: integration.orderMode, hasServerCredential: Boolean(process.env.CJ_DROPSHIPPING_API_KEY) }
+        : { enabled: false, callbackUrl: null, defaultLogisticsName: null, defaultFromCountryCode: null, orderMode: "create_only" as const, hasServerCredential: Boolean(process.env.CJ_DROPSHIPPING_API_KEY) };
+    }),
+    saveFulfilmentIntegration: adminProcedure
+      .input(z.object({ enabled: z.boolean(), callbackUrl: z.string().trim().url().max(500).nullable().optional(), defaultLogisticsName: z.string().trim().max(80).transform(sanitizePlainText).nullable().optional(), defaultFromCountryCode: z.string().trim().regex(/^[A-Za-z]{2}$/).transform(value => value.toUpperCase()).nullable().optional(), orderMode: z.enum(["create_only", "balance_payment"]) }))
+      .mutation(async ({ input }) => {
+        const credentialAvailable = Boolean(process.env.CJ_DROPSHIPPING_API_KEY);
+        if (input.enabled && !credentialAvailable) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Add the CJ Dropshipping server credential before enabling automatic fulfilment." });
+        const integration = await saveFulfilmentIntegration({ provider: "cj_dropshipping", enabled: input.enabled, apiBaseUrl: "https://developers.cjdropshipping.com", callbackUrl: input.callbackUrl ?? null, defaultLogisticsName: input.defaultLogisticsName ?? null, defaultFromCountryCode: input.defaultFromCountryCode ?? null, orderMode: input.orderMode });
+        return { enabled: Boolean(integration?.enabled), hasServerCredential: credentialAvailable };
+      }),
+    fulfilmentJobs: adminProcedure.query(() => listAdminFulfilmentJobs()),
+    retryFulfilmentJob: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        await markFulfilmentJobRetryQueued(input.id);
+        return { id: input.id, status: "queued" as const };
       }),
     markWalletOrderDelivered: adminProcedure
       .input(z.object({ reference: z.string().trim().min(8).max(40) }))

@@ -78,6 +78,13 @@
       "when": 1787618814091,
       "tag": "0010_strange_skullbuster",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "5",
+      "when": 1787643758685,
+      "tag": "0011_strong_epoch",
+      "breakpoints": true
     }
   ]
 }

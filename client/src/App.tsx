@@ -3,9 +3,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import Cart from "@/pages/Cart";
 import AdminProductReview from "@/pages/AdminProductReview";
 import AdminWalletOrders from "@/pages/AdminWalletOrders";
+import AdminOfficialProducts from "@/pages/AdminOfficialProducts";
 import Checkout from "@/pages/Checkout";
 import Home from "@/pages/Home";
 import KycVerification from "@/pages/KycVerification";
+import DropshipIntegrations from "@/pages/DropshipIntegrations";
 import NotFound from "@/pages/NotFound";
 import Product from "@/pages/Product";
 import Sell from "@/pages/Sell";
@@ -31,6 +33,8 @@ function Router() {
       <Route path="/kyc" component={KycVerification} />
       <Route path="/admin/products" component={AdminProductReview} />
       <Route path="/admin/wallet-orders" component={AdminWalletOrders} />
+      <Route path="/admin/official-products" component={AdminOfficialProducts} />
+      <Route path="/admin/dropship-integrations" component={DropshipIntegrations} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

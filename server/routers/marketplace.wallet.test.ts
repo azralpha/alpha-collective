@@ -5,6 +5,8 @@ import { hashTransactionPin } from "../walletSecurity";
 const mocks = vi.hoisted(() => ({
   createWalletEscrowOrder: vi.fn(),
   getWalletForUser: vi.fn(),
+  listActiveOfficialProducts: vi.fn(),
+  listActiveOfficialProductsWithSourcing: vi.fn(),
   listApprovedVendorProducts: vi.fn(),
   recordWalletPinFailure: vi.fn(),
   releaseWalletEscrowOrder: vi.fn(),
@@ -33,7 +35,11 @@ const checkoutBase = {
 };
 
 describe("marketplace wallet escrow release", () => {
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mocks.listActiveOfficialProducts.mockResolvedValue([]);
+    mocks.listActiveOfficialProductsWithSourcing.mockResolvedValue([]);
+  });
 
   it("releases a held wallet order once and reports vendor allocations", async () => {
     mocks.releaseWalletEscrowOrder.mockResolvedValue({ releasedVendors: [{ userId: 42, amount: 15_000 }] });
@@ -60,7 +66,7 @@ describe("marketplace wallet escrow release", () => {
 
     await expect(buyerCaller().wallet.checkout({ ...checkoutBase, items: [{ productId: MARKETPLACE_PRODUCTS[0].id, quantity: 1 }] })).rejects.toMatchObject({
       code: "BAD_REQUEST",
-      message: "Alpha Wallet currently supports approved vendor listings only.",
+      message: "Alpha Wallet currently supports approved vendor listings and Alpha Collective Official products only.",
     });
     expect(mocks.createWalletEscrowOrder).not.toHaveBeenCalled();
   });
@@ -85,5 +91,28 @@ describe("marketplace wallet escrow release", () => {
       message: "Use Alpha Wallet to purchase from other vendors, not your own listing.",
     });
     expect(mocks.createWalletEscrowOrder).not.toHaveBeenCalled();
+  });
+
+  it("creates a private CJ fulfilment job snapshot for an eligible Alpha Collective Official wallet order", async () => {
+    mocks.getWalletForUser.mockResolvedValue({ id: 8, userId: 7, pinHash: await hashTransactionPin("1234"), pinFailedAttempts: 0, pinLockedUntil: null });
+    mocks.listApprovedVendorProducts.mockResolvedValue([]);
+    mocks.listActiveOfficialProductsWithSourcing.mockResolvedValue([{ id: 21, title: "Official travel bag", category: "Fashion", price: 18_500, formerPrice: null, badge: null, description: "A white-labeled official product for customer checkout.", detail: "A product detail suitable for the official catalogue.", imageUrl: "/manus-storage/official-products/1/bag.jpg", imageUrls: ["/manus-storage/official-products/1/bag.jpg"], fulfillmentProvider: "auto_fulfill_api", externalSkuId: "CJ-BAG-001" }]);
+    mocks.createWalletEscrowOrder.mockResolvedValue({});
+
+    await expect(buyerCaller().wallet.checkout({ ...checkoutBase, items: [{ productId: "official-21", quantity: 2 }] })).resolves.toMatchObject({ paymentStatus: "wallet_escrow" });
+    expect(mocks.createWalletEscrowOrder).toHaveBeenCalledWith(expect.objectContaining({
+      fulfilmentJobInputs: [expect.objectContaining({ officialProductId: 21, provider: "cj_dropshipping", externalSkuSnapshot: "CJ-BAG-001", quantity: 2, deliverySnapshot: expect.objectContaining({ countryCode: "NG", state: "Lagos", lga: "Ikeja" }) })],
+    }));
+  });
+
+  it("returns only white-label catalog fields for an official product and omits all sourcing metadata", async () => {
+    mocks.listApprovedVendorProducts.mockResolvedValue([]);
+    mocks.listActiveOfficialProducts.mockResolvedValue([{ id: 21, title: "Official travel bag", category: "Fashion", price: 18_500, formerPrice: null, badge: null, description: "A white-labeled official product for customer checkout.", detail: "A product detail suitable for the official catalogue.", imageUrl: "/manus-storage/official-products/1/bag.jpg", imageUrls: ["/manus-storage/official-products/1/bag.jpg"] }]);
+
+    const results = await marketplaceRouter.createCaller({} as never).publicProducts();
+    expect(results[0]).toMatchObject({ id: "official-21", vendor: "Alpha Collective Official" });
+    expect(results[0]).not.toHaveProperty("externalSkuId");
+    expect(results[0]).not.toHaveProperty("supplierCost");
+    expect(results[0]).not.toHaveProperty("fulfillmentProvider");
   });
 });

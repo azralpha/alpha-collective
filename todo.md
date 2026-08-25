@@ -1,5 +1,18 @@
 # Project TODO
 
+- [x] Audit product, order, and admin flows for secure dropship fulfilment integration points
+- [x] Add admin-only hidden product sourcing fields: external SKU, supplier cost, and fulfilment-provider selection
+- [x] Ensure supplier metadata is excluded from every public and vendor product response and rendered as Alpha Collective Official on buyer storefronts
+- [x] Add an admin Dropship Integrations settings area with safe server-only credential activation controls
+- [x] Add durable fulfilment-job records, per-item payload snapshots, retry safety, and manual-processing failure states
+- [x] Trigger eligible supplier fulfilment after the currently implemented Wallet escrow checkout, without allowing a supplier failure to fail the customer order
+- [x] Add administrator failure badges, fulfilment detail review, and manual retry controls
+- [x] Add supplier-trigger access-control, payload, idempotency, and error-handling coverage
+- [x] Implement the CJ Dropshipping server adapter and its official order request contract behind a server-only credential
+- [x] Create the authenticated endpoint to run published-site CJ fulfilment retries
+- [ ] Add and validate the server-only CJ Dropshipping API key, configure CJ logistics defaults, and run a controlled non-purchasing provider check
+- [ ] After publishing, register the CJ callback URL and schedule the authenticated fulfilment retry endpoint
+
 - [x] Review the supplied update specification and implement all applicable internal Alpha Collective requirements that do not require unconfigured external providers
 - [x] Assess current password, PIN, login, and wallet authorization safeguards against the supplied anti-fraud requirements
 - [x] Add wallet PIN lockout-after-three-attempts and defer account-alert delivery until a configured email provider is available

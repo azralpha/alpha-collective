@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   createOrder: vi.fn(),
@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   getVendorApplicationForUser: vi.fn(),
   getVendorProductForApplication: vi.fn(),
   listAdminReviewProducts: vi.fn(),
+  listActiveOfficialProducts: vi.fn(),
   listApprovedVendorProducts: vi.fn(),
   listReferralSharesForUser: vi.fn(),
   listVendorProducts: vi.fn(),
@@ -47,6 +48,10 @@ function adminCaller() {
 }
 
 describe("marketplace vendor image workflow", () => {
+  beforeEach(() => {
+    mocks.listActiveOfficialProducts.mockResolvedValue([]);
+  });
+
   it("rejects unsupported primary-image payloads before storage", async () => {
     await expect(caller().vendor.uploadProductImage({ dataUrl: "data:text/plain;base64,SGVsbG8=" })).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect(mocks.storagePut).not.toHaveBeenCalled();

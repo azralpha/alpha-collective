@@ -43,6 +43,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
           </Link>
           <div className="header-actions">
             {user?.role === "admin" ? <Link href="/admin/products" className="admin-link" aria-label="Review vendor products"><ShieldCheck size={20} /><span>Review</span></Link> : null}
+            {user?.role === "admin" ? <Link href="/admin/official-products" className="admin-link" aria-label="Manage official products and hidden sourcing"><Store size={20} /><span>Source</span></Link> : null}
             {user?.role === "admin" ? <Link href="/admin/wallet-orders" className="admin-link" aria-label="Review wallet escrow orders"><ShieldCheck size={20} /><span>Escrow</span></Link> : null}
             {user ? <Link href="/wallet" className="admin-link" aria-label="Open Alpha Wallet"><WalletCards size={20} /><span>Wallet</span></Link> : null}
             <Link href="/cart" className="cart-link" aria-label={`Open cart with ${itemCount} items`}>

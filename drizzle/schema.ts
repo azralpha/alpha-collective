@@ -191,6 +191,71 @@ export const vendorProducts = mysqlTable("vendorProducts", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+/** Public, administrator-managed catalogue items. No supplier fields are stored here. */
+export const officialProducts = mysqlTable("officialProducts", {
+  id: int("id").autoincrement().primaryKey(),
+  title: varchar("title", { length: 180 }).notNull(),
+  category: mysqlEnum("category", ["Fashion", "Gadgets", "Beauty", "Home & Furniture", "Vehicles", "Animals & Pets"]).$type<MarketplaceCategory>().notNull(),
+  price: int("price").notNull(),
+  formerPrice: int("formerPrice"),
+  badge: varchar("badge", { length: 80 }),
+  description: text("description").notNull(),
+  detail: text("detail").notNull(),
+  imageUrl: text("imageUrl"),
+  imageUrls: json("imageUrls").$type<string[]>(),
+  status: mysqlEnum("status", ["draft", "active", "rejected"]).notNull().default("draft"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Strictly server/admin-only sourcing details for administrator-managed products. */
+export const officialProductSourcing = mysqlTable("officialProductSourcing", {
+  id: int("id").autoincrement().primaryKey(),
+  officialProductId: int("officialProductId").notNull().unique(),
+  fulfillmentProvider: mysqlEnum("fulfillmentProvider", ["local_vendor", "auto_fulfill_api", "manual_admin"]).notNull().default("manual_admin"),
+  externalSkuId: varchar("externalSkuId", { length: 120 }),
+  supplierCost: int("supplierCost"),
+  supplierCurrency: mysqlEnum("supplierCurrency", ["NGN", "USD"]).notNull().default("USD"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Provider configuration deliberately excludes secret keys, which remain server-only environment variables. */
+export const fulfilmentIntegrations = mysqlTable("fulfilmentIntegrations", {
+  id: int("id").autoincrement().primaryKey(),
+  provider: mysqlEnum("provider", ["cj_dropshipping", "custom_webhook"]).notNull().unique(),
+  enabled: int("enabled").notNull().default(0),
+  apiBaseUrl: varchar("apiBaseUrl", { length: 500 }),
+  callbackUrl: varchar("callbackUrl", { length: 500 }),
+  defaultLogisticsName: varchar("defaultLogisticsName", { length: 80 }),
+  defaultFromCountryCode: varchar("defaultFromCountryCode", { length: 8 }),
+  orderMode: mysqlEnum("orderMode", ["create_only", "balance_payment"]).notNull().default("create_only"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Immutable, retry-safe server-side work queue for supplier order fulfilment. */
+export const fulfilmentJobs = mysqlTable("fulfilmentJobs", {
+  id: int("id").autoincrement().primaryKey(),
+  orderReference: varchar("orderReference", { length: 40 }).notNull(),
+  officialProductId: int("officialProductId").notNull(),
+  provider: mysqlEnum("provider", ["cj_dropshipping", "custom_webhook"]).notNull(),
+  status: mysqlEnum("status", ["queued", "processing", "submitted", "retry_pending", "manual_required", "skipped"]).notNull().default("queued"),
+  externalSkuSnapshot: varchar("externalSkuSnapshot", { length: 120 }).notNull(),
+  quantity: int("quantity").notNull(),
+  deliverySnapshot: json("deliverySnapshot").$type<{ buyerName: string; buyerPhone: string; deliveryAddress: string; countryCode: "NG"; state: string; lga: string; streetDetails: string }>().notNull(),
+  providerOrderId: varchar("providerOrderId", { length: 200 }),
+  providerRequestId: varchar("providerRequestId", { length: 80 }),
+  errorSummary: varchar("errorSummary", { length: 255 }),
+  attemptCount: int("attemptCount").notNull().default(0),
+  nextAttemptAt: timestamp("nextAttemptAt"),
+  claimedAt: timestamp("claimedAt"),
+  submittedAt: timestamp("submittedAt"),
+  idempotencyKey: varchar("idempotencyKey", { length: 140 }).notNull().unique(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
 export type Order = typeof orders.$inferSelect;
@@ -201,6 +266,14 @@ export type VendorApplication = typeof vendorApplications.$inferSelect;
 export type InsertVendorApplication = typeof vendorApplications.$inferInsert;
 export type VendorProduct = typeof vendorProducts.$inferSelect;
 export type InsertVendorProduct = typeof vendorProducts.$inferInsert;
+export type OfficialProduct = typeof officialProducts.$inferSelect;
+export type InsertOfficialProduct = typeof officialProducts.$inferInsert;
+export type OfficialProductSourcing = typeof officialProductSourcing.$inferSelect;
+export type InsertOfficialProductSourcing = typeof officialProductSourcing.$inferInsert;
+export type FulfilmentIntegration = typeof fulfilmentIntegrations.$inferSelect;
+export type InsertFulfilmentIntegration = typeof fulfilmentIntegrations.$inferInsert;
+export type FulfilmentJob = typeof fulfilmentJobs.$inferSelect;
+export type InsertFulfilmentJob = typeof fulfilmentJobs.$inferInsert;
 export type Wallet = typeof wallets.$inferSelect;
 export type InsertWallet = typeof wallets.$inferInsert;
 export type WalletTransaction = typeof walletTransactions.$inferSelect;
