@@ -10,7 +10,7 @@ import { Link, useRoute } from "wouter";
 
 export default function Product() {
   const [, params] = useRoute("/product/:id");
-  const approvedProducts = trpc.marketplace.publicProducts.useQuery();
+  const approvedProducts = trpc.marketplace.publicProducts.useQuery(undefined, { staleTime: 60_000, gcTime: 10 * 60_000, refetchOnWindowFocus: false });
   const product = getProduct(params?.id ?? "") ?? approvedProducts.data?.find(item => item.id === params?.id);
   const { addItem } = useCart();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);

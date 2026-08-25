@@ -14,6 +14,8 @@ import { registerCjInventorySyncSchedule } from "../cjInventorySync";
 import { registerRewardReleaseSchedule } from "../rewardReleaseSchedule";
 import { registerVendorRewardsSchedule } from "../vendorRewardsSchedule";
 import { registerEscrowReleaseSchedule } from "../escrowReleaseSchedule";
+import { createExpressRateLimit } from "../requestRateLimit";
+import { PRIVATE_API_CACHE_CONTROL, PUBLIC_CATALOGUE_CACHE_CONTROL } from "../performanceControls";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -37,6 +39,7 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  app.use("/api/oauth/callback", createExpressRateLimit({ scope: "oauth-callback", limit: 20, windowMs: 60_000 }));
   registerPaystackWebhook(app);
   registerCjFulfilmentSchedule(app);
   registerCjInventorySyncSchedule(app);
@@ -48,6 +51,12 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
   registerOAuthRoutes(app);
+  app.use("/api/trpc", (req, res, next) => {
+    const paths = req.path.split(",").map(path => path.replace(/^\//, ""));
+    const isCatalogueRead = req.method === "GET" && paths.length > 0 && paths.every(path => path === "marketplace.publicProducts");
+    res.set("Cache-Control", isCatalogueRead ? PUBLIC_CATALOGUE_CACHE_CONTROL : PRIVATE_API_CACHE_CONTROL);
+    next();
+  });
   // tRPC API
   app.use(
     "/api/trpc",

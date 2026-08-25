@@ -95,7 +95,7 @@ import { decodeProductImageDataUrl, importCjProductImage, ProductImageProcessing
 import { CjDropshippingError, fetchCjProductForImport } from "../cjDropshipping";
 import { createCjMassImportBatch, getCjMassImportBatch, processNextCjMassImportItem } from "../cjMassImport";
 import { notifyAdminPaymentEvent } from "../paymentNotifications";
-import { adminProcedure, protectedProcedure, publicProcedure, router } from "../_core/trpc";
+import { adminProcedure, protectedProcedure, publicProcedure, router, sensitiveProtectedProcedure } from "../_core/trpc";
 import { hashTransactionPin, validateTransactionPin, verifyTransactionPin } from "../walletSecurity";
 import { generateWithdrawalOtp, hashWithdrawalOtp } from "../withdrawalOtpSecurity";
 import { sanitizePlainText } from "../securityText";
@@ -159,7 +159,7 @@ function newRewardCode() { return `THANKS-${rewardCodeAlphabet()}`; }
 function newPaystackFundingReference() { return `acwfund_${paystackFundingReferenceAlphabet()}`; }
 function newPaystackWithdrawalReference() { return `acwwith_${paystackWithdrawalReferenceAlphabet()}`; }
 
-const walletKycProcedure = protectedProcedure.use(async ({ ctx, next }) => {
+const walletKycProcedure = sensitiveProtectedProcedure.use(async ({ ctx, next }) => {
   const profile = await ensureKycProfileForUser(ctx.user.id);
   if (profile.status !== "verified") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Complete KYC Verification before accessing or using Alpha Wallet." });
   return next({ ctx });
@@ -712,7 +712,7 @@ export const marketplaceRouter = router({
     }));
   }),
 
-  submitOrder: protectedProcedure
+  submitOrder: sensitiveProtectedProcedure
     .input(z.object({
       buyerName: z.string().trim().min(2).max(120).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid buyer name."),
       buyerPhone: z.string().trim().min(7).max(32),

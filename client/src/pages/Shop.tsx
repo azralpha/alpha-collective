@@ -24,7 +24,7 @@ export default function Shop() {
   const [search, setSearch] = useState("");
   const selectedCategory = categoryFromSearch(searchParams);
   const referralCode = referralFromSearch(searchParams);
-  const approvedProducts = trpc.marketplace.publicProducts.useQuery();
+  const approvedProducts = trpc.marketplace.publicProducts.useQuery(undefined, { staleTime: 60_000, gcTime: 10 * 60_000, refetchOnWindowFocus: false });
 
   useEffect(() => {
     if (referralCode) window.localStorage.setItem("alpha-collective-referral-code", referralCode);

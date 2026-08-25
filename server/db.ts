@@ -1,5 +1,6 @@
 import { and, count, desc, eq, gte, isNull, like, lt, lte, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
+import { createPool, type Pool } from "mysql2";
 import {
   type InsertOrder,
   type InsertReferralShare,
@@ -43,15 +44,28 @@ import { hashSecuritySignal, normalizeDeviceId } from "./referralFraud";
 import { splitWalletPayment } from "./walletBalanceSplit";
 import { fundingCreditDisposition, withdrawalPaidDisposition, withdrawalRestoreDisposition } from "./walletReconciliation";
 import type { MarketplaceCategory } from "../shared/marketplace";
+import { parseDatabasePoolLimit } from "./performanceControls";
 
 let _db: ReturnType<typeof drizzle> | null = null;
+let _pool: Pool | null = null;
 
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
-      _db = drizzle(process.env.DATABASE_URL);
+      const connectionLimit = parseDatabasePoolLimit(process.env.DATABASE_POOL_LIMIT);
+      _pool = createPool({
+        uri: process.env.DATABASE_URL,
+        waitForConnections: true,
+        connectionLimit,
+        maxIdle: connectionLimit,
+        idleTimeout: 60_000,
+        queueLimit: 100,
+        enableKeepAlive: true,
+      });
+      _db = drizzle({ client: _pool });
     } catch (error) {
       console.warn("[Database] Failed to connect:", error);
+      _pool = null;
       _db = null;
     }
   }

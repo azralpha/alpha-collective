@@ -258,3 +258,8 @@
 - [x] Audit the current site-wide toast provider and alert presentation behavior
 - [x] Reposition alerts to accessible top-center floating cards with Alpha Market error styling, close controls, and timed dismissal
 - [x] Add notification regression coverage, visual checks, and a checkpoint for the updated alert experience
+
+- [x] Audit Drizzle/MySQL connection behavior, public catalogue read paths, image processing, and sensitive write routes for high-traffic readiness
+- [x] Add compatible connection-pool configuration guidance, cache-control for safe public read endpoints, and optimized responsive product-image delivery
+- [x] Add lightweight in-process rate limits to sensitive write endpoints without exposing or enabling crypto funding
+- [x] Add performance-safeguard tests, validate behavior, and save a checkpoint
