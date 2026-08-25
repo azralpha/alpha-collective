@@ -226,12 +226,12 @@
 - [x] Prepare a publication-gated, idempotent seven-day escrow auto-release handler without activating a schedule before publication
 - [ ] Design a provider-verified crypto-deposit model with 15-minute locked quotes, unique payment references, confirmation checks, and permanently non-withdrawable crypto-origin credits
 - [ ] Add crypto funding UI only for verified, configured provider rails and ensure no client-side success can credit a wallet
-- [ ] Add security-focused tests, responsive validation, a safe migration, and a checkpoint for the staged payments and escrow work
+- [x] Add security-focused tests, responsive validation, a safe migration, and a checkpoint for the staged payments and escrow work
 
-- [ ] Configure NOWPayments as the approved managed crypto gateway with server-only API, IPN verification, and settlement secrets supplied by the administrator
+- [x] Configure NOWPayments as the approved managed crypto gateway with server-only API and IPN verification using administrator-supplied server secrets
 - [x] Remove all Pi credentials, validation tests, documentation, and future payment-path references from the project
 - [ ] Re-verify an active NOWPayments merchant API key and configured settlement account before enabling any crypto quote, callback, or wallet-credit path
-- [ ] Keep all NOWPayments payment creation, IPN callback crediting, and seven-day escrow schedule activation disabled until the administrator supplies a published HTTPS domain
+- [x] Keep all NOWPayments payment creation, IPN callback crediting, and seven-day escrow schedule activation disabled until the administrator supplies a published HTTPS domain
 
 - [x] Audit and replace public Alpha Collective branding across the storefront, navigation, product views, buttons, and SEO metadata while retaining legal and administrative parent-company references
 - [x] Add a persistent, accessible Alpha Market cookie-consent banner with Terms of Use and Privacy Policy links
@@ -250,3 +250,11 @@
 - [x] Add bounded server-side saved-product queries that support up to 100 administrator official products and 100 vendor drafts with safe filtering
 - [x] Add responsive status/category toggles, item counts, and page-switching controls to administrator and vendor saved-product views
 - [x] Add regression coverage and visual validation for visible new drafts, filters, 100-item browsing, and pagination before checkpointing
+
+- [x] Audit existing NOWPayments quote, IPN, private-attempt, and domain-gating code against the deferred crypto funding requirements
+- [x] Confirm no safe crypto readiness or test gap remains without enabling payment creation, callback crediting, schedules, or other money movement
+- [x] Validate the fail-closed published-domain guard and update deferred crypto tracker items accurately
+
+- [x] Audit the current site-wide toast provider and alert presentation behavior
+- [x] Reposition alerts to accessible top-center floating cards with Alpha Market error styling, close controls, and timed dismissal
+- [x] Add notification regression coverage, visual checks, and a checkpoint for the updated alert experience
