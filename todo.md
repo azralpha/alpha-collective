@@ -306,3 +306,9 @@
 - [x] Add crawler-visible dynamic metadata and Product JSON-LD for public catalogue routes
 - [x] Add dynamic sitemap.xml and robots.txt endpoints for published products and category pages only
 - [x] Add technical SEO regression coverage, validate public route output, and checkpoint the release
+
+- [x] Audit product fields, CJ import flow, admin editor controls, Gemini API integration options, and safety boundaries
+- [x] Add persisted AI enhancement fields with a reviewed non-destructive migration and private/admin-only update path
+- [x] Configure a server-only GEMINI_API_KEY and validate it without creating or changing any product
+- [x] Add an administrator-triggered Gemini enhancement control with structured JSON validation and draft-only safeguards
+- [x] Add regression coverage, verify the admin flow, and checkpoint the Gemini enhancement capability

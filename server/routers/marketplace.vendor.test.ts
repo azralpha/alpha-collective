@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   createVendorProduct: vi.fn(),
   ensureKycProfileForUser: vi.fn(),
   getKycProfileForUser: vi.fn(),
+  getOfficialProductForGeminiEnhancement: vi.fn(),
   getReferralShareByCode: vi.fn(),
   getReferralShareByRewardCode: vi.fn(),
   getVendorApplicationForUser: vi.fn(),
@@ -21,12 +22,16 @@ const mocks = vi.hoisted(() => ({
   redeemReferralReward: vi.fn(),
   storagePut: vi.fn(),
   storeProcessedProductImage: vi.fn(),
+  generateGeminiProductEnhancement: vi.fn(),
+  tryGenerateGeminiProductEnhancement: vi.fn(),
+  saveOfficialProductGeminiEnhancement: vi.fn(),
   updateVendorProductStatus: vi.fn(),
   updateVendorDraftProduct: vi.fn(),
 }));
 
 vi.mock("../db", () => mocks);
 vi.mock("../storage", () => ({ storagePut: mocks.storagePut }));
+vi.mock("../geminiProductEnhancer", () => ({ generateGeminiProductEnhancement: mocks.generateGeminiProductEnhancement, tryGenerateGeminiProductEnhancement: mocks.tryGenerateGeminiProductEnhancement }));
 vi.mock("../productImageProcessing", async importOriginal => {
   const actual = await importOriginal<typeof import("../productImageProcessing")>();
   return { ...actual, storeProcessedProductImage: mocks.storeProcessedProductImage };
@@ -67,6 +72,19 @@ describe("marketplace vendor image workflow", () => {
 
   it("blocks non-administrators from importing CJ catalogue details", async () => {
     await expect(caller().admin.importCjProduct({ sku: "CJ-001" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("blocks non-administrators from requesting Gemini product enhancements", async () => {
+    await expect(caller().admin.generateGeminiProductEnhancement({ title: "Pocket Blender", description: "A compact blender for quick drinks at home." })).rejects.toMatchObject({ code: "FORBIDDEN" });
+  });
+
+  it("persists validated Gemini fields for an administrator without publishing or changing pricing", async () => {
+    const enhancement = { cleanTitle: "Pocket Blend Mini", seoDescription: "A compact blender for quick drinks at home. Its portable form keeps everyday blending simple.", metaDescription: "A compact portable blender for quick drinks at home, available on Alpha Market.", suggestedTags: ["blender", "portable", "kitchen", "smoothie", "drinkware"] };
+    mocks.getOfficialProductForGeminiEnhancement.mockResolvedValue({ id: 81, title: "Raw supplier blender", description: "A compact blender for quick drinks at home.", detail: "Portable USB blender.", status: "draft" });
+    mocks.generateGeminiProductEnhancement.mockResolvedValue(enhancement);
+
+    await expect(adminCaller().admin.enhanceOfficialProductWithGemini({ id: 81 })).resolves.toEqual({ id: 81, status: "draft", enhancement });
+    expect(mocks.saveOfficialProductGeminiEnhancement).toHaveBeenCalledWith(81, enhancement);
   });
 
   it("stores uploaded product images and persists their ordered gallery with the draft", async () => {

@@ -16,6 +16,7 @@ import { DELIVERY_SERVICE_TIERS, calculateDeliveryQuote } from "../../shared/del
 import { formatNigerianDeliveryAddress, isNigerianLga, isNigerianState } from "../../shared/nigeriaAddress";
 import {
   createOfficialProduct,
+  getOfficialProductForGeminiEnhancement,
   createOrder,
   createPendingGatewayCheckout,
   createReferralShare,
@@ -89,6 +90,7 @@ import {
   submitKycGovernmentId,
   updateVendorProductStatus,
   updateOfficialProduct,
+  saveOfficialProductGeminiEnhancement,
   updateOfficialProductStatus,
   updateReferralRewardSettings,
   updateVendorDraftProduct,
@@ -104,6 +106,7 @@ import { adminProcedure, protectedProcedure, publicProcedure, router, sensitiveP
 import { hashTransactionPin, validateTransactionPin, verifyTransactionPin } from "../walletSecurity";
 import { generateWithdrawalOtp, hashWithdrawalOtp } from "../withdrawalOtpSecurity";
 import { sanitizePlainText } from "../securityText";
+import { generateGeminiProductEnhancement, tryGenerateGeminiProductEnhancement } from "../geminiProductEnhancer";
 import { isWithdrawalOtpEmailDeliveryConfigured } from "../withdrawalOtpEmail";
 import { processCjFulfilmentQueue } from "../fulfilmentQueue";
 import { createHeartbeatJob } from "../_core/heartbeat";
@@ -283,6 +286,10 @@ const officialProductInputSchema = z.object({
   badge: z.string().trim().max(80).transform(sanitizePlainText).nullable().optional(),
   description: z.string().trim().min(12).max(1200).transform(sanitizePlainText).refine(value => value.length >= 12, "Enter a valid product description."),
   detail: z.string().trim().min(12).max(1600).transform(sanitizePlainText).refine(value => value.length >= 12, "Enter valid product details."),
+  aiCleanTitle: z.string().trim().min(2).max(180).transform(sanitizePlainText).nullable().optional(),
+  aiSeoDescription: z.string().trim().min(40).max(600).transform(sanitizePlainText).nullable().optional(),
+  aiMetaDescription: z.string().trim().min(50).max(155).transform(sanitizePlainText).nullable().optional(),
+  aiSuggestedTags: z.array(z.string().trim().min(2).max(40).transform(sanitizePlainText)).length(5).nullable().optional(),
   imageUrls: z.array(z.string().startsWith("/manus-storage/official-products/").max(500)).min(1).max(5),
   status: z.enum(["draft", "active", "rejected"]),
   fulfillmentProvider: z.enum(["local_vendor", "auto_fulfill_api", "manual_admin"]),
@@ -302,6 +309,11 @@ function toOfficialProductInput(input: z.infer<typeof officialProductInputSchema
     badge: input.badge ?? null,
     description: input.description,
     detail: input.detail,
+    aiCleanTitle: input.aiCleanTitle ?? null,
+    aiSeoDescription: input.aiSeoDescription ?? null,
+    aiMetaDescription: input.aiMetaDescription ?? null,
+    aiSuggestedTags: input.aiSuggestedTags ?? null,
+    aiEnhancedAt: input.aiCleanTitle ? new Date() : null,
     imageUrls: input.imageUrls,
     status: input.status,
     sourcing: { fulfillmentProvider: input.fulfillmentProvider, externalSkuId: input.externalSkuId ?? null, supplierCost: input.supplierCost === null || input.supplierCost === undefined ? null : input.supplierCost.toFixed(2), supplierCurrency: input.supplierCurrency },
@@ -644,7 +656,8 @@ export const marketplaceRouter = router({
         try {
           const product = await fetchCjProductForImport(input.sku);
           const imageUrls = await Promise.all(product.imageUrls.map((imageUrl, index) => importCjProductImage({ imageUrl, storagePrefix: `official-products/${ctx.user.id}/cj-import/${Date.now()}-${index}` }).then(result => result.url)));
-          return { ...product, imageUrls, fulfillmentProvider: "auto_fulfill_api" as const, status: "draft" as const };
+          const enhancement = await tryGenerateGeminiProductEnhancement({ title: product.title, description: product.description });
+          return { ...product, title: enhancement?.cleanTitle ?? product.title, description: enhancement?.seoDescription ?? product.description, imageUrls, enhancement, fulfillmentProvider: "auto_fulfill_api" as const, status: "draft" as const };
         } catch (error) {
           const message = error instanceof CjDropshippingError || error instanceof ProductImageProcessingError ? error.message : "CJ product import could not be completed.";
           throw new TRPCError({ code: "BAD_REQUEST", message });
@@ -673,6 +686,18 @@ export const marketplaceRouter = router({
         const batch = await processNextCjMassImportItem(input.batchId, ctx.user.id);
         if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "That CJ import batch was not found." });
         return batch;
+      }),
+    generateGeminiProductEnhancement: adminProcedure
+      .input(z.object({ title: z.string().trim().min(2).max(180).transform(sanitizePlainText), description: z.string().trim().min(12).max(1600).transform(sanitizePlainText), specifications: z.string().trim().max(1600).transform(sanitizePlainText).nullable().optional() }))
+      .mutation(async ({ input }) => generateGeminiProductEnhancement(input)),
+    enhanceOfficialProductWithGemini: adminProcedure
+      .input(z.object({ id: z.number().int().positive() }))
+      .mutation(async ({ input }) => {
+        const product = await getOfficialProductForGeminiEnhancement(input.id);
+        if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "That official product was not found." });
+        const enhancement = await generateGeminiProductEnhancement({ title: product.title, description: product.description, specifications: product.detail });
+        await saveOfficialProductGeminiEnhancement(input.id, enhancement);
+        return { id: input.id, status: product.status, enhancement };
       }),
     createOfficialProduct: adminProcedure
       .input(officialProductInputSchema)

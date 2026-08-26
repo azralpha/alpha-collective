@@ -356,6 +356,12 @@ export const officialProducts = mysqlTable("officialProducts", {
   badge: varchar("badge", { length: 80 }),
   description: text("description").notNull(),
   detail: text("detail").notNull(),
+  /** Administrator-reviewed Gemini copy; supplier details are never included in these fields. */
+  aiCleanTitle: varchar("aiCleanTitle", { length: 180 }),
+  aiSeoDescription: text("aiSeoDescription"),
+  aiMetaDescription: varchar("aiMetaDescription", { length: 155 }),
+  aiSuggestedTags: json("aiSuggestedTags").$type<string[]>(),
+  aiEnhancedAt: timestamp("aiEnhancedAt"),
   imageUrl: text("imageUrl"),
   imageUrls: json("imageUrls").$type<string[]>(),
   status: mysqlEnum("status", ["draft", "active", "rejected"]).notNull().default("draft"),

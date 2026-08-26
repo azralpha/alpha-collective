@@ -1297,6 +1297,11 @@ export type OfficialProductInput = {
   badge?: string | null;
   description: string;
   detail: string;
+  aiCleanTitle?: string | null;
+  aiSeoDescription?: string | null;
+  aiMetaDescription?: string | null;
+  aiSuggestedTags?: string[] | null;
+  aiEnhancedAt?: Date | null;
   imageUrls: string[];
   status: "draft" | "active" | "rejected";
   stockQuantity?: number | null;
@@ -1373,6 +1378,11 @@ export async function listAdminOfficialProducts(options: SavedProductListOptions
     badge: officialProducts.badge,
     description: officialProducts.description,
     detail: officialProducts.detail,
+    aiCleanTitle: officialProducts.aiCleanTitle,
+    aiSeoDescription: officialProducts.aiSeoDescription,
+    aiMetaDescription: officialProducts.aiMetaDescription,
+    aiSuggestedTags: officialProducts.aiSuggestedTags,
+    aiEnhancedAt: officialProducts.aiEnhancedAt,
     imageUrl: officialProducts.imageUrl,
     imageUrls: officialProducts.imageUrls,
     status: officialProducts.status,
@@ -1434,6 +1444,11 @@ export async function createOfficialProduct(input: OfficialProductInput) {
       badge: input.badge ?? null,
       description: input.description,
       detail: input.detail,
+      aiCleanTitle: input.aiCleanTitle ?? null,
+      aiSeoDescription: input.aiSeoDescription ?? null,
+      aiMetaDescription: input.aiMetaDescription ?? null,
+      aiSuggestedTags: input.aiSuggestedTags ?? null,
+      aiEnhancedAt: input.aiEnhancedAt ?? null,
       imageUrl: input.imageUrls[0] ?? null,
       imageUrls: input.imageUrls,
       status: input.status,
@@ -1458,6 +1473,11 @@ export async function updateOfficialProduct(id: number, input: OfficialProductIn
       badge: input.badge ?? null,
       description: input.description,
       detail: input.detail,
+      ...(input.aiCleanTitle === undefined ? {} : { aiCleanTitle: input.aiCleanTitle }),
+      ...(input.aiSeoDescription === undefined ? {} : { aiSeoDescription: input.aiSeoDescription }),
+      ...(input.aiMetaDescription === undefined ? {} : { aiMetaDescription: input.aiMetaDescription }),
+      ...(input.aiSuggestedTags === undefined ? {} : { aiSuggestedTags: input.aiSuggestedTags }),
+      ...(input.aiEnhancedAt === undefined ? {} : { aiEnhancedAt: input.aiEnhancedAt }),
       imageUrl: input.imageUrls[0] ?? null,
       imageUrls: input.imageUrls,
       status: input.status,
@@ -1467,6 +1487,29 @@ export async function updateOfficialProduct(id: number, input: OfficialProductIn
     }).where(eq(officialProducts.id, id));
     await tx.insert(officialProductSourcing).values({ officialProductId: id, ...input.sourcing }).onDuplicateKeyUpdate({ set: input.sourcing });
   });
+}
+
+export async function getOfficialProductForGeminiEnhancement(id: number) {
+  const db = await requireDb();
+  const results = await db.select({
+    id: officialProducts.id,
+    title: officialProducts.title,
+    description: officialProducts.description,
+    detail: officialProducts.detail,
+    status: officialProducts.status,
+  }).from(officialProducts).where(eq(officialProducts.id, id)).limit(1);
+  return results[0];
+}
+
+export async function saveOfficialProductGeminiEnhancement(id: number, enhancement: { cleanTitle: string; seoDescription: string; metaDescription: string; suggestedTags: string[] }) {
+  const db = await requireDb();
+  await db.update(officialProducts).set({
+    aiCleanTitle: enhancement.cleanTitle,
+    aiSeoDescription: enhancement.seoDescription,
+    aiMetaDescription: enhancement.metaDescription,
+    aiSuggestedTags: enhancement.suggestedTags,
+    aiEnhancedAt: new Date(),
+  }).where(eq(officialProducts.id, id));
 }
 
 export async function updateOfficialProductStatus(id: number, status: "draft" | "active" | "rejected") {

@@ -4,6 +4,7 @@ import { MARKETPLACE_CATEGORIES, type MarketplaceCategory } from "../shared/mark
 import { CjDropshippingError, fetchCjProductForMassImport } from "./cjDropshipping";
 import { createOfficialProduct, getDb } from "./db";
 import { importCjProductImage, ProductImageProcessingError } from "./productImageProcessing";
+import { tryGenerateGeminiProductEnhancement } from "./geminiProductEnhancer";
 
 export const MAX_CJ_MASS_IMPORT_SKUS = 50;
 
@@ -118,7 +119,8 @@ export async function processNextCjMassImportItem(batchId: number, requestedByUs
       else {
         const imageUrls = await Promise.all(imported.imageUrls.map((imageUrl, index) => importCjProductImage({ imageUrl, storagePrefix: `official-products/${requestedByUserId}/cj-batch/${batchId}-${item.id}-${index}` }).then(result => result.url)));
         const price = calculateMassImportNairaPrice({ landedUsdCost: imported.supplierCost, markupPercent: Number(batch.markupPercent), exchangeRateNgnPerUsd: Number(batch.exchangeRateNgnPerUsd) });
-        const officialProductId = await createOfficialProduct({ title: imported.title, category: batch.category, price, formerPrice: null, badge: "New arrival", description: imported.description, detail: imported.description, imageUrls, status: "draft", stockQuantity: imported.stockQuantity, inventorySyncStatus: imported.inventoryKnown ? "current" : "stale", inventorySyncedAt: new Date(), sourcing: { fulfillmentProvider: "auto_fulfill_api", externalSkuId: imported.sku, externalProductId: imported.externalProductId, externalVariantId: imported.externalVariantId, supplierCost: imported.supplierCost.toFixed(2), supplierProductCost: imported.supplierProductCost.toFixed(2), supplierShippingCost: imported.supplierShippingCost.toFixed(2), supplierInventoryQuantity: imported.inventoryKnown ? imported.stockQuantity : null, supplierInventoryCountryCode: imported.inventoryKnown ? imported.inventoryCountryCode : null, supplierCurrency: "USD" } });
+        const enhancement = await tryGenerateGeminiProductEnhancement({ title: imported.title, description: imported.description });
+        const officialProductId = await createOfficialProduct({ title: enhancement?.cleanTitle ?? imported.title, category: batch.category, price, formerPrice: null, badge: "New arrival", description: enhancement?.seoDescription ?? imported.description, detail: enhancement?.seoDescription ?? imported.description, aiCleanTitle: enhancement?.cleanTitle, aiSeoDescription: enhancement?.seoDescription, aiMetaDescription: enhancement?.metaDescription, aiSuggestedTags: enhancement?.suggestedTags, aiEnhancedAt: enhancement ? new Date() : null, imageUrls, status: "draft", stockQuantity: imported.stockQuantity, inventorySyncStatus: imported.inventoryKnown ? "current" : "stale", inventorySyncedAt: new Date(), sourcing: { fulfillmentProvider: "auto_fulfill_api", externalSkuId: imported.sku, externalProductId: imported.externalProductId, externalVariantId: imported.externalVariantId, supplierCost: imported.supplierCost.toFixed(2), supplierProductCost: imported.supplierProductCost.toFixed(2), supplierShippingCost: imported.supplierShippingCost.toFixed(2), supplierInventoryQuantity: imported.inventoryKnown ? imported.stockQuantity : null, supplierInventoryCountryCode: imported.inventoryKnown ? imported.inventoryCountryCode : null, supplierCurrency: "USD" } });
         await finishBatchItem({ batchId, itemId: item.id, status: "imported", officialProductId });
       }
     }
