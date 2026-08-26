@@ -17,6 +17,7 @@ import { formatNigerianDeliveryAddress, isNigerianLga, isNigerianState } from ".
 import {
   createOfficialProduct,
   createOrder,
+  createPendingGatewayCheckout,
   createReferralShare,
   confirmBuyerReceivedWalletOrder,
   assessReferralFraudBeforeCheckout,
@@ -108,7 +109,8 @@ import { processCjFulfilmentQueue } from "../fulfilmentQueue";
 import { createHeartbeatJob } from "../_core/heartbeat";
 import { COOKIE_NAME } from "@shared/const";
 import { createControlledNowPaymentsQuote, MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA, MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA, NowPaymentsError } from "../nowpayments";
-import { nowPaymentsIpnCallbackUrl } from "../cryptoFundingUrl";
+import { nowPaymentsIpnCallbackUrl, paymentRedirectUrl } from "../cryptoFundingUrl";
+import { FlutterwaveProviderError, initializeFlutterwavePayment, isDefinitiveFlutterwaveRequestFailure } from "../flutterwave";
 import {
   PaystackProviderError,
   createPaystackTransferRecipient,
@@ -131,7 +133,9 @@ const deliveryQuoteInputSchema = z.object({
 });
 const walletPinSchema = z.string().regex(/^\d{4}$/, "Enter your four-digit transaction PIN.");
 const walletAmountSchema = z.number().int().min(100, "Enter at least ₦100.").max(5_000_000, "Enter an amount up to ₦5,000,000.");
+const fiatProviderSchema = z.enum(["paystack", "flutterwave"]);
 const paystackFundingReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
+const flutterwaveFundingReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
 const paystackWithdrawalReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
 const cryptoFundingReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
 const walletCheckoutInputSchema = z.object({
@@ -154,6 +158,16 @@ const cryptoCheckoutInputSchema = z.object({
   items: z.array(cartLineSchema).min(1).max(12),
   payCurrency: z.string().trim().toLowerCase().regex(/^[a-z0-9_-]{2,24}$/, "Choose a valid crypto asset."),
 });
+const gatewayCheckoutInputSchema = z.object({
+  provider: fiatProviderSchema,
+  email: z.string().trim().email("Enter a valid payment receipt email.").max(320),
+  buyerName: z.string().trim().min(2).max(120).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid buyer name."),
+  buyerPhone: z.string().trim().min(7).max(32),
+  deliveryAddress: z.object({ country: z.literal("Nigeria"), state: z.string().trim().min(2).max(80).transform(sanitizePlainText), lga: z.string().trim().min(2).max(120).transform(sanitizePlainText), streetDetails: z.string().trim().min(8).max(350).transform(sanitizePlainText).refine(value => value.length >= 8, "Enter valid street details.") }),
+  packageWeightKg: z.number().positive().max(5000),
+  deliveryTier: z.enum(DELIVERY_SERVICE_TIERS),
+  items: z.array(cartLineSchema).min(1).max(12),
+});
 
 const cjMassImportInputSchema = z.object({
   skuText: z.string().trim().min(3).max(8_000),
@@ -173,6 +187,7 @@ function newShareCode() { return `ALPHA-${shareCodeAlphabet()}`; }
 function newOrderReference() { return `AC-${orderReferenceAlphabet()}`; }
 function newRewardCode() { return `THANKS-${rewardCodeAlphabet()}`; }
 function newPaystackFundingReference() { return `acwfund_${paystackFundingReferenceAlphabet()}`; }
+function newFlutterwaveFundingReference() { return `acfwfund_${flutterwaveFundingReferenceAlphabet()}`; }
 function newPaystackWithdrawalReference() { return `acwwith_${paystackWithdrawalReferenceAlphabet()}`; }
 function newCryptoFundingReference() { return `accrypto_${cryptoFundingReferenceAlphabet()}`; }
 
@@ -401,16 +416,19 @@ export const marketplaceRouter = router({
         }
       }),
     initializeFunding: walletKycProcedure
-      .input(z.object({ amount: walletAmountSchema, email: z.string().trim().email("Enter the email address you use for payment receipts.").max(320) }))
+      .input(z.object({ amount: walletAmountSchema, email: z.string().trim().email("Enter the email address you use for payment receipts.").max(320), provider: fiatProviderSchema.default("paystack") }))
       .mutation(async ({ ctx, input }) => {
         const wallet = await ensureWalletForUser(ctx.user.id);
-        const reference = newPaystackFundingReference();
-        await createWalletFundingAttempt({ walletId: wallet.id, userId: ctx.user.id, reference, amount: input.amount });
+        const reference = input.provider === "paystack" ? newPaystackFundingReference() : newFlutterwaveFundingReference();
+        await createWalletFundingAttempt({ walletId: wallet.id, userId: ctx.user.id, reference, amount: input.amount, provider: input.provider });
         try {
-          const payment = await initializePaystackFunding({ email: input.email.toLowerCase(), reference, amountNaira: input.amount });
+          const payment = input.provider === "paystack"
+            ? await initializePaystackFunding({ email: input.email.toLowerCase(), reference, amountNaira: input.amount, callbackUrl: paymentRedirectUrl("paystack") })
+            : await initializeFlutterwavePayment({ email: input.email.toLowerCase(), reference, amountNaira: input.amount, redirectUrl: paymentRedirectUrl("flutterwave"), title: "Alpha Wallet funding" });
           return { reference: payment.reference, authorizationUrl: payment.authorizationUrl };
         } catch (error) {
-          if (isDefinitivePaystackRequestFailure(error)) await markWalletFundingAttemptFailed(reference);
+          if (isDefinitivePaystackRequestFailure(error) || isDefinitiveFlutterwaveRequestFailure(error)) await markWalletFundingAttemptFailed(reference);
+          if (error instanceof FlutterwaveProviderError) throw new TRPCError({ code: error.statusCode >= 500 ? "PRECONDITION_FAILED" : "BAD_REQUEST", message: error.statusCode >= 500 ? "Flutterwave funding is temporarily unavailable. Please try again." : error.message });
           throw paystackErrorToTrpc(error, "Funding could not be initialized. Please try again.");
         }
       }),
@@ -873,6 +891,47 @@ export const marketplaceRouter = router({
       }, freeDeliveryVoucher?.id);
 
       return { reference, paymentStatus: "cod_pending" as const, subtotal, discount, deliveryFee: deliveryQuote.deliveryFee, total, deliveryQuote };
+    }),
+
+  initializeGatewayCheckout: sensitiveProtectedProcedure
+    .input(gatewayCheckoutInputSchema)
+    .mutation(async ({ ctx, input }) => {
+      const kyc = await getKycProfileForUser(ctx.user.id);
+      if (!hasAdministratorTestAccess(ctx.user.role) && kyc?.status !== "verified") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Complete KYC Verification before starting an online checkout payment." });
+      validateNigerianState(input.deliveryAddress.state);
+      if (!isNigerianLga(input.deliveryAddress.state, input.deliveryAddress.lga)) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a valid local government area for the selected state." });
+      const deliveryQuote = calculateDeliveryQuote({ destinationState: input.deliveryAddress.state, weightKg: input.packageWeightKg, serviceTier: input.deliveryTier });
+      const catalog = [...MARKETPLACE_PRODUCTS, ...createVendorCatalog(await listApprovedVendorProducts())];
+      const resolvedLines = resolveCartLines(input.items, catalog);
+      if (resolvedLines.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Your cart does not contain a valid product." });
+      const subtotal = getCartSubtotal(input.items, catalog);
+      const total = subtotal + deliveryQuote.deliveryFee;
+      const orderReference = newOrderReference();
+      const paymentReference = input.provider === "paystack" ? newPaystackFundingReference() : newFlutterwaveFundingReference();
+      const allocations = (await Promise.all(resolvedLines.map(async line => {
+        if (!line.product.vendorUserId) return [];
+        const commissionRate = await getCurrentVendorCommissionRate(line.product.vendorUserId, 0);
+        const commissionAmount = Math.round(line.lineTotal * commissionRate / 100);
+        return [{ vendorUserId: line.product.vendorUserId, grossAmount: line.lineTotal, commissionAmount, netAmount: line.lineTotal - commissionAmount }];
+      }))).flat();
+      const wallet = await ensureWalletForUser(ctx.user.id);
+      await createPendingGatewayCheckout({
+        walletId: wallet.id,
+        provider: input.provider,
+        paymentReference,
+        allocations,
+        order: { reference: orderReference, buyerUserId: ctx.user.id, buyerName: input.buyerName, buyerPhone: input.buyerPhone, deliveryAddress: formatNigerianDeliveryAddress(input.deliveryAddress), paymentMethod: input.provider, paymentStatus: "pending", fulfillmentStatus: "pending", subtotal, referralDiscount: 0, deliveryFee: deliveryQuote.deliveryFee, total, discountType: "none", orderLines: resolvedLines.map(line => ({ productId: line.product.id, title: line.product.title, quantity: line.quantity, unitPrice: line.product.price, lineTotal: line.lineTotal, vendorUserId: line.product.vendorUserId })) },
+      });
+      try {
+        const payment = input.provider === "paystack"
+          ? await initializePaystackFunding({ email: input.email.toLowerCase(), reference: paymentReference, amountNaira: total, callbackUrl: paymentRedirectUrl("paystack") })
+          : await initializeFlutterwavePayment({ email: input.email.toLowerCase(), reference: paymentReference, amountNaira: total, redirectUrl: paymentRedirectUrl("flutterwave"), title: `Alpha Market checkout ${orderReference}` });
+        return { orderReference, paymentReference: payment.reference, authorizationUrl: payment.authorizationUrl, provider: input.provider, total, deliveryFee: deliveryQuote.deliveryFee, paymentStatus: "pending" as const };
+      } catch (error) {
+        await markWalletFundingAttemptFailed(paymentReference);
+        if (error instanceof FlutterwaveProviderError) throw new TRPCError({ code: error.statusCode >= 500 ? "PRECONDITION_FAILED" : "BAD_REQUEST", message: error.statusCode >= 500 ? "Flutterwave checkout is temporarily unavailable. Please try again." : error.message });
+        throw paystackErrorToTrpc(error, "Online checkout could not be initialized. Please try again.");
+      }
     }),
 
   vendor: router({

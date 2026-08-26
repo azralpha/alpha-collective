@@ -9,3 +9,9 @@ export function getPublicAppUrl() {
 export function nowPaymentsIpnCallbackUrl() {
   return new URL("/api/webhooks/nowpayments", getPublicAppUrl()).toString();
 }
+
+export function paymentRedirectUrl(provider: "paystack" | "flutterwave") {
+  const url = new URL("/checkout", getPublicAppUrl());
+  url.searchParams.set("payment", provider);
+  return url.toString();
+}

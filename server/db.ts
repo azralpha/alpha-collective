@@ -142,6 +142,24 @@ export async function createOrder(order: InsertOrder, freeDeliveryVoucherId?: nu
   return order.reference;
 }
 
+export async function createPendingGatewayCheckout(input: {
+  order: InsertOrder;
+  walletId: number;
+  provider: "paystack" | "flutterwave";
+  paymentReference: string;
+  allocations: Array<{ vendorUserId: number; grossAmount: number; commissionAmount: number; netAmount: number }>;
+}) {
+  const db = await requireDb();
+  await db.transaction(async tx => {
+    await tx.insert(orders).values(input.order);
+    await tx.insert(walletFundingAttempts).values({ walletId: input.walletId, userId: input.order.buyerUserId ?? -1, reference: input.paymentReference, provider: input.provider, amount: input.order.total, orderReference: input.order.reference, status: "pending" });
+    if (input.allocations.length) {
+      await tx.insert(escrowAllocations).values(input.allocations.map(allocation => ({ orderReference: input.order.reference, buyerWalletId: input.walletId, vendorUserId: allocation.vendorUserId, grossAmount: allocation.grossAmount, commissionAmount: allocation.commissionAmount, netAmount: allocation.netAmount, status: "pending" as const })));
+    }
+  });
+  return input.order.reference;
+}
+
 export const CASHBACK_RATE = 0.02;
 export const FREE_DELIVERY_MONTHLY_THRESHOLD = 50_000;
 export const KYC_COMPLETION_BONUS = 500;
@@ -275,9 +293,9 @@ export async function getWalletFundingAttemptByReference(reference: string) {
   return result[0];
 }
 
-export async function createWalletFundingAttempt(input: { walletId: number; userId: number; reference: string; amount: number }) {
+export async function createWalletFundingAttempt(input: { walletId: number; userId: number; reference: string; amount: number; provider?: "paystack" | "flutterwave"; orderReference?: string }) {
   const db = await requireDb();
-  await db.insert(walletFundingAttempts).values({ ...input, status: "pending" });
+  await db.insert(walletFundingAttempts).values({ ...input, provider: input.provider ?? "paystack", status: "pending" });
   const attempt = await getWalletFundingAttemptByReference(input.reference);
   if (!attempt) throw new Error("Wallet funding attempt could not be created.");
   return attempt;
@@ -286,6 +304,8 @@ export async function createWalletFundingAttempt(input: { walletId: number; user
 export async function markWalletFundingAttemptFailed(reference: string) {
   const db = await requireDb();
   await db.update(walletFundingAttempts).set({ status: "failed" }).where(and(eq(walletFundingAttempts.reference, reference), eq(walletFundingAttempts.status, "pending")));
+  const attempt = await getWalletFundingAttemptByReference(reference);
+  if (attempt?.orderReference) await db.update(orders).set({ fulfillmentStatus: "cancelled" }).where(and(eq(orders.reference, attempt.orderReference), eq(orders.paymentStatus, "pending"), eq(orders.fulfillmentStatus, "pending")));
 }
 
 export async function listCryptoFundingAttemptsForUser(userId: number) {
@@ -342,17 +362,24 @@ export async function creditVerifiedCryptoFunding(input: { reference: string; pr
   });
 }
 
-export async function creditVerifiedWalletFunding(input: { reference: string; providerTransactionId: string }) {
+export async function creditVerifiedWalletFunding(input: { reference: string; providerTransactionId: string; provider?: "paystack" | "flutterwave" }) {
   const db = await requireDb();
   return db.transaction(async tx => {
     const attemptResult = await tx.select().from(walletFundingAttempts).where(eq(walletFundingAttempts.reference, input.reference)).limit(1);
     const attempt = attemptResult[0];
     if (!attempt) throw new Error("Wallet funding attempt was not found.");
+    if (input.provider && attempt.provider !== input.provider) throw new Error("Verified funding provider did not match the stored attempt.");
     const fundingDisposition = fundingCreditDisposition(attempt.status);
     if (fundingDisposition === "ignore_duplicate") return { attempt, alreadyProcessed: true } as const;
     if (fundingDisposition === "reject") throw new Error("Wallet funding attempt is not eligible for crediting.");
     const stateUpdate = await tx.update(walletFundingAttempts).set({ status: "succeeded", providerTransactionId: input.providerTransactionId, paidAt: new Date() }).where(and(eq(walletFundingAttempts.id, attempt.id), eq(walletFundingAttempts.status, "pending")));
     if (affectedRows(stateUpdate) !== 1) return { attempt, alreadyProcessed: true } as const;
+    if (attempt.orderReference) {
+      const orderUpdate = await tx.update(orders).set({ paymentStatus: "gateway_escrow" }).where(and(eq(orders.reference, attempt.orderReference), eq(orders.buyerUserId, attempt.userId), eq(orders.paymentMethod, attempt.provider), eq(orders.paymentStatus, "pending")));
+      if (affectedRows(orderUpdate) !== 1) throw new Error("Gateway checkout order was not eligible for settlement.");
+      await tx.update(escrowAllocations).set({ status: "held" }).where(and(eq(escrowAllocations.orderReference, attempt.orderReference), eq(escrowAllocations.status, "pending")));
+      return { attempt: { ...attempt, status: "succeeded" as const }, alreadyProcessed: false, checkoutOrderReference: attempt.orderReference } as const;
+    }
     const walletResult = await tx.select().from(wallets).where(eq(wallets.id, attempt.walletId)).limit(1);
     const wallet = walletResult[0];
     if (!wallet || wallet.userId !== attempt.userId) throw new Error("Wallet funding attempt has an invalid wallet owner.");

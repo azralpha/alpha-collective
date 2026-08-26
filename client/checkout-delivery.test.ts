@@ -13,5 +13,7 @@ describe("checkout delivery and address interface", () => {
     expect(source).toContain("Ask about this product");
     expect(source).toContain("Crypto Payment (NOWPayments)");
     expect(source).toContain("Administrator-only live test quote");
+    expect(source).toContain("Continue to Paystack");
+    expect(source).toContain("Continue to Flutterwave");
   });
 });

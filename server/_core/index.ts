@@ -9,6 +9,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { registerPaystackWebhook } from "../paystackWebhook";
+import { registerFlutterwaveWebhook } from "../flutterwaveWebhook";
 import { registerCjFulfilmentSchedule } from "../cjFulfilmentSchedule";
 import { registerCjInventorySyncSchedule } from "../cjInventorySync";
 import { registerRewardReleaseSchedule } from "../rewardReleaseSchedule";
@@ -43,6 +44,7 @@ async function startServer() {
   registerNowPaymentsWebhook(app);
   app.use("/api/oauth/callback", createExpressRateLimit({ scope: "oauth-callback", limit: 20, windowMs: 60_000 }));
   registerPaystackWebhook(app);
+  registerFlutterwaveWebhook(app);
   registerCjFulfilmentSchedule(app);
   registerCjInventorySyncSchedule(app);
   registerRewardReleaseSchedule(app);

@@ -22,6 +22,17 @@ Publishing the site does **not** enable a NOWPayments payment-creation endpoint,
 
 The CJ mass importer remains administrator-only and draft-only. It cannot publish products automatically, create supplier orders, or transmit buyer delivery data.
 
+## Fiat gateway registration
+
+Paystack and Flutterwave wallet funding and checkout redirects are available to KYC-eligible users. A redirect is not proof of payment: each provider payment is stored as pending, then its signed webhook is independently re-verified against the provider API before a wallet credit or a gateway-held checkout escrow can be created.
+
+| Provider | Register this webhook URL | Required dashboard setting |
+| --- | --- | --- |
+| Paystack | `https://alphashop-3pdenj2y.manus.space/api/paystack/webhook` | Enable charge-success events. |
+| Flutterwave | `https://alphashop-3pdenj2y.manus.space/api/flutterwave/webhook` | Set the same Secret Hash stored in `FLUTTERWAVE_WEBHOOK_SECRET_HASH`, enable `charge.completed`, and enable retry delivery. |
+
+Do not treat a provider success redirect as a settlement callback. Only the signed webhook and independent transaction check can change a wallet balance or turn a pending checkout order into gateway-held escrow.
+
 ## Public verification completed
 
 The published home page serves Alpha Market branding, the active cookie-consent banner, and direct Terms of Use and Privacy Policy links. The legal pages identify **Alpha Collective Corporation** as the legal entity. An unauthenticated visit to `/wallet` shows a sign-in boundary rather than a wallet balance or payment action.

@@ -286,3 +286,10 @@
 
 - [x] Enforce the user-authorized ₦50,000 maximum only for administrator-controlled NOWPayments checkout quotes
 - [x] Complete a pending NOWPayments checkout order only after an independently verified finished provider callback
+
+- [x] Audit the Paystack wallet implementation, checkout settlement controls, and requirements for adding Flutterwave safely
+- [x] Request server-only Paystack and Flutterwave credentials and configure provider verification without exposing secrets
+- [x] Add selectable Paystack and Flutterwave checkout and wallet funding options with provider-verified completion only
+- [x] Add signed webhook, idempotency, wallet-credit, and escrow-settlement regression coverage before checkpointing
+
+- [x] Store the supplied Flutterwave webhook secret hash through managed secrets and validate signature verification before settlement use

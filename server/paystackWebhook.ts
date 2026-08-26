@@ -20,11 +20,12 @@ function webhookReference(event: PaystackWebhookEvent) {
 async function reconcileFunding(reference: string) {
   const attempt = await getWalletFundingAttemptByReference(reference);
   if (!attempt) return null;
+  if (attempt.provider !== "paystack") throw new Error("Paystack event did not match its stored funding provider.");
   const verified = await verifyPaystackTransaction(reference);
   if (verified.reference !== reference || verified.status !== "success" || verified.amountKobo !== attempt.amount * 100) {
     throw new Error("Verified Paystack funding did not match its stored wallet attempt.");
   }
-  await creditVerifiedWalletFunding({ reference, providerTransactionId: verified.id });
+  await creditVerifiedWalletFunding({ reference, providerTransactionId: verified.id, provider: "paystack" });
   return attempt.amount;
 }
 

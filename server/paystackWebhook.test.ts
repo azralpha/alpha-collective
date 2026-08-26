@@ -22,13 +22,13 @@ describe("Paystack webhook reconciliation", () => {
   });
 
   it("verifies a successful funding transaction before requesting an idempotent wallet credit", async () => {
-    vi.mocked(getWalletFundingAttemptByReference).mockResolvedValue({ amount: 12_500 } as never);
+    vi.mocked(getWalletFundingAttemptByReference).mockResolvedValue({ amount: 12_500, provider: "paystack" } as never);
     vi.mocked(verifyPaystackTransaction).mockResolvedValue({ id: "991", reference: "acwfund_123", status: "success", amountKobo: 1_250_000 });
 
     await processPaystackWebhook({ event: "charge.success", data: { reference: "acwfund_123" } });
 
     expect(verifyPaystackTransaction).toHaveBeenCalledWith("acwfund_123");
-    expect(creditVerifiedWalletFunding).toHaveBeenCalledWith({ reference: "acwfund_123", providerTransactionId: "991" });
+    expect(creditVerifiedWalletFunding).toHaveBeenCalledWith({ reference: "acwfund_123", providerTransactionId: "991", provider: "paystack" });
   });
 
   it("does not attempt an external transaction verification for an unknown funding reference", async () => {
