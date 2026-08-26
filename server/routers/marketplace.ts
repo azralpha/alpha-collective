@@ -28,6 +28,7 @@ import {
   ensureKycProfileForUser,
   createPendingWalletWithdrawal,
   createWalletFundingAttempt,
+  createCryptoFundingAttempt,
   ensureWalletForUser,
   failWalletWithdrawalBeforeTransfer,
   getReferralShareByCode,
@@ -53,6 +54,7 @@ import {
   listApprovedVendorProducts,
   listBuyerWalletEscrowOrders,
   listWalletFundingAttemptsForUser,
+  listCryptoFundingAttemptsForUser,
   listPendingBonusRewardsForUser,
   listHeldWalletOrders,
   listOrdersAwaitingDelivery,
@@ -62,6 +64,7 @@ import {
   listWalletTransactionsForUser,
   listWithdrawalRequestsForUser,
   markWalletFundingAttemptFailed,
+  markCryptoFundingAttemptStatus,
   markFulfilmentJobRetryQueued,
   markDeliveredOrderReturned,
   markNonWalletOrderDelivered,
@@ -81,6 +84,7 @@ import {
   saveWalletBankRecipient,
   saveFulfilmentIntegration,
   saveCjInventorySyncScheduleTaskUid,
+  saveCryptoFundingQuote,
   submitKycGovernmentId,
   updateVendorProductStatus,
   updateOfficialProduct,
@@ -103,6 +107,8 @@ import { isWithdrawalOtpEmailDeliveryConfigured } from "../withdrawalOtpEmail";
 import { processCjFulfilmentQueue } from "../fulfilmentQueue";
 import { createHeartbeatJob } from "../_core/heartbeat";
 import { COOKIE_NAME } from "@shared/const";
+import { createControlledNowPaymentsQuote, MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA, NowPaymentsError } from "../nowpayments";
+import { nowPaymentsIpnCallbackUrl } from "../cryptoFundingUrl";
 import {
   PaystackProviderError,
   createPaystackTransferRecipient,
@@ -127,6 +133,7 @@ const walletPinSchema = z.string().regex(/^\d{4}$/, "Enter your four-digit trans
 const walletAmountSchema = z.number().int().min(100, "Enter at least ₦100.").max(5_000_000, "Enter an amount up to ₦5,000,000.");
 const paystackFundingReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
 const paystackWithdrawalReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
+const cryptoFundingReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
 const walletCheckoutInputSchema = z.object({
   buyerName: z.string().trim().min(2).max(120).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid buyer name."),
   buyerPhone: z.string().trim().min(7).max(32),
@@ -158,6 +165,7 @@ function newOrderReference() { return `AC-${orderReferenceAlphabet()}`; }
 function newRewardCode() { return `THANKS-${rewardCodeAlphabet()}`; }
 function newPaystackFundingReference() { return `acwfund_${paystackFundingReferenceAlphabet()}`; }
 function newPaystackWithdrawalReference() { return `acwwith_${paystackWithdrawalReferenceAlphabet()}`; }
+function newCryptoFundingReference() { return `accrypto_${cryptoFundingReferenceAlphabet()}`; }
 
 const walletKycProcedure = sensitiveProtectedProcedure.use(async ({ ctx, next }) => {
   const profile = await ensureKycProfileForUser(ctx.user.id);
@@ -313,11 +321,12 @@ export const marketplaceRouter = router({
     dashboard: walletKycProcedure.query(async ({ ctx }) => {
       const wallet = await getWalletForUser(ctx.user.id);
       if (!wallet) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Wallet is being provisioned. Refresh and try again." });
-      const [transactions, recipient, withdrawals, fundingAttempts, pendingRewards, escrowOrders] = await Promise.all([
+      const [transactions, recipient, withdrawals, fundingAttempts, cryptoFundingAttempts, pendingRewards, escrowOrders] = await Promise.all([
         listWalletTransactionsForUser(ctx.user.id),
         getWalletBankRecipientForUser(ctx.user.id),
         listWithdrawalRequestsForUser(ctx.user.id),
         listWalletFundingAttemptsForUser(ctx.user.id),
+        listCryptoFundingAttemptsForUser(ctx.user.id),
         listPendingBonusRewardsForUser(ctx.user.id),
         listBuyerWalletEscrowOrders(ctx.user.id),
       ]);
@@ -332,6 +341,7 @@ export const marketplaceRouter = router({
         recipient: recipient ? { bankName: recipient.bankName, accountNumberMasked: recipient.accountNumberMasked, accountName: recipient.accountName, kycBindingStatus: recipient.kycBindingStatus, verifiedAt: recipient.verifiedAt } : null,
         withdrawals: withdrawals.map(request => ({ id: request.id, amount: request.amount, status: request.status, createdAt: request.createdAt })),
         fundingAttempts: fundingAttempts.map(attempt => ({ reference: attempt.reference, amount: attempt.amount, status: attempt.status, createdAt: attempt.createdAt })),
+        cryptoFundingAttempts: cryptoFundingAttempts.map(attempt => ({ reference: attempt.reference, amountNaira: attempt.amountNaira, payCurrency: attempt.payCurrency, quotedPayAmount: attempt.quotedPayAmount, payAddress: attempt.payAddress, status: attempt.status, quoteExpiresAt: attempt.quoteExpiresAt, createdAt: attempt.createdAt })),
         escrowOrders: escrowOrders.map(order => ({ reference: order.reference, total: order.total, fulfillmentStatus: order.fulfillmentStatus, deliveredAt: order.deliveredAt, buyerConfirmedAt: order.buyerConfirmedAt, localVendorOrder: order.orderLines.some(line => Boolean(line.vendorUserId)) })),
         transactions,
       };
@@ -388,6 +398,23 @@ export const marketplaceRouter = router({
         } catch (error) {
           if (isDefinitivePaystackRequestFailure(error)) await markWalletFundingAttemptFailed(reference);
           throw paystackErrorToTrpc(error, "Funding could not be initialized. Please try again.");
+        }
+      }),
+    createCryptoTestQuote: walletKycProcedure
+      .input(z.object({ amount: z.number().int().min(100).max(MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA), payCurrency: z.string().trim().toLowerCase().regex(/^[a-z0-9_-]{2,24}$/, "Choose a valid crypto asset.") }))
+      .mutation(async ({ ctx, input }) => {
+        const wallet = await ensureWalletForUser(ctx.user.id);
+        const reference = newCryptoFundingReference();
+        const quoteExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+        await createCryptoFundingAttempt({ walletId: wallet.id, userId: ctx.user.id, reference, amountNaira: input.amount, payCurrency: input.payCurrency, quoteExpiresAt });
+        try {
+          const quote = await createControlledNowPaymentsQuote({ reference, amountNaira: input.amount, payCurrency: input.payCurrency, ipnCallbackUrl: nowPaymentsIpnCallbackUrl() });
+          await saveCryptoFundingQuote({ reference, providerPaymentId: quote.paymentId, quotedPayAmount: quote.payAmount, payAddress: quote.payAddress });
+          return { reference, paymentId: quote.paymentId, payAddress: quote.payAddress, payAmount: quote.payAmount, payCurrency: quote.payCurrency, quoteExpiresAt, nonWithdrawable: true as const };
+        } catch (error) {
+          await markCryptoFundingAttemptStatus({ reference, status: "failed" });
+          if (error instanceof NowPaymentsError) throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The controlled crypto test quote could not be created." });
         }
       }),
     requestWithdrawal: walletKycProcedure

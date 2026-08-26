@@ -224,13 +224,13 @@
 - [x] Enforce verified KYC before wallet dashboard access, wallet funding, wallet balance use, and all wallet deposit procedures
 - [x] Add buyer-side delivery confirmation for eligible local-vendor escrow orders with idempotent commission-aware release controls
 - [x] Prepare a publication-gated, idempotent seven-day escrow auto-release handler without activating a schedule before publication
-- [ ] Design a provider-verified crypto-deposit model with 15-minute locked quotes, unique payment references, confirmation checks, and permanently non-withdrawable crypto-origin credits
-- [ ] Add crypto funding UI only for verified, configured provider rails and ensure no client-side success can credit a wallet
+- [x] Design a provider-verified crypto-deposit model with 15-minute locked quotes, unique payment references, confirmation checks, and permanently non-withdrawable crypto-origin credits
+- [x] Add crypto funding UI only for verified, configured provider rails and ensure no client-side success can credit a wallet
 - [x] Add security-focused tests, responsive validation, a safe migration, and a checkpoint for the staged payments and escrow work
 
 - [x] Configure NOWPayments as the approved managed crypto gateway with server-only API and IPN verification using administrator-supplied server secrets
 - [x] Remove all Pi credentials, validation tests, documentation, and future payment-path references from the project
-- [ ] Re-verify an active NOWPayments merchant API key and configured settlement account before enabling any crypto quote, callback, or wallet-credit path
+- [x] Re-verify an active NOWPayments merchant API key and configured settlement account before enabling any crypto quote, callback, or wallet-credit path
 - [x] Keep all NOWPayments payment creation, IPN callback crediting, and seven-day escrow schedule activation disabled until the administrator supplies a published HTTPS domain
 
 - [x] Audit and replace public Alpha Collective branding across the storefront, navigation, product views, buttons, and SEO metadata while retaining legal and administrative parent-company references
@@ -270,3 +270,11 @@
 
 - [x] Verify the published Alpha Market domain and public storefront route availability
 - [x] Validate published branding, cookie consent, Terms/Privacy links, and protected payment/dropshipping boundaries
+
+- [x] Audit crypto funding persistence, wallet credit controls, NOWPayments provider contract, and callback routing for the authorized test flow
+- [x] Add a server-created short-lived NOWPayments test quote and verified callback reconciliation that cannot credit a wallet before confirmation
+- [x] Add controlled wallet test-flow presentation and explicit non-withdrawable status without weakening KYC or triggering supplier orders
+- [x] Add security, signature, idempotency, and no-credit-before-confirmation tests; validate and checkpoint the test crypto flow
+
+- [x] Switch the authorized NOWPayments flow from sandbox configuration to the official production endpoint with a ₦500 live-test ceiling
+- [x] Verify the production quote and callback logic credits only independently confirmed finished payments into the non-withdrawable balance

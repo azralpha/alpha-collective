@@ -14,6 +14,7 @@ import { registerCjInventorySyncSchedule } from "../cjInventorySync";
 import { registerRewardReleaseSchedule } from "../rewardReleaseSchedule";
 import { registerVendorRewardsSchedule } from "../vendorRewardsSchedule";
 import { registerEscrowReleaseSchedule } from "../escrowReleaseSchedule";
+import { registerNowPaymentsWebhook } from "../nowpaymentsWebhook";
 import { createExpressRateLimit } from "../requestRateLimit";
 import { PRIVATE_API_CACHE_CONTROL, PUBLIC_CATALOGUE_CACHE_CONTROL } from "../performanceControls";
 
@@ -39,6 +40,7 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 async function startServer() {
   const app = express();
   const server = createServer(app);
+  registerNowPaymentsWebhook(app);
   app.use("/api/oauth/callback", createExpressRateLimit({ scope: "oauth-callback", limit: 20, windowMs: 60_000 }));
   registerPaystackWebhook(app);
   registerCjFulfilmentSchedule(app);
