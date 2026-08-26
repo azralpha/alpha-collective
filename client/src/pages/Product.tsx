@@ -2,6 +2,7 @@ import MarketplaceShell, { WHATSAPP_SUPPORT_URL } from "@/components/Marketplace
 import ProductCard from "@/components/ProductCard";
 import { useCart } from "@/contexts/CartContext";
 import { trpc } from "@/lib/trpc";
+import { useDocumentSeo } from "@/lib/useDocumentSeo";
 import { formatNaira, getProduct, MARKETPLACE_PRODUCTS, type MarketplaceProduct } from "@shared/marketplace";
 import { ArrowLeft, CheckCircle2, MessageCircle, ShoppingBag, Truck } from "lucide-react";
 import { useState } from "react";
@@ -29,6 +30,7 @@ export default function Product() {
     : null;
   const galleryImages = normalizedProduct.imageUrls?.length ? normalizedProduct.imageUrls : [product.imageUrl];
   const displayedImage = selectedImage && galleryImages.includes(selectedImage) ? selectedImage : galleryImages[0];
+  useDocumentSeo({ title: `${product.title} | Alpha Market`, description: product.description || product.detail, canonicalPath: `/product/${encodeURIComponent(product.id)}`, product: normalizedProduct });
   return (
     <MarketplaceShell>
       <div className="page-shell">

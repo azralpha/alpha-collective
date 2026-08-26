@@ -301,3 +301,8 @@
 - [x] Audit the current CJ administrator mass-import UI and durable batch state for progress and review-handoff gaps
 - [x] Improve the CJ 50-item draft-only import controls, progress feedback, and completed-draft review handoff
 - [x] Add focused progress and draft-review regression coverage, validate the UI, and checkpoint the CJ-only update
+
+- [x] Audit public Alpha Market routes, product data contracts, and current search-engine head delivery
+- [x] Add crawler-visible dynamic metadata and Product JSON-LD for public catalogue routes
+- [x] Add dynamic sitemap.xml and robots.txt endpoints for published products and category pages only
+- [x] Add technical SEO regression coverage, validate public route output, and checkpoint the release

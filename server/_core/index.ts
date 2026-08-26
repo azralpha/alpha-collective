@@ -18,6 +18,7 @@ import { registerEscrowReleaseSchedule } from "../escrowReleaseSchedule";
 import { registerNowPaymentsWebhook } from "../nowpaymentsWebhook";
 import { createExpressRateLimit } from "../requestRateLimit";
 import { PRIVATE_API_CACHE_CONTROL, PUBLIC_CATALOGUE_CACHE_CONTROL } from "../performanceControls";
+import { registerSeoRoutes } from "../seo";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -54,6 +55,7 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerStorageProxy(app);
+  registerSeoRoutes(app);
   registerOAuthRoutes(app);
   app.use("/api/trpc", (req, res, next) => {
     const paths = req.path.split(",").map(path => path.replace(/^\//, ""));

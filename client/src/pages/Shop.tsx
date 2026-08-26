@@ -1,6 +1,7 @@
 import MarketplaceShell from "@/components/MarketplaceShell";
 import ProductCard from "@/components/ProductCard";
 import { trpc } from "@/lib/trpc";
+import { useDocumentSeo } from "@/lib/useDocumentSeo";
 import { MARKETPLACE_CATEGORIES, MARKETPLACE_PRODUCTS, type MarketplaceCategory } from "@shared/marketplace";
 import { Search, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -25,6 +26,9 @@ export default function Shop() {
   const selectedCategory = categoryFromSearch(searchParams);
   const referralCode = referralFromSearch(searchParams);
   const approvedProducts = trpc.marketplace.publicProducts.useQuery(undefined, { staleTime: 60_000, gcTime: 10 * 60_000, refetchOnWindowFocus: false });
+  useDocumentSeo(selectedCategory === "All"
+    ? { title: "Shop local finds in Nigeria | Alpha Market", description: "Browse fashion, gadgets, beauty, home, vehicles, and pet essentials on Alpha Market.", canonicalPath: "/shop" }
+    : { title: `Shop ${selectedCategory} in Nigeria | Alpha Market`, description: `Browse ${selectedCategory.toLowerCase()} finds and practical prices from independent sellers on Alpha Market.`, canonicalPath: `/shop?category=${encodeURIComponent(selectedCategory)}` });
 
   useEffect(() => {
     if (referralCode) window.localStorage.setItem("alpha-collective-referral-code", referralCode);
