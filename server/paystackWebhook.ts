@@ -4,6 +4,7 @@ import {
   getWalletFundingAttemptByReference,
   markWalletWithdrawalPaid,
   reverseWalletWithdrawal,
+  settleCartRewardClaimAfterVerifiedPayment,
 } from "./db";
 import { verifyPaystackTransaction, verifyPaystackWebhookSignature } from "./paystack";
 import { notifyAdminPaymentEvent } from "./paymentNotifications";
@@ -25,7 +26,8 @@ async function reconcileFunding(reference: string) {
   if (verified.reference !== reference || verified.status !== "success" || verified.amountKobo !== attempt.amount * 100) {
     throw new Error("Verified Paystack funding did not match its stored wallet attempt.");
   }
-  await creditVerifiedWalletFunding({ reference, providerTransactionId: verified.id, provider: "paystack" });
+  const settlement = await creditVerifiedWalletFunding({ reference, providerTransactionId: verified.id, provider: "paystack" });
+  if (settlement && !settlement.alreadyProcessed && settlement.checkoutOrderReference) await settleCartRewardClaimAfterVerifiedPayment(settlement.checkoutOrderReference);
   return attempt.amount;
 }
 

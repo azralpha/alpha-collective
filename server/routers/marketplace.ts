@@ -16,6 +16,8 @@ import { DELIVERY_SERVICE_TIERS, calculateDeliveryQuote } from "../../shared/del
 import { formatNigerianDeliveryAddress, isNigerianLga, isNigerianState } from "../../shared/nigeriaAddress";
 import {
   createOfficialProduct,
+  createCartRewardTier,
+  createPendingCartRewardClaim,
   getOfficialProductForGeminiEnhancement,
   createOrder,
   createPendingGatewayCheckout,
@@ -40,6 +42,7 @@ import {
   grantKycCompletionBonus,
   getFulfilmentIntegration,
   getBuyerRewardSummary,
+  getCartTierProgress,
   getVendorRewardSummary,
   getVendorApplicationForUser,
   getCurrentVendorCommissionRate,
@@ -48,6 +51,7 @@ import {
   getWalletForUser,
   isReferralEligibleUser,
   listAdminReviewProducts,
+  listCartRewardTiers,
   listAdminFulfilmentJobs,
   listAdminOfficialProducts,
   listActiveFreeDeliveryVouchers,
@@ -90,11 +94,13 @@ import {
   submitKycGovernmentId,
   updateVendorProductStatus,
   updateOfficialProduct,
+  updateCartRewardTier,
   saveOfficialProductGeminiEnhancement,
   updateOfficialProductStatus,
   updateReferralRewardSettings,
   updateVendorDraftProduct,
   updateWalletPin,
+  settleCartRewardClaimAfterVerifiedPayment,
 } from "../db";
 import { extractClientIp, normalizeDeviceId } from "../referralFraud";
 import { storagePut } from "../storage";
@@ -113,6 +119,7 @@ import { processCjFulfilmentQueue } from "../fulfilmentQueue";
 import { createHeartbeatJob } from "../_core/heartbeat";
 import { COOKIE_NAME } from "@shared/const";
 import { createControlledNowPaymentsQuote, MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA, MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA, NowPaymentsError } from "../nowpayments";
+import { cartRewardUpsellInputSchema, getCartRewardUpsells } from "../cartRewardUpsell";
 import { nowPaymentsIpnCallbackUrl, paymentRedirectUrl } from "../cryptoFundingUrl";
 import { FlutterwaveProviderError, initializeFlutterwavePayment, isDefinitiveFlutterwaveRequestFailure } from "../flutterwave";
 import {
@@ -185,6 +192,18 @@ const savedProductListInputSchema = z.object({
   search: z.string().trim().max(120).transform(sanitizePlainText).optional(),
   page: z.number().int().min(1).max(100_000).optional(),
   pageSize: z.number().int().min(1).max(100).optional(),
+});
+const cartRewardTierInputSchema = z.object({
+  name: z.string().trim().min(2).max(120).transform(sanitizePlainText),
+  minimumSpend: z.number().int().min(500).max(5_000_000),
+  rewardType: z.enum(["alpha_wallet_credit", "free_shipping", "catalog_gift"]),
+  rewardValue: z.number().int().min(0).max(500_000),
+  giftOfficialProductId: z.number().int().positive().nullable(),
+  profitSafeguardMargin: z.number().int().min(1).max(90).default(25),
+  active: z.boolean().default(true),
+}).superRefine((value, ctx) => {
+  if (value.rewardType === "alpha_wallet_credit" && value.rewardValue < 1) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["rewardValue"], message: "Enter a Shopping Bonus value." });
+  if (value.rewardType === "catalog_gift" && !value.giftOfficialProductId) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["giftOfficialProductId"], message: "Choose an active official product for a catalogue gift." });
 });
 
 function newShareCode() { return `ALPHA-${shareCodeAlphabet()}`; }
@@ -343,6 +362,10 @@ function decodeKycGovernmentId(dataUrl: string) {
 }
 
 export const marketplaceRouter = router({
+  cartRewards: router({
+    progress: publicProcedure.input(z.object({ items: z.array(cartLineSchema).max(12) })).query(({ input }) => getCartTierProgress(input.items)),
+    smartUpsell: publicProcedure.input(cartRewardUpsellInputSchema).query(({ input }) => getCartRewardUpsells(input)),
+  }),
   rewards: router({
     dashboard: protectedProcedure.query(async ({ ctx }) => {
       const [buyer, vendor] = await Promise.all([getBuyerRewardSummary(ctx.user.id), getVendorRewardSummary(ctx.user.id)]);
@@ -593,6 +616,11 @@ export const marketplaceRouter = router({
             fulfilmentJobInputs,
             freeDeliveryVoucherId: freeDeliveryVoucher?.id,
           });
+          const tierProgress = await getCartTierProgress(input.items);
+          if (tierProgress.unlockedTier) {
+            await createPendingCartRewardClaim({ orderReference: reference, userId: ctx.user.id, progress: tierProgress });
+            await settleCartRewardClaimAfterVerifiedPayment(reference);
+          }
           if (fulfilmentJobInputs.length) void processCjFulfilmentQueue(5).catch(() => undefined);
           void notifyAdminPaymentEvent({ event: "wallet_escrow_created", reference, amountNaira: total });
         } catch (error) {
@@ -640,6 +668,9 @@ export const marketplaceRouter = router({
       }),
   }),
   admin: router({
+    cartRewardTiers: adminProcedure.query(() => listCartRewardTiers(true)),
+    createCartRewardTier: adminProcedure.input(cartRewardTierInputSchema).mutation(({ input }) => createCartRewardTier(input)),
+    updateCartRewardTier: adminProcedure.input(cartRewardTierInputSchema.safeExtend({ id: z.number().int().positive() })).mutation(({ input }) => updateCartRewardTier(input)),
     reviewProducts: adminProcedure.query(() => listAdminReviewProducts()),
     walletOrders: adminProcedure.query(() => listHeldWalletOrders()),
     setProductStatus: adminProcedure
@@ -958,6 +989,8 @@ export const marketplaceRouter = router({
         allocations,
         order: { reference: orderReference, buyerUserId: ctx.user.id, buyerName: input.buyerName, buyerPhone: input.buyerPhone, deliveryAddress: formatNigerianDeliveryAddress(input.deliveryAddress), paymentMethod: input.provider, paymentStatus: "pending", fulfillmentStatus: "pending", subtotal, referralDiscount: 0, deliveryFee: deliveryQuote.deliveryFee, total, discountType: "none", orderLines: resolvedLines.map(line => ({ productId: line.product.id, title: line.product.title, quantity: line.quantity, unitPrice: line.product.price, lineTotal: line.lineTotal, vendorUserId: line.product.vendorUserId })) },
       });
+      const tierProgress = await getCartTierProgress(input.items);
+      if (tierProgress.unlockedTier) await createPendingCartRewardClaim({ orderReference, userId: ctx.user.id, progress: tierProgress });
       try {
         const payment = input.provider === "paystack"
           ? await initializePaystackFunding({ email: input.email.toLowerCase(), reference: paymentReference, amountNaira: total, callbackUrl: paymentRedirectUrl("paystack") })

@@ -334,3 +334,9 @@
 - [x] Verify the CJ-only 50-item SKU/SPU parser, batch item persistence, and existing imported-data mapping
 - [x] Verify the completed CJ batch progress and administrator Drafts-review handoff without creating supplier orders
 - [x] Run focused CJ importer safeguards and responsive administrator UI validation before checkpointing
+
+- [x] Audit existing rewards, cart state, checkout settlement, wallet credits, product profitability data, and fulfilment boundaries
+- [x] Define safe tier eligibility, 25% profit safeguard, reward settlement timing, gift allocation, and Gemini recommendation rules
+- [x] Add tiered-reward persistence, admin configuration, customer cart progress, and eligible-catalogue recommendation controls
+- [x] Add verified-settlement reward allocation with idempotency and safe gift fulfilment treatment
+- [x] Add eligibility, profit, wallet, gift, smart-upsell, access-control, and responsive UI regression coverage before checkpointing

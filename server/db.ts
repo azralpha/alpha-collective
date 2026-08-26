@@ -9,6 +9,8 @@ import {
   type InsertVendorProduct,
   type InsertWalletTransaction,
   bonusRewardHolds,
+  cartRewardClaims,
+  cartRewardTiers,
   cjImportBatchItems,
   cjImportBatches,
   cryptoFundingAttempts,
@@ -44,8 +46,9 @@ import { ENV } from "./_core/env";
 import { hashSecuritySignal, normalizeDeviceId } from "./referralFraud";
 import { splitWalletPayment } from "./walletBalanceSplit";
 import { fundingCreditDisposition, withdrawalPaidDisposition, withdrawalRestoreDisposition } from "./walletReconciliation";
-import type { MarketplaceCategory } from "../shared/marketplace";
+import type { CartLine, MarketplaceCategory } from "../shared/marketplace";
 import { parseDatabasePoolLimit } from "./performanceControls";
+import { calculateCartTierProgress, type CartRewardTier, type CartTierProgress } from "./cartTierRewards";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 let _pool: Pool | null = null;
@@ -130,6 +133,100 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
+function toCartRewardTier(row: typeof cartRewardTiers.$inferSelect): CartRewardTier {
+  return {
+    id: row.id,
+    name: row.name,
+    minimumSpend: row.minimumSpend,
+    rewardType: row.rewardType,
+    rewardValue: row.rewardValue,
+    giftOfficialProductId: row.giftOfficialProductId,
+    profitSafeguardMargin: row.profitSafeguardMargin,
+    active: row.active === 1,
+  };
+}
+
+export async function listCartRewardTiers(includeInactive = false) {
+  const db = await requireDb();
+  const rows = await db.select().from(cartRewardTiers).orderBy(cartRewardTiers.minimumSpend, cartRewardTiers.id);
+  return rows.map(toCartRewardTier).filter(tier => includeInactive || tier.active);
+}
+
+export async function createCartRewardTier(input: Omit<CartRewardTier, "id">) {
+  const db = await requireDb();
+  const result = await db.insert(cartRewardTiers).values({
+    name: input.name,
+    minimumSpend: input.minimumSpend,
+    rewardType: input.rewardType,
+    rewardValue: input.rewardValue,
+    giftOfficialProductId: input.giftOfficialProductId,
+    profitSafeguardMargin: input.profitSafeguardMargin,
+    active: input.active ? 1 : 0,
+  });
+  const id = Number(result[0].insertId);
+  const created = (await db.select().from(cartRewardTiers).where(eq(cartRewardTiers.id, id)).limit(1))[0];
+  if (!created) throw new Error("Tiered cart reward could not be created.");
+  return toCartRewardTier(created);
+}
+
+export async function updateCartRewardTier(input: CartRewardTier) {
+  const db = await requireDb();
+  await db.update(cartRewardTiers).set({
+    name: input.name,
+    minimumSpend: input.minimumSpend,
+    rewardType: input.rewardType,
+    rewardValue: input.rewardValue,
+    giftOfficialProductId: input.giftOfficialProductId,
+    profitSafeguardMargin: input.profitSafeguardMargin,
+    active: input.active ? 1 : 0,
+  }).where(eq(cartRewardTiers.id, input.id));
+  const saved = (await db.select().from(cartRewardTiers).where(eq(cartRewardTiers.id, input.id)).limit(1))[0];
+  if (!saved) throw new Error("Tiered cart reward was not found.");
+  return toCartRewardTier(saved);
+}
+
+type CartRewardProductFact = { productId: string; title: string; price: number; lineTotal: number; platformProfit: number | null };
+
+export async function getCartRewardProductFacts(items: CartLine[]): Promise<CartRewardProductFact[]> {
+  const [vendor, official] = await Promise.all([listApprovedVendorProducts(), listActiveOfficialProductsWithSourcing()]);
+  const vendorById = new Map(vendor.map(product => [`vendor-${product.id}`, product]));
+  const officialById = new Map(official.map(product => [`official-${product.id}`, product]));
+  return items.flatMap(item => {
+    const quantity = Math.max(0, Math.min(10, Math.floor(item.quantity)));
+    if (!quantity) return [];
+    const vendorProduct = vendorById.get(item.productId);
+    if (vendorProduct) {
+      const lineTotal = vendorProduct.price * quantity;
+      return [{ productId: item.productId, title: vendorProduct.title, price: vendorProduct.price, lineTotal, platformProfit: Math.max(0, Math.round(lineTotal * vendorProduct.commissionRate / 100)) }];
+    }
+    const officialProduct = officialById.get(item.productId);
+    if (officialProduct) {
+      const lineTotal = officialProduct.price * quantity;
+      const supplierCost = officialProduct.supplierCurrency === "NGN" && officialProduct.supplierCost !== null ? Number(officialProduct.supplierCost) * quantity : null;
+      return [{ productId: item.productId, title: officialProduct.title, price: officialProduct.price, lineTotal, platformProfit: supplierCost !== null && Number.isFinite(supplierCost) ? Math.max(0, lineTotal - supplierCost) : null }];
+    }
+    return [{ productId: item.productId, title: "Unknown catalogue item", price: 0, lineTotal: 0, platformProfit: null }];
+  });
+}
+
+export async function getCartTierProgress(items: CartLine[]) {
+  const [tiers, facts] = await Promise.all([listCartRewardTiers(), getCartRewardProductFacts(items)]);
+  const subtotal = facts.reduce((total, fact) => total + fact.lineTotal, 0);
+  return calculateCartTierProgress({ subtotal, tiers, profitFacts: facts.map(fact => ({ productId: fact.productId, revenue: fact.lineTotal, platformProfit: fact.platformProfit })) });
+}
+
+export async function listPublishedTierUpsellCandidates(input: { amountRemaining: number; excludeProductIds: string[] }) {
+  const [vendor, official] = await Promise.all([listApprovedVendorProducts(), listActiveOfficialProducts()]);
+  const excluded = new Set(input.excludeProductIds);
+  const candidates = [
+    ...official.map(product => ({ id: `official-${product.id}`, title: product.title, price: product.price, imageUrl: (product.imageUrls?.[0] ?? product.imageUrl) || "", category: product.category })),
+    ...vendor.map(product => ({ id: `vendor-${product.id}`, title: product.title, price: product.price, imageUrl: (product.imageUrls?.[0] ?? product.imageUrl) || "", category: product.category })),
+  ].filter(product => product.imageUrl && !excluded.has(product.id) && product.price > 0);
+  return candidates
+    .sort((left, right) => Math.abs(left.price - input.amountRemaining) - Math.abs(right.price - input.amountRemaining) || left.price - right.price || left.title.localeCompare(right.title))
+    .slice(0, 8);
+}
+
 export async function createOrder(order: InsertOrder, freeDeliveryVoucherId?: number) {
   const db = await requireDb();
   await db.transaction(async tx => {
@@ -158,6 +255,72 @@ export async function createPendingGatewayCheckout(input: {
     }
   });
   return input.order.reference;
+}
+
+export async function createPendingCartRewardClaim(input: { orderReference: string; userId: number; progress: CartTierProgress }) {
+  const tier = input.progress.unlockedTier;
+  if (!tier) return null;
+  if (tier.rewardType === "alpha_wallet_credit" && tier.rewardValue < 1) return null;
+  if (tier.rewardType === "catalog_gift" && !tier.giftOfficialProductId) return null;
+  const db = await requireDb();
+  const idempotencyKey = `cart-tier-${input.orderReference}-${tier.id}`;
+  await db.insert(cartRewardClaims).values({
+    orderReference: input.orderReference,
+    userId: input.userId,
+    tierId: tier.id,
+    rewardType: tier.rewardType,
+    rewardValue: tier.rewardValue,
+    giftOfficialProductId: tier.giftOfficialProductId,
+    cartSubtotal: input.progress.subtotal,
+    profitAmount: input.progress.profitAmount,
+    profitMarginPercent: Math.floor(input.progress.profitMarginPercent),
+    status: "pending_payment",
+    idempotencyKey,
+  }).onDuplicateKeyUpdate({ set: { idempotencyKey: sql`${cartRewardClaims.idempotencyKey}` } });
+  return (await db.select().from(cartRewardClaims).where(eq(cartRewardClaims.orderReference, input.orderReference)).limit(1))[0] ?? null;
+}
+
+export async function settleCartRewardClaimAfterVerifiedPayment(orderReference: string) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const claim = (await tx.select().from(cartRewardClaims).where(eq(cartRewardClaims.orderReference, orderReference)).limit(1))[0];
+    if (!claim || claim.status !== "pending_payment") return { settled: false, reason: "not_pending" as const };
+    const order = (await tx.select().from(orders).where(eq(orders.reference, orderReference)).limit(1))[0];
+    if (!order || order.buyerUserId !== claim.userId || !["wallet_escrow", "gateway_escrow", "paid"].includes(order.paymentStatus)) return { settled: false, reason: "payment_not_verified" as const };
+    if (claim.rewardType === "alpha_wallet_credit") {
+      await tx.insert(wallets).values({ userId: claim.userId }).onDuplicateKeyUpdate({ set: { userId: sql`${wallets.userId}` } });
+      const wallet = (await tx.select().from(wallets).where(eq(wallets.userId, claim.userId)).limit(1))[0];
+      if (!wallet) throw new Error("Tier reward wallet could not be provisioned.");
+      const claimed = await tx.update(cartRewardClaims).set({ status: "credited", settledAt: new Date() }).where(and(eq(cartRewardClaims.id, claim.id), eq(cartRewardClaims.status, "pending_payment")));
+      if (affectedRows(claimed) !== 1) return { settled: false, reason: "already_settled" as const };
+      await tx.update(wallets).set({ bonusBalance: sql`${wallets.bonusBalance} + ${claim.rewardValue}` }).where(eq(wallets.id, wallet.id));
+      const after = (await tx.select().from(wallets).where(eq(wallets.id, wallet.id)).limit(1))[0];
+      if (!after) throw new Error("Tier reward wallet could not be loaded.");
+      await tx.insert(walletTransactions).values({
+        walletId: wallet.id, userId: claim.userId, type: "reward_bonus", direction: "in", status: "released", amount: claim.rewardValue,
+        balanceBucket: "bonus", balanceAfter: after.bonusBalance, reference: `cart-tier-${claim.id}`,
+        idempotencyKey: `cart-tier-credit-${claim.id}`, orderReference,
+        description: "Tiered cart Shopping Bonus released after verified payment",
+      });
+      return { settled: true, rewardType: claim.rewardType, amount: claim.rewardValue };
+    }
+    if (claim.rewardType === "free_shipping") {
+      const claimUpdate = await tx.update(cartRewardClaims).set({ status: "credited", settledAt: new Date() }).where(and(eq(cartRewardClaims.id, claim.id), eq(cartRewardClaims.status, "pending_payment")));
+      if (affectedRows(claimUpdate) !== 1) return { settled: false, reason: "already_settled" as const };
+      const earnedMonth = rewardMonthKey(new Date());
+      await tx.insert(freeDeliveryVouchers).values({ userId: claim.userId, earnedMonth, earnedOrderReference: orderReference, idempotencyKey: `cart-tier-delivery-${claim.id}` }).onDuplicateKeyUpdate({ set: { idempotencyKey: sql`${freeDeliveryVouchers.idempotencyKey}` } });
+      return { settled: true, rewardType: claim.rewardType, amount: 0 };
+    }
+    const gift = claim.giftOfficialProductId ? (await tx.select().from(officialProducts).where(and(eq(officialProducts.id, claim.giftOfficialProductId), eq(officialProducts.status, "active"))).limit(1))[0] : null;
+    if (!gift) {
+      await tx.update(cartRewardClaims).set({ status: "cancelled", settledAt: new Date() }).where(and(eq(cartRewardClaims.id, claim.id), eq(cartRewardClaims.status, "pending_payment")));
+      return { settled: false, reason: "gift_unavailable" as const };
+    }
+    const giftUpdate = await tx.update(cartRewardClaims).set({ status: "gift_added", settledAt: new Date() }).where(and(eq(cartRewardClaims.id, claim.id), eq(cartRewardClaims.status, "pending_payment")));
+    if (affectedRows(giftUpdate) !== 1) return { settled: false, reason: "already_settled" as const };
+    await tx.update(orders).set({ orderLines: [...order.orderLines, { productId: `official-${gift.id}`, title: gift.title, quantity: 1, unitPrice: 0, lineTotal: 0, rewardGift: true, rewardTierClaimId: claim.id }] }).where(eq(orders.reference, orderReference));
+    return { settled: true, rewardType: claim.rewardType, amount: 0, giftProductId: gift.id };
+  });
 }
 
 export const CASHBACK_RATE = 0.02;
@@ -1375,6 +1538,8 @@ export async function listActiveOfficialProductsWithSourcing() {
     stockQuantity: officialProducts.stockQuantity,
     fulfillmentProvider: officialProductSourcing.fulfillmentProvider,
     externalSkuId: officialProductSourcing.externalSkuId,
+    supplierCost: officialProductSourcing.supplierCost,
+    supplierCurrency: officialProductSourcing.supplierCurrency,
   }).from(officialProducts).leftJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id)).where(eq(officialProducts.status, "active")).orderBy(desc(officialProducts.createdAt));
 }
 

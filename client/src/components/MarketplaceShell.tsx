@@ -3,6 +3,8 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { MARKETPLACE_CATEGORIES } from "@shared/marketplace";
 import { Gift, Grid2X2, Home, Search, ShieldCheck, ShoppingCart, Store, WalletCards, X } from "lucide-react";
 import { Link, useLocation } from "wouter";
+import { useState } from "react";
+import CartDrawer from "./CartDrawer";
 import AlphaAiSupport from "./AlphaAiSupport";
 
 export const WHATSAPP_SUPPORT_URL =
@@ -26,6 +28,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
   const [location] = useLocation();
   const { itemCount } = useCart();
   const { user } = useAuth();
+  const [cartDrawerOpen, setCartDrawerOpen] = useState(false);
 
   return (
     <div className="marketplace-app">
@@ -44,13 +47,14 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
           <div className="header-actions">
             {user?.role === "admin" ? <Link href="/admin/products" className="admin-link" aria-label="Review vendor products"><ShieldCheck size={20} /><span>Review</span></Link> : null}
             {user?.role === "admin" ? <Link href="/admin/official-products" className="admin-link" aria-label="Manage official products and hidden sourcing"><Store size={20} /><span>Source</span></Link> : null}
+            {user?.role === "admin" ? <Link href="/admin/rewards" className="admin-link" aria-label="Manage tiered cart rewards"><Gift size={20} /><span>Tiered</span></Link> : null}
             {user?.role === "admin" ? <Link href="/admin/wallet-orders" className="admin-link" aria-label="Review wallet escrow orders"><ShieldCheck size={20} /><span>Escrow</span></Link> : null}
             {user ? <Link href="/rewards" className="admin-link" aria-label="Open Alpha Rewards"><Gift size={20} /><span>Rewards</span></Link> : null}
             {user ? <Link href="/wallet" className="admin-link" aria-label="Open Alpha Wallet"><WalletCards size={20} /><span>Wallet</span></Link> : null}
-            <Link href="/cart" className="cart-link" aria-label={`Open cart with ${itemCount} items`}>
+            <button type="button" className="cart-link" aria-label={`Open cart with ${itemCount} items`} onClick={() => setCartDrawerOpen(true)}>
               <ShoppingCart size={23} />
               {itemCount > 0 ? <span className="cart-count">{itemCount}</span> : null}
-            </Link>
+            </button>
           </div>
         </div>
         <nav aria-label="Shop categories" className="header-category-nav">
@@ -59,6 +63,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
         </nav>
       </header>
       <main>{children}</main>
+      <CartDrawer open={cartDrawerOpen} onClose={() => setCartDrawerOpen(false)} />
       <AlphaAiSupport />
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
         <Link href="/" className={location === "/" ? "active" : ""}><Home size={21} /><span>Home</span></Link>

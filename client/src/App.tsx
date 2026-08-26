@@ -16,6 +16,7 @@ import VendorDashboard from "@/pages/VendorDashboard";
 import Wallet from "@/pages/Wallet";
 import Rewards from "@/pages/Rewards";
 import Legal from "@/pages/Legal";
+import AdminTieredCartRewards from "@/pages/AdminTieredCartRewards";
 import CookieConsent from "@/components/CookieConsent";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -41,6 +42,7 @@ function Router() {
       <Route path="/admin/wallet-orders" component={AdminWalletOrders} />
       <Route path="/admin/official-products" component={AdminOfficialProducts} />
       <Route path="/admin/dropship-integrations" component={DropshipIntegrations} />
+      <Route path="/admin/rewards" component={AdminTieredCartRewards} />
       <Route path="/404" component={NotFound} />
       <Route component={NotFound} />
     </Switch>

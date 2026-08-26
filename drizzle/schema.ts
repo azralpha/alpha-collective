@@ -20,6 +20,8 @@ export type StoredOrderLine = {
   unitPrice: number;
   lineTotal: number;
   vendorUserId?: number;
+  rewardGift?: boolean;
+  rewardTierClaimId?: number;
 };
 
 export const orders = mysqlTable("orders", {
@@ -175,6 +177,39 @@ export const rewardGrants = mysqlTable("rewardGrants", {
   cancelledAt: timestamp("cancelledAt"),
   idempotencyKey: varchar("idempotencyKey", { length: 140 }).notNull().unique(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+/** Administrator-managed cart incentives. Cash-like awards are always non-withdrawable Shopping Bonus. */
+export const cartRewardTiers = mysqlTable("cartRewardTiers", {
+  id: int("id").autoincrement().primaryKey(),
+  name: varchar("name", { length: 120 }).notNull(),
+  minimumSpend: int("minimumSpend").notNull(),
+  rewardType: mysqlEnum("rewardType", ["alpha_wallet_credit", "free_shipping", "catalog_gift"]).notNull(),
+  rewardValue: int("rewardValue").notNull().default(0),
+  giftOfficialProductId: int("giftOfficialProductId"),
+  profitSafeguardMargin: int("profitSafeguardMargin").notNull().default(25),
+  active: int("active").notNull().default(1),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** One immutable tier decision per qualifying order. A unique key prevents duplicate credits or gifts. */
+export const cartRewardClaims = mysqlTable("cartRewardClaims", {
+  id: int("id").autoincrement().primaryKey(),
+  orderReference: varchar("orderReference", { length: 40 }).notNull().unique(),
+  userId: int("userId").notNull(),
+  tierId: int("tierId").notNull(),
+  rewardType: mysqlEnum("rewardType", ["alpha_wallet_credit", "free_shipping", "catalog_gift"]).notNull(),
+  rewardValue: int("rewardValue").notNull().default(0),
+  giftOfficialProductId: int("giftOfficialProductId"),
+  cartSubtotal: int("cartSubtotal").notNull(),
+  profitAmount: int("profitAmount").notNull(),
+  profitMarginPercent: int("profitMarginPercent").notNull(),
+  status: mysqlEnum("status", ["pending_payment", "credited", "gift_added", "cancelled", "voided"]).notNull().default("pending_payment"),
+  idempotencyKey: varchar("idempotencyKey", { length: 140 }).notNull().unique(),
+  settledAt: timestamp("settledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 /** One free-delivery redemption earned after qualifying calendar-month buyer spend. */

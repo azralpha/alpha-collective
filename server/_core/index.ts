@@ -20,6 +20,7 @@ import { createExpressRateLimit } from "../requestRateLimit";
 import { PRIVATE_API_CACHE_CONTROL, PUBLIC_CATALOGUE_CACHE_CONTROL } from "../performanceControls";
 import { registerSeoRoutes } from "../seo";
 import { registerAlphaAiSupportRoute } from "../alphaAiSupportRoute";
+import { registerCartRewardUpsellRoute } from "../cartRewardUpsellRoute";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -58,6 +59,7 @@ async function startServer() {
   registerStorageProxy(app);
   registerSeoRoutes(app);
   registerAlphaAiSupportRoute(app);
+  registerCartRewardUpsellRoute(app);
   registerOAuthRoutes(app);
   app.use("/api/trpc", (req, res, next) => {
     const paths = req.path.split(",").map(path => path.replace(/^\//, ""));

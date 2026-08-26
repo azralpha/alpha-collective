@@ -6,6 +6,8 @@ const mocks = vi.hoisted(() => ({
   assessReferralFraudBeforeCheckout: vi.fn(),
   createReferralShare: vi.fn(),
   createCryptoFundingAttempt: vi.fn(),
+  createCartRewardTier: vi.fn(),
+  createPendingCartRewardClaim: vi.fn(),
   createOrder: vi.fn(),
   createWalletEscrowOrder: vi.fn(),
   confirmBuyerReceivedWalletOrder: vi.fn(),
@@ -14,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   getReferralShareByCode: vi.fn(),
   getCurrentVendorCommissionRate: vi.fn(),
   getKycProfileForUser: vi.fn(),
+  getCartTierProgress: vi.fn(),
   getVendorApplicationForUser: vi.fn(),
   getWalletBankRecipientForUser: vi.fn(),
   createWithdrawalOtpChallenge: vi.fn(),
@@ -33,6 +36,8 @@ const mocks = vi.hoisted(() => ({
   ensureWalletForUser: vi.fn(),
   markCryptoFundingAttemptStatus: vi.fn(),
   saveCryptoFundingQuote: vi.fn(),
+  settleCartRewardClaimAfterVerifiedPayment: vi.fn(),
+  updateCartRewardTier: vi.fn(),
 }));
 
 vi.mock("../db", () => mocks);
@@ -69,6 +74,7 @@ describe("marketplace wallet escrow release", () => {
     mocks.issueFreeDeliveryVoucherIfQualified = vi.fn().mockResolvedValue({ issued: false, reason: "not_delivered" });
     mocks.isReferralEligibleUser.mockResolvedValue(true);
     mocks.getCurrentVendorCommissionRate.mockResolvedValue(0);
+    mocks.getCartTierProgress.mockResolvedValue({ unlockedTier: null, nextTier: null, subtotal: 0, amountRemaining: 0, progressPercent: 0, profitAmount: 0, profitMarginPercent: 0, profitSafeguardPassed: false, hasUnknownProfit: false });
   });
 
   it("marks a held wallet order delivered without releasing local-vendor escrow", async () => {
