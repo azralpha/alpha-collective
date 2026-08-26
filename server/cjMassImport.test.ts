@@ -11,6 +11,14 @@ describe("CJ mass import safeguards", () => {
     expect(() => normalizeCjSkuList(Array.from({ length: 51 }, (_, index) => `CJ-${index + 100}`).join(","))).toThrow("up to 50");
   });
 
+  it("accepts exactly fifty normalized SKU or SPU-style entries for one durable draft batch", () => {
+    const submitted = Array.from({ length: 50 }, (_, index) => index % 2 === 0 ? ` cjyh${index.toString().padStart(10, "0")} ` : `CJ-VARIANT-${index}`);
+    const normalized = normalizeCjSkuList(submitted.join("\n"));
+    expect(normalized).toHaveLength(50);
+    expect(normalized[0]).toBe("CJYH0000000000");
+    expect(normalized[49]).toBe("CJ-VARIANT-49");
+  });
+
   it("calculates a rounded Naira draft price from landed USD cost and markup", () => {
     expect(calculateMassImportNairaPrice({ landedUsdCost: 10, exchangeRateNgnPerUsd: 1_500, markupPercent: 50 })).toBe(22_500);
   });

@@ -325,3 +325,12 @@
 - [x] Add a deterministic Paystack transfer-fee estimate plus 20% platform markup and persist the associated wallet debit safely
 - [x] Show requested amount, processing/bank fee, total balance debit, and insufficient-balance blocking in the withdrawal UI
 - [x] Add fee calculation, transfer amount, insufficient-balance, recovery, and responsive UI regression coverage before checkpointing
+
+- [x] Audit whether any AliExpress importer or URL parser exists and confirm its approved supplier-data boundary
+- [x] Define compliant treatment of AliExpress URLs and product IDs without unauthorised redirect-following or webpage scraping
+- [x] Do not implement AliExpress URL normalization or fetching because the user selected the approved CJ-only flow without API credentials
+- [x] Do not add AliExpress importer regression coverage because no authorized AliExpress integration exists
+
+- [x] Verify the CJ-only 50-item SKU/SPU parser, batch item persistence, and existing imported-data mapping
+- [x] Verify the completed CJ batch progress and administrator Drafts-review handoff without creating supplier orders
+- [x] Run focused CJ importer safeguards and responsive administrator UI validation before checkpointing
