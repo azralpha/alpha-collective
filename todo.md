@@ -263,3 +263,10 @@
 - [x] Add compatible connection-pool configuration guidance, cache-control for safe public read endpoints, and optimized responsive product-image delivery
 - [x] Add lightweight in-process rate limits to sensitive write endpoints without exposing or enabling crypto funding
 - [x] Add performance-safeguard tests, validate behavior, and save a checkpoint
+
+- [x] Assess Alpha Market’s Express/Drizzle deployment compatibility with the requested Vercel-style target and managed hosting alternative
+- [x] Verify public branding, cookie consent, and legal routes for production readiness without changing live payment or KYC safeguards
+- [x] Document required production environment values and callback prerequisites without exposing secrets or enabling live crypto crediting
+
+- [x] Verify the published Alpha Market domain and public storefront route availability
+- [x] Validate published branding, cookie consent, Terms/Privacy links, and protected payment/dropshipping boundaries
