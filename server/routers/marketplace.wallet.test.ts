@@ -13,7 +13,10 @@ const mocks = vi.hoisted(() => ({
   getReferralRewardSettings: vi.fn(),
   getReferralShareByCode: vi.fn(),
   getCurrentVendorCommissionRate: vi.fn(),
+  getKycProfileForUser: vi.fn(),
   getVendorApplicationForUser: vi.fn(),
+  getWalletBankRecipientForUser: vi.fn(),
+  createWithdrawalOtpChallenge: vi.fn(),
   getWalletForUser: vi.fn(),
   isReferralEligibleUser: vi.fn(),
   listActiveOfficialProducts: vi.fn(),
@@ -59,6 +62,7 @@ describe("marketplace wallet escrow release", () => {
     mocks.listActiveOfficialProducts.mockResolvedValue([]);
     mocks.listActiveOfficialProductsWithSourcing.mockResolvedValue([]);
     mocks.ensureKycProfileForUser.mockResolvedValue({ status: "verified" });
+    mocks.getKycProfileForUser.mockResolvedValue({ status: "verified" });
     mocks.listBuyerWalletEscrowOrders.mockResolvedValue([]);
     mocks.queueReferralBonusAfterDeliveredOrder.mockResolvedValue({ queued: false, reason: "not_eligible" });
     mocks.queueCashbackAfterDeliveredOrder.mockResolvedValue({ queued: false, reason: "not_delivered" });
@@ -106,6 +110,32 @@ describe("marketplace wallet escrow release", () => {
     mocks.getVendorApplicationForUser.mockResolvedValue(null);
 
     await expect(adminCaller().kyc.status()).resolves.toMatchObject({ status: "verified", administratorTestAccess: true });
+  });
+
+  it("returns a vendor-only Paystack fee quote with a 20% processing markup", async () => {
+    mocks.getVendorApplicationForUser.mockResolvedValue({ id: 4, userId: 7 });
+    mocks.ensureWalletForUser.mockResolvedValue({ id: 8, userId: 7, withdrawableBalance: 5_012 });
+
+    await expect(buyerCaller().wallet.getWithdrawalQuote({ amount: 5_000 })).resolves.toEqual({
+      requestedAmount: 5_000,
+      basePaystackFee: 10,
+      processingFee: 12,
+      totalDebited: 5_012,
+      withdrawableBalance: 5_012,
+      sufficientBalance: true,
+    });
+  });
+
+  it("blocks a withdrawal when its fee-aware total debit exceeds withdrawable balance", async () => {
+    mocks.getWalletForUser.mockResolvedValue({ id: 8, userId: 7, withdrawableBalance: 5_011, pinHash: await hashTransactionPin("1234"), pinFailedAttempts: 0, pinLockedUntil: null });
+    mocks.getVendorApplicationForUser.mockResolvedValue({ id: 4, userId: 7 });
+    mocks.getWalletBankRecipientForUser.mockResolvedValue({ id: 3, userId: 7, kycBindingStatus: "locked" });
+
+    await expect(buyerCaller().wallet.requestWithdrawal({ amount: 5_000, transactionPin: "1234", confirmed: true })).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Insufficient balance to cover total amount including network fee.",
+    });
+    expect(mocks.createWithdrawalOtpChallenge).not.toHaveBeenCalled();
   });
 
   it("denies a non-administrator before any controlled crypto checkout quote or order can be created", async () => {

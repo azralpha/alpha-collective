@@ -271,7 +271,7 @@ export async function saveWalletBankRecipient(input: {
   } });
 }
 
-export async function createWithdrawalOtpChallenge(input: { userId: number; recipientId: number; amount: number; otpHash: string; expiresAt: Date }) {
+export async function createWithdrawalOtpChallenge(input: { userId: number; recipientId: number; amount: number; processingFee: number; otpHash: string; expiresAt: Date }) {
   const db = await requireDb();
   const result = await db.insert(withdrawalOtpChallenges).values({ ...input, status: "pending_delivery" });
   return Number(result[0].insertId);
@@ -407,13 +407,15 @@ export async function listWithdrawalRequestsForUser(userId: number) {
   return db.select().from(withdrawalRequests).where(eq(withdrawalRequests.userId, userId)).orderBy(desc(withdrawalRequests.createdAt));
 }
 
-export async function createPendingWalletWithdrawal(input: { walletId: number; userId: number; recipientId: number; amount: number; transferReference: string }) {
+export async function createPendingWalletWithdrawal(input: { walletId: number; userId: number; recipientId: number; amount: number; processingFee: number; transferReference: string }) {
   const db = await requireDb();
   return db.transaction(async tx => {
+    const totalDebited = input.amount + input.processingFee;
+    if (!Number.isSafeInteger(totalDebited) || totalDebited <= 0) throw new Error("Withdrawal debit is invalid.");
     const walletResult = await tx.select().from(wallets).where(and(eq(wallets.id, input.walletId), eq(wallets.userId, input.userId))).limit(1);
     const wallet = walletResult[0];
     if (!wallet) throw new Error("Wallet was not found.");
-    const debitResult = await tx.update(wallets).set({ withdrawableBalance: sql`${wallets.withdrawableBalance} - ${input.amount}` }).where(and(eq(wallets.id, wallet.id), gte(wallets.withdrawableBalance, input.amount)));
+    const debitResult = await tx.update(wallets).set({ withdrawableBalance: sql`${wallets.withdrawableBalance} - ${totalDebited}` }).where(and(eq(wallets.id, wallet.id), gte(wallets.withdrawableBalance, totalDebited)));
     if (affectedRows(debitResult) !== 1) throw new Error("INSUFFICIENT_WALLET_BALANCE");
     const insertResult = await tx.insert(withdrawalRequests).values({ ...input, status: "pending" });
     const requestId = Number(insertResult[0].insertId);
@@ -425,11 +427,11 @@ export async function createPendingWalletWithdrawal(input: { walletId: number; u
       type: "withdrawal",
       direction: "out",
       status: "pending",
-      amount: input.amount,
+      amount: totalDebited,
       balanceAfter: walletAfter.withdrawableBalance,
       reference: input.transferReference,
       idempotencyKey: `wallet-withdrawal-${input.transferReference}`,
-      description: "Paystack bank withdrawal requested",
+      description: `Paystack bank withdrawal requested: ₦${input.amount.toLocaleString("en-NG")} transfer + ₦${input.processingFee.toLocaleString("en-NG")} processing/bank fee`,
     });
     return { id: requestId, walletId: wallet.id, balanceAfter: walletAfter.withdrawableBalance };
   });
@@ -442,7 +444,8 @@ export async function markWalletWithdrawalProcessing(input: { reference: string;
 
 type WalletTransactionExecutor = Parameters<Parameters<Awaited<ReturnType<typeof requireDb>>["transaction"]>[0]>[0];
 
-async function restoreWalletWithdrawal(tx: WalletTransactionExecutor, input: { requestId: number; userId: number; walletId: number; amount: number; reference: string; outcome: "failed" | "reversed"; providerTransferCode?: string }) {
+async function restoreWalletWithdrawal(tx: WalletTransactionExecutor, input: { requestId: number; userId: number; walletId: number; amount: number; processingFee?: number; reference: string; outcome: "failed" | "reversed"; providerTransferCode?: string }) {
+  const totalDebited = input.amount + (input.processingFee ?? 0);
   const currentRequest = (await tx.select().from(withdrawalRequests).where(eq(withdrawalRequests.id, input.requestId)).limit(1))[0];
   if (!currentRequest || withdrawalRestoreDisposition(currentRequest.status) === "ignore_duplicate") return false;
   const requestUpdate = await tx.update(withdrawalRequests).set({ status: input.outcome, providerTransferCode: input.providerTransferCode, providerReference: input.reference, reversedAt: new Date() }).where(and(eq(withdrawalRequests.id, input.requestId), eq(withdrawalRequests.status, "pending")));
@@ -450,7 +453,7 @@ async function restoreWalletWithdrawal(tx: WalletTransactionExecutor, input: { r
     const processingUpdate = await tx.update(withdrawalRequests).set({ status: input.outcome, providerTransferCode: input.providerTransferCode, providerReference: input.reference, reversedAt: new Date() }).where(and(eq(withdrawalRequests.id, input.requestId), eq(withdrawalRequests.status, "processing")));
     if (affectedRows(processingUpdate) !== 1) return false;
   }
-  await tx.update(wallets).set({ withdrawableBalance: sql`${wallets.withdrawableBalance} + ${input.amount}` }).where(eq(wallets.id, input.walletId));
+  await tx.update(wallets).set({ withdrawableBalance: sql`${wallets.withdrawableBalance} + ${totalDebited}` }).where(eq(wallets.id, input.walletId));
   const walletAfter = (await tx.select().from(wallets).where(eq(wallets.id, input.walletId)).limit(1))[0];
   if (!walletAfter) throw new Error("Wallet withdrawal refund balance could not be loaded.");
   await tx.update(walletTransactions).set({ status: input.outcome }).where(eq(walletTransactions.idempotencyKey, `wallet-withdrawal-${input.reference}`));
@@ -460,11 +463,11 @@ async function restoreWalletWithdrawal(tx: WalletTransactionExecutor, input: { r
     type: "refund",
     direction: "in",
     status: input.outcome,
-    amount: input.amount,
+    amount: totalDebited,
     balanceAfter: walletAfter.withdrawableBalance,
     reference: input.reference,
     idempotencyKey: `wallet-withdrawal-refund-${input.reference}`,
-    description: input.outcome === "reversed" ? "Bank withdrawal reversed; funds restored" : "Bank withdrawal was not accepted; funds restored",
+    description: input.outcome === "reversed" ? "Bank withdrawal and processing fee reversed; funds restored" : "Bank withdrawal and processing fee were not accepted; funds restored",
   });
   return true;
 }
@@ -474,7 +477,7 @@ export async function failWalletWithdrawalBeforeTransfer(reference: string) {
   return db.transaction(async tx => {
     const request = (await tx.select().from(withdrawalRequests).where(eq(withdrawalRequests.transferReference, reference)).limit(1))[0];
     if (!request) throw new Error("Wallet withdrawal request was not found.");
-    return restoreWalletWithdrawal(tx, { requestId: request.id, userId: request.userId, walletId: request.walletId, amount: request.amount, reference, outcome: "failed" });
+    return restoreWalletWithdrawal(tx, { requestId: request.id, userId: request.userId, walletId: request.walletId, amount: request.amount, processingFee: request.processingFee, reference, outcome: "failed" });
   });
 }
 
@@ -496,7 +499,7 @@ export async function reverseWalletWithdrawal(input: { reference: string; outcom
   return db.transaction(async tx => {
     const request = (await tx.select().from(withdrawalRequests).where(eq(withdrawalRequests.transferReference, input.reference)).limit(1))[0];
     if (!request) return { ignored: true } as const;
-    const restored = await restoreWalletWithdrawal(tx, { requestId: request.id, userId: request.userId, walletId: request.walletId, amount: request.amount, reference: input.reference, outcome: input.outcome, providerTransferCode: input.providerTransferCode });
+    const restored = await restoreWalletWithdrawal(tx, { requestId: request.id, userId: request.userId, walletId: request.walletId, amount: request.amount, processingFee: request.processingFee, reference: input.reference, outcome: input.outcome, providerTransferCode: input.providerTransferCode });
     return { ignored: !restored } as const;
   });
 }

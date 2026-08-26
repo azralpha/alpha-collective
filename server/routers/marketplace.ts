@@ -105,6 +105,7 @@ import { notifyAdminPaymentEvent } from "../paymentNotifications";
 import { adminProcedure, protectedProcedure, publicProcedure, router, sensitiveProtectedProcedure } from "../_core/trpc";
 import { hashTransactionPin, validateTransactionPin, verifyTransactionPin } from "../walletSecurity";
 import { generateWithdrawalOtp, hashWithdrawalOtp } from "../withdrawalOtpSecurity";
+import { hasSufficientWithdrawalBalance, quotePaystackWithdrawalFee } from "../paystackTransferFee";
 import { sanitizePlainText } from "../securityText";
 import { generateGeminiProductEnhancement, tryGenerateGeminiProductEnhancement } from "../geminiProductEnhancer";
 import { isWithdrawalOtpEmailDeliveryConfigured } from "../withdrawalOtpEmail";
@@ -490,6 +491,15 @@ export const marketplaceRouter = router({
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The controlled crypto checkout quote could not be created." });
         }
       }),
+    getWithdrawalQuote: walletKycProcedure
+      .input(z.object({ amount: walletAmountSchema }))
+      .query(async ({ ctx, input }) => {
+        const vendor = await getVendorApplicationForUser(ctx.user.id);
+        if (!vendor) throw new TRPCError({ code: "FORBIDDEN", message: "Wallet withdrawal quotes are available to KYC-verified vendors only." });
+        const wallet = await ensureWalletForUser(ctx.user.id);
+        const quote = quotePaystackWithdrawalFee(input.amount);
+        return { ...quote, withdrawableBalance: wallet.withdrawableBalance, sufficientBalance: hasSufficientWithdrawalBalance(wallet.withdrawableBalance, quote) };
+      }),
     requestWithdrawal: walletKycProcedure
       .input(z.object({ amount: walletAmountSchema, transactionPin: walletPinSchema, confirmed: z.literal(true) }))
       .mutation(async ({ ctx, input }) => {
@@ -501,11 +511,12 @@ export const marketplaceRouter = router({
         const recipient = await getWalletBankRecipientForUser(ctx.user.id);
         if (!recipient) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Verify your Nigerian bank account before requesting a withdrawal." });
         if (recipient.kycBindingStatus !== "locked") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Complete KYC bank-name matching before requesting a withdrawal." });
-        if (wallet.withdrawableBalance < input.amount) throw new TRPCError({ code: "BAD_REQUEST", message: "Only your withdrawable balance can be sent to your bank, and it is not enough for this withdrawal." });
+        const quote = quotePaystackWithdrawalFee(input.amount);
+        if (!hasSufficientWithdrawalBalance(wallet.withdrawableBalance, quote)) throw new TRPCError({ code: "BAD_REQUEST", message: "Insufficient balance to cover total amount including network fee." });
         if (!isWithdrawalOtpEmailDeliveryConfigured()) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Withdrawal OTP email delivery is not configured yet. No bank transfer has been started." });
         const otp = generateWithdrawalOtp();
-        const challengeId = await createWithdrawalOtpChallenge({ userId: ctx.user.id, recipientId: recipient.id, amount: input.amount, otpHash: await hashWithdrawalOtp(otp), expiresAt: new Date(Date.now() + 10 * 60 * 1000) });
-        return { challengeId, otpDelivery: "unavailable" as const };
+        const challengeId = await createWithdrawalOtpChallenge({ userId: ctx.user.id, recipientId: recipient.id, amount: input.amount, processingFee: quote.processingFee, otpHash: await hashWithdrawalOtp(otp), expiresAt: new Date(Date.now() + 10 * 60 * 1000) });
+        return { challengeId, otpDelivery: "unavailable" as const, ...quote };
       }),
     checkout: walletKycProcedure
       .input(walletCheckoutInputSchema)

@@ -318,3 +318,10 @@
 - [x] Add a server-only Gemini support service and protected support endpoint with safe order and product tools
 - [x] Build the responsive floating Alpha AI Support chat UI with prompts, typing feedback, and message history
 - [x] Add privacy, tool-scope, Gemini-response, and responsive-chat regression coverage before checkpointing
+
+- [x] Audit the existing wallet, NOWPayments, Paystack withdrawal, exchange-rate, and crypto-network capabilities against the requested 2x SOL fee model
+- [x] Define provider-compatible fee estimates and safe balance treatment without introducing unverified on-chain deposits or withdrawals
+- [x] Audit Paystack withdrawal request, balance, fee-policy source, and recovery behavior for a fee-aware implementation
+- [x] Add a deterministic Paystack transfer-fee estimate plus 20% platform markup and persist the associated wallet debit safely
+- [x] Show requested amount, processing/bank fee, total balance debit, and insufficient-balance blocking in the withdrawal UI
+- [x] Add fee calculation, transfer amount, insufficient-balance, recovery, and responsive UI regression coverage before checkpointing
