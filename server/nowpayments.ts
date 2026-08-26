@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 const PRODUCTION_NOWPAYMENTS_API_BASE = "https://api.nowpayments.io/v1";
 export const MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA = 500;
+export const MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA = 50_000;
 
 export class NowPaymentsError extends Error {}
 
@@ -90,9 +91,10 @@ export async function listNowPaymentsCurrencies() {
   return body.currencies.filter((currency): currency is string => typeof currency === "string" && /^[a-z0-9_-]{2,24}$/i.test(currency)).map(currency => currency.toLowerCase());
 }
 
-export async function createControlledNowPaymentsQuote(input: { reference: string; amountNaira: number; payCurrency: string; ipnCallbackUrl: string }) {
-  if (!Number.isSafeInteger(input.amountNaira) || input.amountNaira < 100 || input.amountNaira > MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA) {
-    throw new NowPaymentsError(`Live crypto test quotes are limited to ₦${MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA.toLocaleString("en-NG")} or less.`);
+export async function createControlledNowPaymentsQuote(input: { reference: string; amountNaira: number; payCurrency: string; ipnCallbackUrl: string; maximumAmountNaira?: number; orderDescription?: string }) {
+  const maximumAmountNaira = input.maximumAmountNaira ?? MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA;
+  if (!Number.isSafeInteger(input.amountNaira) || input.amountNaira < 100 || input.amountNaira > maximumAmountNaira) {
+    throw new NowPaymentsError(`Live crypto test quotes are limited to ₦${maximumAmountNaira.toLocaleString("en-NG")} or less.`);
   }
   if (!/^accrypto_[a-z0-9]{16,32}$/.test(input.reference)) throw new NowPaymentsError("The crypto funding reference is invalid.");
   if (!/^[a-z0-9_-]{2,24}$/i.test(input.payCurrency)) throw new NowPaymentsError("Choose a valid crypto asset.");
@@ -104,7 +106,7 @@ export async function createControlledNowPaymentsQuote(input: { reference: strin
       price_currency: "ngn",
       pay_currency: input.payCurrency.toLowerCase(),
       order_id: input.reference,
-      order_description: "Alpha Market controlled crypto wallet test",
+      order_description: input.orderDescription ?? "Alpha Market controlled crypto wallet test",
       ipn_callback_url: input.ipnCallbackUrl,
       is_fixed_rate: true,
     }),

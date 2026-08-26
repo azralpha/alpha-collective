@@ -298,7 +298,7 @@ export async function getCryptoFundingAttemptByReference(reference: string) {
   return (await db.select().from(cryptoFundingAttempts).where(eq(cryptoFundingAttempts.reference, reference)).limit(1))[0];
 }
 
-export async function createCryptoFundingAttempt(input: { walletId: number; userId: number; reference: string; amountNaira: number; payCurrency: string; quoteExpiresAt: Date }) {
+export async function createCryptoFundingAttempt(input: { walletId: number; userId: number; reference: string; amountNaira: number; payCurrency: string; quoteExpiresAt: Date; orderReference?: string }) {
   const db = await requireDb();
   await db.insert(cryptoFundingAttempts).values({ ...input, status: "pending" });
   const attempt = await getCryptoFundingAttemptByReference(input.reference);
@@ -314,6 +314,8 @@ export async function saveCryptoFundingQuote(input: { reference: string; provide
 export async function markCryptoFundingAttemptStatus(input: { reference: string; status: "failed" | "expired" }) {
   const db = await requireDb();
   await db.update(cryptoFundingAttempts).set({ status: input.status }).where(and(eq(cryptoFundingAttempts.reference, input.reference), eq(cryptoFundingAttempts.status, "pending")));
+  const attempt = await getCryptoFundingAttemptByReference(input.reference);
+  if (attempt?.orderReference) await db.update(orders).set({ fulfillmentStatus: "cancelled" }).where(and(eq(orders.reference, attempt.orderReference), eq(orders.paymentMethod, "nowpayments"), eq(orders.paymentStatus, "pending")));
 }
 
 export async function creditVerifiedCryptoFunding(input: { reference: string; providerPaymentId: string }) {
@@ -325,6 +327,11 @@ export async function creditVerifiedCryptoFunding(input: { reference: string; pr
     if (attempt.status !== "pending" || attempt.quoteExpiresAt <= new Date()) throw new Error("Crypto funding attempt is not eligible for crediting.");
     const claim = await tx.update(cryptoFundingAttempts).set({ status: "confirmed", providerPaymentId: input.providerPaymentId, creditedAt: new Date() }).where(and(eq(cryptoFundingAttempts.id, attempt.id), eq(cryptoFundingAttempts.status, "pending")));
     if (affectedRows(claim) !== 1) return { attempt, alreadyProcessed: true } as const;
+    if (attempt.orderReference) {
+      const paidOrder = await tx.update(orders).set({ paymentStatus: "paid" }).where(and(eq(orders.reference, attempt.orderReference), eq(orders.buyerUserId, attempt.userId), eq(orders.paymentMethod, "nowpayments"), eq(orders.paymentStatus, "pending")));
+      if (affectedRows(paidOrder) !== 1) throw new Error("Crypto checkout order was not eligible for completion.");
+      return { attempt: { ...attempt, status: "confirmed" as const }, alreadyProcessed: false, checkoutOrderReference: attempt.orderReference } as const;
+    }
     const wallet = (await tx.select().from(wallets).where(eq(wallets.id, attempt.walletId)).limit(1))[0];
     if (!wallet || wallet.userId !== attempt.userId) throw new Error("Crypto funding attempt has an invalid wallet owner.");
     await tx.update(wallets).set({ bonusBalance: sql`${wallets.bonusBalance} + ${attempt.amountNaira}` }).where(eq(wallets.id, wallet.id));

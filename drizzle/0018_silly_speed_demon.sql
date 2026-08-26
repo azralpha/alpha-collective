@@ -1,0 +1,2 @@
+ALTER TABLE `orders` MODIFY COLUMN `paymentMethod` enum('delivery','paystack','flutterwave','wallet','nowpayments') NOT NULL;--> statement-breakpoint
+ALTER TABLE `cryptoFundingAttempts` ADD `orderReference` varchar(40);

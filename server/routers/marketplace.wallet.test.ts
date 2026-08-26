@@ -5,12 +5,15 @@ import { hashTransactionPin } from "../walletSecurity";
 const mocks = vi.hoisted(() => ({
   assessReferralFraudBeforeCheckout: vi.fn(),
   createReferralShare: vi.fn(),
+  createCryptoFundingAttempt: vi.fn(),
+  createOrder: vi.fn(),
   createWalletEscrowOrder: vi.fn(),
   confirmBuyerReceivedWalletOrder: vi.fn(),
   ensureKycProfileForUser: vi.fn(),
   getReferralRewardSettings: vi.fn(),
   getReferralShareByCode: vi.fn(),
   getCurrentVendorCommissionRate: vi.fn(),
+  getVendorApplicationForUser: vi.fn(),
   getWalletForUser: vi.fn(),
   isReferralEligibleUser: vi.fn(),
   listActiveOfficialProducts: vi.fn(),
@@ -24,6 +27,9 @@ const mocks = vi.hoisted(() => ({
   queueCashbackAfterDeliveredOrder: vi.fn(),
   queueVerifiedPostSaleBonus: vi.fn(),
   resetWalletPinFailures: vi.fn(),
+  ensureWalletForUser: vi.fn(),
+  markCryptoFundingAttemptStatus: vi.fn(),
+  saveCryptoFundingQuote: vi.fn(),
 }));
 
 vi.mock("../db", () => mocks);
@@ -93,6 +99,19 @@ describe("marketplace wallet escrow release", () => {
     mocks.ensureKycProfileForUser.mockResolvedValue({ status: "identity_pending" });
     await expect(buyerCaller().wallet.dashboard()).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: "Complete KYC Verification before accessing or using Alpha Wallet." });
     expect(mocks.getWalletForUser).not.toHaveBeenCalled();
+  });
+
+  it("reports administrator-only test access as verified without changing the stored KYC profile", async () => {
+    mocks.ensureKycProfileForUser.mockResolvedValue({ status: "identity_pending", submittedLegalName: null, verifiedLegalName: null, governmentIdImageUrl: null, failureReason: null });
+    mocks.getVendorApplicationForUser.mockResolvedValue(null);
+
+    await expect(adminCaller().kyc.status()).resolves.toMatchObject({ status: "verified", administratorTestAccess: true });
+  });
+
+  it("denies a non-administrator before any controlled crypto checkout quote or order can be created", async () => {
+    await expect(buyerCaller().wallet.createCryptoCheckoutQuote({ buyerName: "Ada Okafor", buyerPhone: "08000000000", deliveryAddress: checkoutBase.deliveryAddress, packageWeightKg: 1, deliveryTier: "standard", items: [{ productId: MARKETPLACE_PRODUCTS[0].id, quantity: 1 }], payCurrency: "usdttrc20" })).rejects.toMatchObject({ code: "FORBIDDEN", message: "Controlled crypto checkout testing is available to the administrator only." });
+    expect(mocks.createOrder).not.toHaveBeenCalled();
+    expect(mocks.createCryptoFundingAttempt).not.toHaveBeenCalled();
   });
 
   it("blocks a static catalogue item from entering the wallet escrow path", async () => {

@@ -1,6 +1,6 @@
 import { createHmac } from "node:crypto";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createControlledNowPaymentsQuote, MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA, verifyNowPaymentsIpn } from "./nowpayments";
+import { createControlledNowPaymentsQuote, MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA, MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA, verifyNowPaymentsIpn } from "./nowpayments";
 import { verifiedNowPaymentsPaymentMatchesAttempt } from "./nowpaymentsWebhook";
 
 describe("NOWPayments IPN verification", () => {
@@ -22,6 +22,13 @@ describe("controlled NOWPayments production quotes", () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     await expect(createControlledNowPaymentsQuote({ reference: "accrypto_abcdefghijklmnopqrst", amountNaira: MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA + 1, payCurrency: "usdttrc20", ipnCallbackUrl: "https://alphashop-3pdenj2y.manus.space/api/webhooks/nowpayments" })).rejects.toThrow("limited");
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("enforces the separately authorized administrator checkout ceiling before any provider request", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(createControlledNowPaymentsQuote({ reference: "accrypto_abcdefghijklmnopqrst", amountNaira: MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA + 1, payCurrency: "usdttrc20", ipnCallbackUrl: "https://alphashop-3pdenj2y.manus.space/api/webhooks/nowpayments", maximumAmountNaira: MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA })).rejects.toThrow("50,000");
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

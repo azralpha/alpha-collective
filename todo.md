@@ -278,3 +278,11 @@
 
 - [x] Switch the authorized NOWPayments flow from sandbox configuration to the official production endpoint with a ₦500 live-test ceiling
 - [x] Verify the production quote and callback logic credits only independently confirmed finished payments into the non-withdrawable balance
+
+- [x] Audit checkout payment selection, KYC guards, and administrator role enforcement for a safe end-to-end testing path
+- [x] Add a controlled NOWPayments crypto checkout quote option without creating an order or credit before independent provider confirmation
+- [x] Add narrowly scoped administrator-only test access while keeping all non-administrator KYC protections and customer warnings intact
+- [x] Add regression coverage for checkout crypto selection, KYC boundaries, and administrator test access before checkpointing
+
+- [x] Enforce the user-authorized ₦50,000 maximum only for administrator-controlled NOWPayments checkout quotes
+- [x] Complete a pending NOWPayments checkout order only after an independently verified finished provider callback

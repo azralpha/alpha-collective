@@ -7,7 +7,7 @@ import { trpc } from "@/lib/trpc";
 import { DELIVERY_SERVICE_TIERS, type DeliveryServiceTier } from "@shared/delivery";
 import { MARKETPLACE_PRODUCTS, REFERRAL_DISCOUNT, formatNaira, getCheckoutTotals, type MarketplaceProduct } from "@shared/marketplace";
 import { NIGERIA_COUNTRY, NIGERIA_STATES, getNigerianLgas } from "@shared/nigeriaAddress";
-import { ArrowRight, CheckCircle2, Copy, CreditCard, MessageCircle, Truck, WalletCards } from "lucide-react";
+import { ArrowRight, Bitcoin, CheckCircle2, Copy, CreditCard, MessageCircle, Truck, WalletCards } from "lucide-react";
 import { FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
@@ -15,7 +15,7 @@ import { Link } from "wouter";
 type Confirmation = { reference: string; subtotal: number; discount: number; deliveryFee: number; total: number };
 
 export default function Checkout() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const { items, clearCart } = useCart();
   const [referralCode, setReferralCode] = useState(() => window.localStorage.getItem("alpha-collective-referral-code") ?? "");
   const [state, setState] = useState("");
@@ -23,8 +23,10 @@ export default function Checkout() {
   const [streetDetails, setStreetDetails] = useState("");
   const [weightKg, setWeightKg] = useState(2);
   const [deliveryTier, setDeliveryTier] = useState<DeliveryServiceTier>("standard");
-  const [paymentMethod, setPaymentMethod] = useState<"delivery" | "wallet">("delivery");
+  const [paymentMethod, setPaymentMethod] = useState<"delivery" | "wallet" | "crypto">("delivery");
   const [transactionPin, setTransactionPin] = useState("");
+  const [cryptoCurrency, setCryptoCurrency] = useState("usdttrc20");
+  const [cryptoCheckoutQuote, setCryptoCheckoutQuote] = useState<{ orderReference: string; cryptoReference: string; payAddress: string; payAmount: string; payCurrency: string; quoteExpiresAt: Date; total: number } | null>(null);
   const [freeDeliveryVoucherId, setFreeDeliveryVoucherId] = useState<number | undefined>();
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const publicProducts = trpc.marketplace.publicProducts.useQuery();
@@ -45,9 +47,13 @@ export default function Checkout() {
   const wallet = trpc.marketplace.wallet.dashboard.useQuery(undefined, { enabled: isAuthenticated });
   const rewards = trpc.marketplace.rewards.dashboard.useQuery(undefined, { enabled: isAuthenticated });
   const kyc = trpc.marketplace.kyc.status.useQuery(undefined, { enabled: isAuthenticated });
-  const payOnDeliveryEligible = isAuthenticated && kyc.data?.status === "verified";
+  const administratorTestAccess = user?.role === "admin";
+  const payOnDeliveryEligible = isAuthenticated && (kyc.data?.status === "verified" || administratorTestAccess);
   const walletCheckout = trpc.marketplace.wallet.checkout.useMutation({
     onSuccess: data => { if (data.discount > 0) window.localStorage.removeItem("alpha-collective-referral-code"); setConfirmation(data); clearCart(); toast.success("Your Alpha Wallet payment is held safely in escrow."); },
+  });
+  const cryptoCheckout = trpc.marketplace.wallet.createCryptoCheckoutQuote.useMutation({
+    onSuccess: quote => { setCryptoCheckoutQuote(quote); toast.success("Controlled crypto checkout quote created. The order remains unpaid until NOWPayments independently confirms it."); },
   });
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -65,6 +71,11 @@ export default function Checkout() {
     if (paymentMethod === "wallet") {
       if (!isAuthenticated) { toast.info("Sign in to pay with Alpha Wallet."); startLogin(); return; }
       walletCheckout.mutate({ buyerName: String(form.get("buyerName") ?? ""), buyerPhone: String(form.get("buyerPhone") ?? ""), deliveryAddress: { country: NIGERIA_COUNTRY, state, lga, streetDetails }, packageWeightKg: weightKg, deliveryTier, items, transactionPin, referralCode: referralCode.trim() || undefined, freeDeliveryVoucherId });
+      return;
+    }
+    if (paymentMethod === "crypto") {
+      if (!administratorTestAccess) { toast.error("Controlled crypto checkout testing is available to the administrator only."); return; }
+      cryptoCheckout.mutate({ buyerName: String(form.get("buyerName") ?? ""), buyerPhone: String(form.get("buyerPhone") ?? ""), deliveryAddress: { country: NIGERIA_COUNTRY, state, lga, streetDetails }, packageWeightKg: weightKg, deliveryTier, items, payCurrency: cryptoCurrency });
       return;
     }
     if (!isAuthenticated) { toast.info("Sign in and complete KYC before saving a Pay on Delivery order."); startLogin(); return; }
@@ -130,14 +141,17 @@ export default function Checkout() {
           <div className="form-field" style={{ marginTop: 20 }}><label htmlFor="referralCode">Referral or earned reward code</label><input id="referralCode" value={referralCode} onChange={event => setReferralCode(event.target.value.toUpperCase())} placeholder="ALPHA-XXXXXXXX or THANKS-XXXXXXXX" /><p className="form-help">A shared code gives the referred buyer ₦500 off an eligible order from ₦5,000. The sharer’s separate reward is issued after qualification. Sign in is required to apply either code.</p></div>
           {rewards.data?.buyer.activeVouchers.length ? <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950"><input className="mt-1 size-4 accent-emerald-700" type="checkbox" checked={Boolean(freeDeliveryVoucherId)} onChange={event => setFreeDeliveryVoucherId(event.target.checked ? rewards.data?.buyer.activeVouchers[0]?.id : undefined)} /><span><strong>Use your free delivery voucher</strong><br />One voucher will be redeemed only if this order is saved successfully. Your delivery charge becomes ₦0.</span></label> : null}
           <div className="payment-options">
-            <label className={`payment-option ${paymentMethod === "delivery" ? "selected" : ""} ${!payOnDeliveryEligible ? "disabled" : ""}`}><input type="radio" name="payment" checked={paymentMethod === "delivery"} onChange={() => setPaymentMethod("delivery")} disabled={!payOnDeliveryEligible} /><span><strong><Truck size={14} style={{ display: "inline", marginRight: 5 }} />Pay on Delivery</strong><span>{!isAuthenticated ? "Sign in and complete KYC to prevent fraudulent delivery orders." : kyc.isLoading ? "Checking KYC eligibility…" : !payOnDeliveryEligible ? "Complete KYC Verification before confirming a Pay on Delivery order." : "Your order is stored now; payment is coordinated at delivery."}</span>{!payOnDeliveryEligible && isAuthenticated ? <Link href="/kyc" className="text-link" style={{ marginTop: 8 }}>Complete KYC Verification <ArrowRight size={14} /></Link> : null}</span></label>
+            <label className={`payment-option ${paymentMethod === "delivery" ? "selected" : ""} ${!payOnDeliveryEligible ? "disabled" : ""}`}><input type="radio" name="payment" checked={paymentMethod === "delivery"} onChange={() => setPaymentMethod("delivery")} disabled={!payOnDeliveryEligible} /><span><strong><Truck size={14} style={{ display: "inline", marginRight: 5 }} />Pay on Delivery</strong><span>{administratorTestAccess ? "Administrator test access is active; this does not change regular-user KYC rules." : !isAuthenticated ? "Sign in and complete KYC to prevent fraudulent delivery orders." : kyc.isLoading ? "Checking KYC eligibility…" : !payOnDeliveryEligible ? "Complete KYC Verification before confirming a Pay on Delivery order." : "Your order is stored now; payment is coordinated at delivery."}</span>{!payOnDeliveryEligible && isAuthenticated ? <Link href="/kyc" className="text-link" style={{ marginTop: 8 }}>Complete KYC Verification <ArrowRight size={14} /></Link> : null}</span></label>
             <label className={`payment-option ${paymentMethod === "wallet" ? "selected" : ""}`}><input type="radio" name="payment" checked={paymentMethod === "wallet"} onChange={() => setPaymentMethod("wallet")} disabled={!isAuthenticated || !wallet.data?.hasPin || !walletEligible} /><span><strong><WalletCards size={14} style={{ display: "inline", marginRight: 5 }} />Alpha Wallet</strong><span>{!walletEligible ? "Alpha Wallet currently supports approved vendor listings only." : !isAuthenticated ? "Sign in to use your wallet." : !wallet.data?.hasPin ? "Set a transaction PIN in Wallet first." : `Total: ${formatNaira(wallet.data.totalBalance)} · Shopping Bonus ${formatNaira(wallet.data.bonusBalance)} is used first.`}</span></span></label>
+            <label className={`payment-option ${paymentMethod === "crypto" ? "selected" : ""} ${!administratorTestAccess ? "disabled" : ""}`}><input type="radio" name="payment" checked={paymentMethod === "crypto"} onChange={() => setPaymentMethod("crypto")} disabled={!administratorTestAccess} /><span><strong><Bitcoin size={14} style={{ display: "inline", marginRight: 5 }} />Crypto Payment (NOWPayments)</strong><span>{administratorTestAccess ? "Administrator-only live test quote. Total is limited to ₦50,000 and the order stays pending until NOWPayments independently confirms payment." : "Controlled crypto checkout is restricted to the administrator test account; regular users keep their KYC-protected payment options."}</span></span></label>
             <label className="payment-option disabled"><input type="radio" name="payment" disabled /><span><strong><CreditCard size={14} style={{ display: "inline", marginRight: 5 }} />Paystack</strong><span>Online checkout will appear here when secure gateway processing is enabled.</span></span></label>
             <label className="payment-option disabled"><input type="radio" name="payment" disabled /><span><strong><CreditCard size={14} style={{ display: "inline", marginRight: 5 }} />Flutterwave</strong><span>Online checkout will appear here when secure gateway processing is enabled.</span></span></label>
           </div>
           {paymentMethod === "wallet" ? <div className="form-field" style={{ marginTop: 16 }}><label htmlFor="transactionPin">Authorize with your 4-digit transaction PIN</label><input id="transactionPin" inputMode="numeric" type="password" pattern="\d{4}" maxLength={4} value={transactionPin} onChange={event => setTransactionPin(event.target.value.replace(/\D/g, ""))} placeholder="••••" required /><p className="form-help">Your wallet funds are held in escrow until delivery is confirmed.</p></div> : null}
-          {submitOrder.error || walletCheckout.error ? <div className="form-error">{walletCheckout.error?.message ?? submitOrder.error?.message}</div> : null}
-          <button type="submit" className="button button-primary" style={{ width: "100%", marginTop: 20 }} disabled={submitOrder.isPending || walletCheckout.isPending || !deliveryQuote.data || (paymentMethod === "wallet" && (!isAuthenticated || !wallet.data?.hasPin || transactionPin.length !== 4)) || (paymentMethod === "delivery" && !payOnDeliveryEligible)}>{submitOrder.isPending || walletCheckout.isPending ? "Authorizing your order…" : paymentMethod === "wallet" ? "Pay securely with Alpha Wallet" : "Save Pay on Delivery order"} <ArrowRight size={17} /></button>
+          {paymentMethod === "crypto" ? <div className="form-field" style={{ marginTop: 16 }}><label htmlFor="cryptoCurrency">Crypto asset</label><select id="cryptoCurrency" value={cryptoCurrency} onChange={event => setCryptoCurrency(event.target.value)}><option value="usdttrc20">USDT (TRC20)</option><option value="btc">Bitcoin</option></select><p className="form-help">The server creates a fixed-rate NOWPayments quote only after this administrator test checkout is submitted. No order is paid or fulfilled until the provider callback is independently verified.</p></div> : null}
+          {submitOrder.error || walletCheckout.error || cryptoCheckout.error ? <div className="form-error">{cryptoCheckout.error?.message ?? walletCheckout.error?.message ?? submitOrder.error?.message}</div> : null}
+          <button type="submit" className="button button-primary" style={{ width: "100%", marginTop: 20 }} disabled={submitOrder.isPending || walletCheckout.isPending || cryptoCheckout.isPending || !deliveryQuote.data || (paymentMethod === "wallet" && (!isAuthenticated || !wallet.data?.hasPin || transactionPin.length !== 4)) || (paymentMethod === "delivery" && !payOnDeliveryEligible) || (paymentMethod === "crypto" && !administratorTestAccess)}>{submitOrder.isPending || walletCheckout.isPending || cryptoCheckout.isPending ? "Authorizing your order…" : paymentMethod === "wallet" ? "Pay securely with Alpha Wallet" : paymentMethod === "crypto" ? "Create controlled crypto checkout quote" : "Save Pay on Delivery order"} <ArrowRight size={17} /></button>
+          {cryptoCheckoutQuote ? <div className="mt-4 rounded-xl border border-violet-200 bg-violet-50 p-4 text-sm text-violet-950"><strong>Send exactly {cryptoCheckoutQuote.payAmount} {cryptoCheckoutQuote.payCurrency.toUpperCase()}</strong><code className="mt-3 block break-all rounded-lg bg-white p-3 text-xs text-slate-700">{cryptoCheckoutQuote.payAddress}</code><p className="mt-3">Order {cryptoCheckoutQuote.orderReference} remains pending. Quote reference: {cryptoCheckoutQuote.cryptoReference}. It expires {new Date(cryptoCheckoutQuote.quoteExpiresAt).toLocaleString()} and is marked paid only after NOWPayments independently confirms the completed payment.</p></div> : null}
         </form>
       </section><aside className="summary-card"><h2>Order note</h2><div className="summary-row"><span>Items</span><span>{formatNaira(totals.subtotal)}</span></div><div className="summary-row"><span>Calculated delivery</span><span>{deliveryQuote.data ? formatNaira(totals.deliveryFee) : "Select a state"}</span></div><div className="summary-row total"><span>Order total</span><span>{formatNaira(totals.total)}</span></div><div className="cod-chip"><i /> Pay on Delivery selected</div><p className="summary-note">If an eligible referral code validates, {formatNaira(REFERRAL_DISCOUNT)} is removed from the stored total shown in the confirmation.</p><p className="summary-note"><CheckCircle2 size={13} style={{ display: "inline", marginRight: 4, color: "var(--tomato)" }} />No online payment is taken for this order.</p></aside></div><p className="checkout-seller-note">Need to confirm a product detail before checking out? Contact the seller using <strong>“Ask about this product”</strong> on the product page.</p></div>
     </MarketplaceShell>

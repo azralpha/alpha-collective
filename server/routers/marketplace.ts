@@ -107,7 +107,7 @@ import { isWithdrawalOtpEmailDeliveryConfigured } from "../withdrawalOtpEmail";
 import { processCjFulfilmentQueue } from "../fulfilmentQueue";
 import { createHeartbeatJob } from "../_core/heartbeat";
 import { COOKIE_NAME } from "@shared/const";
-import { createControlledNowPaymentsQuote, MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA, NowPaymentsError } from "../nowpayments";
+import { createControlledNowPaymentsQuote, MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA, MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA, NowPaymentsError } from "../nowpayments";
 import { nowPaymentsIpnCallbackUrl } from "../cryptoFundingUrl";
 import {
   PaystackProviderError,
@@ -145,6 +145,15 @@ const walletCheckoutInputSchema = z.object({
   referralCode: z.string().trim().max(32).optional(),
   freeDeliveryVoucherId: z.number().int().positive().optional(),
 });
+const cryptoCheckoutInputSchema = z.object({
+  buyerName: z.string().trim().min(2).max(120).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid buyer name."),
+  buyerPhone: z.string().trim().min(7).max(32),
+  deliveryAddress: z.object({ country: z.literal("Nigeria"), state: z.string().trim().min(2).max(80).transform(sanitizePlainText), lga: z.string().trim().min(2).max(120).transform(sanitizePlainText), streetDetails: z.string().trim().min(8).max(350).transform(sanitizePlainText).refine(value => value.length >= 8, "Enter valid street details.") }),
+  packageWeightKg: z.number().positive().max(5000),
+  deliveryTier: z.enum(DELIVERY_SERVICE_TIERS),
+  items: z.array(cartLineSchema).min(1).max(12),
+  payCurrency: z.string().trim().toLowerCase().regex(/^[a-z0-9_-]{2,24}$/, "Choose a valid crypto asset."),
+});
 
 const cjMassImportInputSchema = z.object({
   skuText: z.string().trim().min(3).max(8_000),
@@ -167,7 +176,12 @@ function newPaystackFundingReference() { return `acwfund_${paystackFundingRefere
 function newPaystackWithdrawalReference() { return `acwwith_${paystackWithdrawalReferenceAlphabet()}`; }
 function newCryptoFundingReference() { return `accrypto_${cryptoFundingReferenceAlphabet()}`; }
 
+function hasAdministratorTestAccess(role: "admin" | "user") {
+  return role === "admin";
+}
+
 const walletKycProcedure = sensitiveProtectedProcedure.use(async ({ ctx, next }) => {
+  if (hasAdministratorTestAccess(ctx.user.role)) return next({ ctx });
   const profile = await ensureKycProfileForUser(ctx.user.id);
   if (profile.status !== "verified") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Complete KYC Verification before accessing or using Alpha Wallet." });
   return next({ ctx });
@@ -417,6 +431,35 @@ export const marketplaceRouter = router({
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The controlled crypto test quote could not be created." });
         }
       }),
+    createCryptoCheckoutQuote: sensitiveProtectedProcedure
+      .input(cryptoCheckoutInputSchema)
+      .mutation(async ({ ctx, input }) => {
+        if (!hasAdministratorTestAccess(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "Controlled crypto checkout testing is available to the administrator only." });
+        validateNigerianState(input.deliveryAddress.state);
+        if (!isNigerianLga(input.deliveryAddress.state, input.deliveryAddress.lga)) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a valid local government area for the selected state." });
+        const deliveryQuote = calculateDeliveryQuote({ destinationState: input.deliveryAddress.state, weightKg: input.packageWeightKg, serviceTier: input.deliveryTier });
+        const catalog = [...MARKETPLACE_PRODUCTS, ...createVendorCatalog(await listApprovedVendorProducts())];
+        const resolvedLines = resolveCartLines(input.items, catalog);
+        if (resolvedLines.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Your cart does not contain a valid product." });
+        const subtotal = getCartSubtotal(input.items, catalog);
+        const total = subtotal + deliveryQuote.deliveryFee;
+        if (total > MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA) throw new TRPCError({ code: "BAD_REQUEST", message: `Controlled crypto checkout testing is limited to ₦${MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA.toLocaleString("en-NG")} per order.` });
+        const orderReference = newOrderReference();
+        const cryptoReference = newCryptoFundingReference();
+        const quoteExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
+        await createOrder({ reference: orderReference, buyerUserId: ctx.user.id, buyerName: input.buyerName, buyerPhone: input.buyerPhone, deliveryAddress: formatNigerianDeliveryAddress(input.deliveryAddress), paymentMethod: "nowpayments", paymentStatus: "pending", fulfillmentStatus: "pending", subtotal, referralDiscount: 0, deliveryFee: deliveryQuote.deliveryFee, total, discountType: "none", orderLines: resolvedLines.map(line => ({ productId: line.product.id, title: line.product.title, quantity: line.quantity, unitPrice: line.product.price, lineTotal: line.lineTotal, vendorUserId: line.product.vendorUserId })) });
+        const wallet = await ensureWalletForUser(ctx.user.id);
+        await createCryptoFundingAttempt({ walletId: wallet.id, userId: ctx.user.id, reference: cryptoReference, amountNaira: total, payCurrency: input.payCurrency, quoteExpiresAt, orderReference });
+        try {
+          const quote = await createControlledNowPaymentsQuote({ reference: cryptoReference, amountNaira: total, payCurrency: input.payCurrency, ipnCallbackUrl: nowPaymentsIpnCallbackUrl(), maximumAmountNaira: MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA, orderDescription: `Alpha Market administrator checkout ${orderReference}` });
+          await saveCryptoFundingQuote({ reference: cryptoReference, providerPaymentId: quote.paymentId, quotedPayAmount: quote.payAmount, payAddress: quote.payAddress });
+          return { orderReference, cryptoReference, paymentId: quote.paymentId, payAddress: quote.payAddress, payAmount: quote.payAmount, payCurrency: quote.payCurrency, quoteExpiresAt, total, deliveryFee: deliveryQuote.deliveryFee };
+        } catch (error) {
+          await markCryptoFundingAttemptStatus({ reference: cryptoReference, status: "failed" });
+          if (error instanceof NowPaymentsError) throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The controlled crypto checkout quote could not be created." });
+        }
+      }),
     requestWithdrawal: walletKycProcedure
       .input(z.object({ amount: walletAmountSchema, transactionPin: walletPinSchema, confirmed: z.literal(true) }))
       .mutation(async ({ ctx, input }) => {
@@ -535,8 +578,10 @@ export const marketplaceRouter = router({
     status: protectedProcedure.query(async ({ ctx }) => {
       const [profile, vendor] = await Promise.all([ensureKycProfileForUser(ctx.user.id), getVendorApplicationForUser(ctx.user.id)]);
       if (profile.status === "verified") await grantKycCompletionBonus(ctx.user.id);
+      const administratorTestAccess = hasAdministratorTestAccess(ctx.user.role);
       return {
-        status: profile.status,
+        status: administratorTestAccess ? "verified" as const : profile.status,
+        administratorTestAccess,
         submittedLegalName: profile.submittedLegalName,
         verifiedLegalName: profile.verifiedLegalName,
         hasGovernmentId: Boolean(profile.governmentIdImageUrl),
@@ -780,7 +825,7 @@ export const marketplaceRouter = router({
       let discount = 0;
 
       const kyc = await getKycProfileForUser(ctx.user.id);
-      if (kyc?.status !== "verified") {
+      if (!hasAdministratorTestAccess(ctx.user.role) && kyc?.status !== "verified") {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Complete KYC Verification before confirming a Pay on Delivery order." });
       }
 
