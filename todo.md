@@ -293,3 +293,11 @@
 - [x] Add signed webhook, idempotency, wallet-credit, and escrow-settlement regression coverage before checkpointing
 
 - [x] Store the supplied Flutterwave webhook secret hash through managed secrets and validate signature verification before settlement use
+
+- [x] Audit the current CJ importer, existing durable batch workflow, and approved supplier-data boundaries for a 50-item bulk workflow
+- [x] Assess whether an authorized AliExpress supplier API or connector is available before accepting direct URLs or keyword searches
+- [x] Design draft-only bulk import progress tracking that preserves manual pricing, image processing, source privacy, and no-order safeguards
+
+- [x] Audit the current CJ administrator mass-import UI and durable batch state for progress and review-handoff gaps
+- [x] Improve the CJ 50-item draft-only import controls, progress feedback, and completed-draft review handoff
+- [x] Add focused progress and draft-review regression coverage, validate the UI, and checkpoint the CJ-only update
