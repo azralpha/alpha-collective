@@ -312,3 +312,9 @@
 - [x] Configure a server-only GEMINI_API_KEY and validate it without creating or changing any product
 - [x] Add an administrator-triggered Gemini enhancement control with structured JSON validation and draft-only safeguards
 - [x] Add regression coverage, verify the admin flow, and checkpoint the Gemini enhancement capability
+
+- [x] Audit and remove every Tawk.to script, embed, launcher, and third-party support dependency
+- [x] Design authenticated order-support and published-catalogue recommendation boundaries for Alpha AI Support
+- [x] Add a server-only Gemini support service and protected support endpoint with safe order and product tools
+- [x] Build the responsive floating Alpha AI Support chat UI with prompts, typing feedback, and message history
+- [x] Add privacy, tool-scope, Gemini-response, and responsive-chat regression coverage before checkpointing

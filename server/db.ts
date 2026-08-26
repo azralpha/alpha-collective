@@ -671,6 +671,24 @@ export async function listBuyerWalletEscrowOrders(userId: number) {
   return db.select({ reference: orders.reference, total: orders.total, fulfillmentStatus: orders.fulfillmentStatus, deliveredAt: orders.deliveredAt, buyerConfirmedAt: orders.buyerConfirmedAt, createdAt: orders.createdAt, orderLines: orders.orderLines }).from(orders).where(and(eq(orders.buyerUserId, userId), eq(orders.paymentMethod, "wallet"), eq(orders.paymentStatus, "wallet_escrow"))).orderBy(desc(orders.createdAt));
 }
 
+export async function getSupportOrderSummary(userId: number, reference: string) {
+  const db = await requireDb();
+  const results = await db.select({ reference: orders.reference, paymentStatus: orders.paymentStatus, fulfillmentStatus: orders.fulfillmentStatus, createdAt: orders.createdAt }).from(orders).where(and(eq(orders.buyerUserId, userId), eq(orders.reference, reference))).limit(1);
+  return results[0] ?? null;
+}
+
+export async function searchPublishedSupportProducts(query: string, limit = 4) {
+  const genericTerms = new Set(["alpha", "market", "recommend", "recommendation", "product", "products", "show", "looking", "please", "with", "about", "need", "want", "can", "you", "your", "for", "the", "and"]);
+  const terms = (query.toLowerCase().match(/[a-z0-9]{3,}/g) ?? []).filter(term => !genericTerms.has(term)).slice(0, 6);
+  if (!terms.length) return [];
+  const [official, vendor] = await Promise.all([listActiveOfficialProducts(), listApprovedVendorProducts()]);
+  const catalogue = [
+    ...official.map(product => ({ title: product.title, description: product.description, category: product.category, price: product.price, url: `/product/official-${product.id}` })),
+    ...vendor.map(product => ({ title: product.title, description: product.description, category: product.category, price: product.price, url: `/product/vendor-${product.id}` })),
+  ];
+  return catalogue.map(product => ({ ...product, score: terms.reduce((score, term) => score + (product.title.toLowerCase().includes(term) ? 3 : 0) + (product.category.toLowerCase().includes(term) ? 2 : 0) + (product.description.toLowerCase().includes(term) ? 1 : 0), 0) })).filter(product => product.score > 0).sort((a, b) => b.score - a.score || a.title.localeCompare(b.title)).slice(0, Math.min(4, Math.max(1, limit))).map(({ title, price, url }) => ({ title, price, url }));
+}
+
 export async function getEscrowReleaseSettings() {
   const db = await requireDb();
   await db.insert(escrowReleaseSettings).values({ id: 1 }).onDuplicateKeyUpdate({ set: { id: sql`${escrowReleaseSettings.id}` } });

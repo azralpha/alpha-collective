@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { sanitizePlainText } from "./securityText";
 
-const GEMINI_MODEL = "gemini-2.5-flash";
+const GEMINI_MODEL = "gemini-3.5-flash-lite";
 
 const generatedProductEnhancementSchema = z.object({
   cleanTitle: z.string().trim().min(2).max(180),
@@ -66,7 +66,7 @@ export async function generateGeminiProductEnhancement(input: GeminiProductEnhan
     headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify({
       contents: [{ role: "user", parts: [{ text: enhancementPrompt(input) }] }],
-      generationConfig: { temperature: 0.25, responseMimeType: "application/json", responseSchema },
+      generationConfig: { temperature: 0.25, responseMimeType: "application/json", responseJsonSchema: responseSchema },
     }),
   });
   if (!response.ok) throw new Error(`Gemini product enhancement request failed with HTTP ${response.status}.`);

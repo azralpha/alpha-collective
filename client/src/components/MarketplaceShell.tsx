@@ -3,7 +3,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { MARKETPLACE_CATEGORIES } from "@shared/marketplace";
 import { Gift, Grid2X2, Home, Search, ShieldCheck, ShoppingCart, Store, WalletCards, X } from "lucide-react";
 import { Link, useLocation } from "wouter";
-import DraggableSupportBubble from "./DraggableSupportBubble";
+import AlphaAiSupport from "./AlphaAiSupport";
 
 export const WHATSAPP_SUPPORT_URL =
   "https://wa.me/2340000000000?text=Hello%20Alpha%20Market%2C%20I%20need%20help%20with%20my%20order.";
@@ -59,7 +59,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
         </nav>
       </header>
       <main>{children}</main>
-      <DraggableSupportBubble />
+      <AlphaAiSupport />
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
         <Link href="/" className={location === "/" ? "active" : ""}><Home size={21} /><span>Home</span></Link>
         <Link href="/shop" className={location === "/shop" ? "active" : ""}><Grid2X2 size={21} /><span>Categories</span></Link>
