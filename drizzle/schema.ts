@@ -241,6 +241,47 @@ export const spinRewardClaims = mysqlTable("spinRewardClaims", {
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
+/** Consent-based marketing subscribers. The opaque token prevents email-address enumeration on opt-out. */
+export const newsletterSubscribers = mysqlTable("newsletterSubscribers", {
+  id: int("id").autoincrement().primaryKey(),
+  email: varchar("email", { length: 320 }).notNull().unique(),
+  isActive: int("isActive").notNull().default(1),
+  unsubscribeTokenHash: varchar("unsubscribeTokenHash", { length: 64 }).notNull().unique(),
+  lastEmailedAt: timestamp("lastEmailedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Administrator-created AI campaign draft. No message is dispatched when a draft is generated. */
+export const newsletterCampaigns = mysqlTable("newsletterCampaigns", {
+  id: int("id").autoincrement().primaryKey(),
+  createdByUserId: int("createdByUserId").notNull(),
+  subject: varchar("subject", { length: 180 }).notNull(),
+  htmlBody: text("htmlBody").notNull(),
+  productSnapshot: json("productSnapshot").$type<Array<{ id: string; title: string; price: number; description: string; imageUrl: string; productUrl: string }>>().notNull(),
+  recipientCount: int("recipientCount").notNull().default(0),
+  status: mysqlEnum("status", ["draft", "sending", "sent", "failed"]).notNull().default("draft"),
+  sendStartedAt: timestamp("sendStartedAt"),
+  sentAt: timestamp("sentAt"),
+  failureSummary: varchar("failureSummary", { length: 255 }),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** One idempotent delivery reservation per active subscriber and explicitly confirmed newsletter campaign. */
+export const newsletterDeliveries = mysqlTable("newsletterDeliveries", {
+  id: int("id").autoincrement().primaryKey(),
+  campaignId: int("campaignId").notNull(),
+  subscriberId: int("subscriberId").notNull(),
+  status: mysqlEnum("status", ["sending", "sent", "failed", "skipped"]).notNull().default("sending"),
+  providerMessageId: varchar("providerMessageId", { length: 120 }),
+  failureSummary: varchar("failureSummary", { length: 255 }),
+  idempotencyKey: varchar("idempotencyKey", { length: 140 }).notNull().unique(),
+  sentAt: timestamp("sentAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 /** One free-delivery redemption earned after qualifying calendar-month buyer spend. */
 export const freeDeliveryVouchers = mysqlTable("freeDeliveryVouchers", {
   id: int("id").autoincrement().primaryKey(),

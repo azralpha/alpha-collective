@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gt, gte, isNull, like, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, isNull, like, lt, lte, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createPool, type Pool } from "mysql2";
 import {
@@ -18,6 +18,9 @@ import {
   escrowReleaseSettings,
   freeDeliveryVouchers,
   kycProfiles,
+  newsletterCampaigns,
+  newsletterDeliveries,
+  newsletterSubscribers,
   fulfilmentIntegrations,
   fulfilmentJobs,
   officialProducts,
@@ -420,6 +423,115 @@ export async function settleSpinRewardAfterVerifiedPayment(orderReference: strin
     await tx.update(orders).set({ orderLines: [...order.orderLines, { productId: `official-${gift.id}`, title: gift.title, quantity: 1, unitPrice: 0, lineTotal: 0, rewardGift: true, rewardSpinClaimId: claim.id }] }).where(eq(orders.reference, orderReference));
     return { settled: true, rewardType: "catalog_gift" as const, giftProductId: gift.id };
   });
+}
+
+export type NewsletterFeaturedProduct = { id: string; title: string; price: number; description: string; imageUrl: string; createdAt: Date };
+
+export async function listNewsletterFeaturedProducts(limit = 3): Promise<NewsletterFeaturedProduct[]> {
+  const db = await requireDb();
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+  const rows = await db.select({
+    id: officialProducts.id,
+    title: officialProducts.title,
+    price: officialProducts.price,
+    description: officialProducts.aiSeoDescription,
+    fallbackDescription: officialProducts.description,
+    imageUrl: officialProducts.imageUrl,
+    imageUrls: officialProducts.imageUrls,
+    createdAt: officialProducts.createdAt,
+    supplierCost: officialProductSourcing.supplierCost,
+    supplierCurrency: officialProductSourcing.supplierCurrency,
+  }).from(officialProducts).leftJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id)).where(and(eq(officialProducts.isPublished, 1), eq(officialProducts.status, "active"), eq(officialProducts.inStock, 1), gte(officialProducts.createdAt, sevenDaysAgo)));
+  return rows.flatMap(row => {
+    const supplierCost = row.supplierCost === null ? null : Number(row.supplierCost);
+    const imageUrl = (row.imageUrls?.[0] ?? row.imageUrl ?? "").trim();
+    if (row.supplierCurrency !== "NGN" || supplierCost === null || !Number.isFinite(supplierCost) || supplierCost < 0 || !imageUrl) return [];
+    const description = (row.description || row.fallbackDescription || "").trim();
+    if (!description) return [];
+    return [{ id: `official-${row.id}`, title: row.title, price: row.price, description, imageUrl, createdAt: row.createdAt, margin: (row.price - supplierCost) / Math.max(row.price, 1) }];
+  }).sort((left, right) => right.margin - left.margin || right.createdAt.getTime() - left.createdAt.getTime()).slice(0, Math.max(1, Math.min(limit, 3))).map(({ margin: _margin, ...product }) => product);
+}
+
+export async function upsertNewsletterSubscriber(input: { email: string; unsubscribeTokenHash: string }) {
+  const db = await requireDb();
+  const existing = (await db.select().from(newsletterSubscribers).where(eq(newsletterSubscribers.email, input.email)).limit(1))[0];
+  if (existing) {
+    await db.update(newsletterSubscribers).set({ isActive: 1, unsubscribeTokenHash: input.unsubscribeTokenHash }).where(eq(newsletterSubscribers.id, existing.id));
+    return { subscriberId: existing.id, reactivated: existing.isActive !== 1 };
+  }
+  await db.insert(newsletterSubscribers).values({ email: input.email, isActive: 1, unsubscribeTokenHash: input.unsubscribeTokenHash });
+  const created = (await db.select().from(newsletterSubscribers).where(eq(newsletterSubscribers.email, input.email)).limit(1))[0];
+  if (!created) throw new Error("Newsletter subscription could not be saved.");
+  return { subscriberId: created.id, reactivated: false };
+}
+
+export async function unsubscribeNewsletterSubscriber(tokenHash: string) {
+  const db = await requireDb();
+  const updated = await db.update(newsletterSubscribers).set({ isActive: 0 }).where(and(eq(newsletterSubscribers.unsubscribeTokenHash, tokenHash), eq(newsletterSubscribers.isActive, 1)));
+  return affectedRows(updated) === 1;
+}
+
+export async function unsubscribeNewsletterSubscriberById(subscriberId: number) {
+  const db = await requireDb();
+  const updated = await db.update(newsletterSubscribers).set({ isActive: 0 }).where(and(eq(newsletterSubscribers.id, subscriberId), eq(newsletterSubscribers.isActive, 1)));
+  return affectedRows(updated) === 1;
+}
+
+export async function listActiveNewsletterSubscribers() {
+  const db = await requireDb();
+  return db.select({ id: newsletterSubscribers.id, email: newsletterSubscribers.email, unsubscribeTokenHash: newsletterSubscribers.unsubscribeTokenHash }).from(newsletterSubscribers).where(eq(newsletterSubscribers.isActive, 1)).orderBy(asc(newsletterSubscribers.id));
+}
+
+export async function countActiveNewsletterSubscribers() {
+  const db = await requireDb();
+  const result = await db.select({ total: count() }).from(newsletterSubscribers).where(eq(newsletterSubscribers.isActive, 1));
+  return Number(result[0]?.total ?? 0);
+}
+
+export type NewsletterProductSnapshot = Array<{ id: string; title: string; price: number; description: string; imageUrl: string; productUrl: string }>;
+
+export async function createNewsletterCampaign(input: { createdByUserId: number; subject: string; htmlBody: string; productSnapshot: NewsletterProductSnapshot; recipientCount: number }) {
+  const db = await requireDb();
+  const result = await db.insert(newsletterCampaigns).values({ ...input, status: "draft" });
+  const id = Number(result[0]?.insertId);
+  return getNewsletterCampaign(id);
+}
+
+export async function getNewsletterCampaign(id: number) {
+  const db = await requireDb();
+  return (await db.select().from(newsletterCampaigns).where(eq(newsletterCampaigns.id, id)).limit(1))[0] ?? null;
+}
+
+export async function listNewsletterCampaigns(limit = 20) {
+  const db = await requireDb();
+  return db.select().from(newsletterCampaigns).orderBy(desc(newsletterCampaigns.createdAt)).limit(Math.max(1, Math.min(limit, 50)));
+}
+
+export async function claimNewsletterCampaignForSend(input: { campaignId: number; userId: number }) {
+  const db = await requireDb();
+  const update = await db.update(newsletterCampaigns).set({ status: "sending", sendStartedAt: new Date(), failureSummary: null }).where(and(eq(newsletterCampaigns.id, input.campaignId), eq(newsletterCampaigns.createdByUserId, input.userId), eq(newsletterCampaigns.status, "draft")));
+  return affectedRows(update) === 1 ? getNewsletterCampaign(input.campaignId) : null;
+}
+
+export async function createNewsletterDelivery(input: { campaignId: number; subscriberId: number; idempotencyKey: string }) {
+  const db = await requireDb();
+  await db.insert(newsletterDeliveries).values({ ...input, status: "sending" });
+  return (await db.select().from(newsletterDeliveries).where(eq(newsletterDeliveries.idempotencyKey, input.idempotencyKey)).limit(1))[0] ?? null;
+}
+
+export async function updateNewsletterDelivery(input: { id: number; status: "sent" | "failed" | "skipped"; providerMessageId?: string | null; failureSummary?: string | null }) {
+  const db = await requireDb();
+  await db.update(newsletterDeliveries).set({ status: input.status, providerMessageId: input.providerMessageId ?? null, failureSummary: input.failureSummary ?? null, sentAt: input.status === "sent" ? new Date() : null }).where(eq(newsletterDeliveries.id, input.id));
+}
+
+export async function finishNewsletterCampaign(input: { campaignId: number; status: "sent" | "failed"; failureSummary?: string | null }) {
+  const db = await requireDb();
+  await db.update(newsletterCampaigns).set({ status: input.status, failureSummary: input.failureSummary ?? null, sentAt: input.status === "sent" ? new Date() : null }).where(eq(newsletterCampaigns.id, input.campaignId));
+}
+
+export async function markNewsletterSubscriberEmailed(subscriberId: number) {
+  const db = await requireDb();
+  await db.update(newsletterSubscribers).set({ lastEmailedAt: new Date() }).where(eq(newsletterSubscribers.id, subscriberId));
 }
 
 export const CASHBACK_RATE = 0.02;

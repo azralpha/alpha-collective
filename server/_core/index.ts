@@ -22,6 +22,7 @@ import { registerSeoRoutes } from "../seo";
 import { registerAlphaAiSupportRoute } from "../alphaAiSupportRoute";
 import { registerCartRewardUpsellRoute } from "../cartRewardUpsellRoute";
 import { registerSpinPromotionRoute } from "../spinPromotionRoute";
+import { registerNewsletterRoutes } from "../newsletterRoute";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -62,6 +63,7 @@ async function startServer() {
   registerAlphaAiSupportRoute(app);
   registerCartRewardUpsellRoute(app);
   registerSpinPromotionRoute(app);
+  registerNewsletterRoutes(app);
   registerOAuthRoutes(app);
   app.use("/api/trpc", (req, res, next) => {
     const paths = req.path.split(",").map(path => path.replace(/^\//, ""));

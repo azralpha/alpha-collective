@@ -17,9 +17,11 @@ export function canonicalOrigin(): string {
   return (process.env.PUBLIC_APP_URL || DEFAULT_CANONICAL_ORIGIN).replace(/\/+$/, "");
 }
 
-function absoluteUrl(value: string): string {
-  if (/^https?:\/\//i.test(value)) return value;
-  return `${canonicalOrigin()}${value.startsWith("/") ? value : `/${value}`}`;
+export function absoluteHttpsUrl(value: string): string {
+  const absolute = /^https?:\/\//i.test(value) ? value : `${canonicalOrigin()}${value.startsWith("/") ? value : `/${value}`}`;
+  const url = new URL(absolute);
+  if (url.protocol !== "https:") throw new Error("Newsletter assets and public links must use HTTPS.");
+  return url.toString();
 }
 
 function htmlEscape(value: string): string {
@@ -133,10 +135,10 @@ export function renderSeoHead(head: SeoHead): string {
     `<meta name="twitter:description" content="${description}" />`,
   ];
   if (head.product) {
-    const image = absoluteUrl(head.product.imageUrl);
+    const image = absoluteHttpsUrl(head.product.imageUrl);
     tags.push(`<meta property="og:image" content="${htmlEscape(image)}" />`);
     tags.push(`<meta name="twitter:image" content="${htmlEscape(image)}" />`);
-    tags.push(`<script id="alpha-market-product-jsonld" type="application/ld+json">${jsonForHtml(buildProductJsonLd(head.product, `${canonicalOrigin()}${head.canonicalPath}`, absoluteUrl))}</script>`);
+    tags.push(`<script id="alpha-market-product-jsonld" type="application/ld+json">${jsonForHtml(buildProductJsonLd(head.product, `${canonicalOrigin()}${head.canonicalPath}`, absoluteHttpsUrl))}</script>`);
   }
   if (head.noindex) tags.push(`<meta name="robots" content="noindex, follow" />`);
   return tags.join("\n");

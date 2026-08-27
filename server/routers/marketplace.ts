@@ -55,6 +55,7 @@ import {
   listCartRewardTiers,
   listAdminFulfilmentJobs,
   listAdminOfficialProducts,
+  listNewsletterCampaigns,
   listActiveFreeDeliveryVouchers,
   listActiveOfficialProducts,
   listActiveOfficialProductsWithSourcing,
@@ -127,6 +128,7 @@ import { COOKIE_NAME } from "@shared/const";
 import { createControlledNowPaymentsQuote, MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA, MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA, NowPaymentsError } from "../nowpayments";
 import { cartRewardUpsellInputSchema, getCartRewardUpsells } from "../cartRewardUpsell";
 import { hashSpinClaimToken } from "../spinPromotion";
+import { getNewsletterDraftForPreview } from "../newsletter";
 import { nowPaymentsIpnCallbackUrl, paymentRedirectUrl } from "../cryptoFundingUrl";
 import { FlutterwaveProviderError, initializeFlutterwavePayment, isDefinitiveFlutterwaveRequestFailure } from "../flutterwave";
 import {
@@ -699,6 +701,8 @@ export const marketplaceRouter = router({
     updateCartRewardTier: adminProcedure.input(cartRewardTierInputSchema.safeExtend({ id: z.number().int().positive() })).mutation(({ input }) => updateCartRewardTier(input)),
     spinPromotionSettings: adminProcedure.query(() => getSpinPromotionSettings()),
     saveSpinPromotionSettings: adminProcedure.input(z.object({ enabled: z.boolean(), profitSafeguardMargin: z.number().int().min(1).max(80), countdownMinutes: z.number().int().min(5).max(30) })).mutation(({ input }) => saveSpinPromotionSettings(input)),
+    newsletterCampaigns: adminProcedure.query(() => listNewsletterCampaigns()),
+    newsletterCampaignPreview: adminProcedure.input(z.object({ campaignId: z.number().int().positive() })).query(({ ctx, input }) => getNewsletterDraftForPreview(input.campaignId, ctx.user.id)),
     reviewProducts: adminProcedure.query(() => listAdminReviewProducts()),
     walletOrders: adminProcedure.query(() => listHeldWalletOrders()),
     setProductStatus: adminProcedure

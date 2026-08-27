@@ -356,3 +356,12 @@
 - [x] Add cart and checkout enforcement for active, unexpired spin claims without automatic supplier ordering or money movement
 - [x] Build an accessible, dismissible Spin to Win widget and live claimed-prize countdown banner
 - [x] Add regression coverage and responsive verification before checkpointing
+
+- [x] Assess email provider readiness, newsletter trigger options, subscriber privacy, product selection, and AI content safeguards
+- [x] Confirm the newsletter sending and review workflow before enabling any external email dispatch
+- [x] Add newsletter subscriber persistence, privacy-safe opt-out handling, and footer subscription capture
+- [x] Add administrator-only AI newsletter drafting with absolute product images, safe HTML validation, and a non-sending preview
+- [x] Add explicit administrator broadcast confirmation and Resend dispatch controls without activating any schedule
+- [x] Add subscription, unsubscribe, AI-output, broadcast-control, and responsive UI regression coverage before checkpointing
+
+- [x] Implement the selected administrator draft-preview-send workflow with no automatic newsletter schedule

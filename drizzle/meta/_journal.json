@@ -176,6 +176,13 @@
       "when": 1787812559630,
       "tag": "0024_friendly_supernaut",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "5",
+      "when": 1787815448904,
+      "tag": "0025_daffy_darkstar",
+      "breakpoints": true
     }
   ]
 }

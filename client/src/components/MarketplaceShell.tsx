@@ -1,13 +1,14 @@
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { getMarketplaceCategoryMetadata, MARKETPLACE_CATEGORIES } from "@shared/marketplace";
-import { Gift, Grid2X2, Home, Search, ShieldCheck, ShoppingCart, Store, WalletCards, X } from "lucide-react";
+import { Gift, Grid2X2, Home, Mail, Search, ShieldCheck, ShoppingCart, Store, WalletCards, X } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useState } from "react";
 import CartDrawer from "./CartDrawer";
 import AlphaAiSupport from "./AlphaAiSupport";
 import SpinClaimBanner from "./SpinClaimBanner";
 import SpinToWinPromotion from "./SpinToWinPromotion";
+import NewsletterSubscribe from "./NewsletterSubscribe";
 
 export const WHATSAPP_SUPPORT_URL =
   "https://wa.me/2340000000000?text=Hello%20Alpha%20Market%2C%20I%20need%20help%20with%20my%20order.";
@@ -50,6 +51,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
             {user?.role === "admin" ? <Link href="/admin/products" className="admin-link" aria-label="Review vendor products"><ShieldCheck size={20} /><span>Review</span></Link> : null}
             {user?.role === "admin" ? <Link href="/admin/official-products" className="admin-link" aria-label="Manage official products and hidden sourcing"><Store size={20} /><span>Source</span></Link> : null}
             {user?.role === "admin" ? <Link href="/admin/rewards" className="admin-link" aria-label="Manage tiered cart rewards"><Gift size={20} /><span>Tiered</span></Link> : null}
+            {user?.role === "admin" ? <Link href="/admin/newsletter" className="admin-link" aria-label="Stage newsletter campaigns"><Mail size={20} /><span>Mail</span></Link> : null}
             {user?.role === "admin" ? <Link href="/admin/wallet-orders" className="admin-link" aria-label="Review wallet escrow orders"><ShieldCheck size={20} /><span>Escrow</span></Link> : null}
             {user ? <Link href="/rewards" className="admin-link" aria-label="Open Alpha Rewards"><Gift size={20} /><span>Rewards</span></Link> : null}
             {user ? <Link href="/wallet" className="admin-link" aria-label="Open Alpha Wallet"><WalletCards size={20} /><span>Wallet</span></Link> : null}
@@ -88,6 +90,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
           <Link href="/privacy-policy">Privacy Policy</Link>
           <a href={WHATSAPP_SUPPORT_URL} target="_blank" rel="noreferrer">WhatsApp support</a>
         </div>
+        <NewsletterSubscribe />
         <p className="footer-note">© {new Date().getFullYear()} Alpha Collective Corporation. Alpha Market is the public marketplace brand. Pay on Delivery is available to KYC-verified buyers.</p>
       </footer>
     </div>
