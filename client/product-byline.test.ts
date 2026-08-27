@@ -10,5 +10,7 @@ describe("product seller attribution", () => {
     expect(source).toContain("Add to Cart");
     expect(source).toContain("addItem(product.id)");
     expect(source).not.toContain("Ask on WhatsApp");
+    expect(source).toContain("VendorTrustBadges trust={normalizedProduct.vendorTrust}");
+    expect(source.indexOf("useDocumentSeo({")).toBeLessThan(source.indexOf("if (!product && approvedProducts.isLoading)"));
   });
 });

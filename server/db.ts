@@ -46,7 +46,7 @@ import { ENV } from "./_core/env";
 import { hashSecuritySignal, normalizeDeviceId } from "./referralFraud";
 import { splitWalletPayment } from "./walletBalanceSplit";
 import { fundingCreditDisposition, withdrawalPaidDisposition, withdrawalRestoreDisposition } from "./walletReconciliation";
-import type { CartLine, MarketplaceCategory } from "../shared/marketplace";
+import { getMarketplaceCategoryMetadata, type CartLine, type MarketplaceCategory } from "../shared/marketplace";
 import { parseDatabasePoolLimit } from "./performanceControls";
 import { calculateCartTierProgress, type CartRewardTier, type CartTierProgress } from "./cartTierRewards";
 
@@ -1409,6 +1409,8 @@ export async function listApprovedVendorProducts() {
       id: vendorProducts.id,
       title: vendorProducts.title,
       category: vendorProducts.category,
+      categoryId: vendorProducts.categoryId,
+      categorySlug: vendorProducts.categorySlug,
       price: vendorProducts.price,
       description: vendorProducts.description,
       imageUrl: vendorProducts.imageUrl,
@@ -1416,12 +1418,16 @@ export async function listApprovedVendorProducts() {
       vendor: vendorApplications.storeName,
       vendorUserId: vendorApplications.userId,
       commissionRate: vendorApplications.commissionRate,
+      verificationStatus: vendorApplications.status,
       lightningSeller: vendorRewardProfiles.hasLightningSellerBadge,
+      averageRatingTenths: vendorRewardProfiles.averageRatingTenths,
+      ratingCount: vendorRewardProfiles.ratingCount,
     })
     .from(vendorProducts)
     .innerJoin(vendorApplications, eq(vendorProducts.vendorApplicationId, vendorApplications.id))
     .leftJoin(vendorRewardProfiles, eq(vendorRewardProfiles.vendorUserId, vendorApplications.userId))
-    .where(and(eq(vendorProducts.status, "active"), eq(vendorApplications.status, "approved")))
+    // Product publication is administered independently from seller verification. Public cards reveal only safe trust signals.
+    .where(eq(vendorProducts.status, "active"))
     .orderBy(desc(vendorProducts.createdAt));
 }
 
@@ -1456,7 +1462,8 @@ export async function listAdminReviewProducts() {
 
 export async function createVendorProduct(product: InsertVendorProduct) {
   const db = await requireDb();
-  const result = await db.insert(vendorProducts).values(product);
+  const category = getMarketplaceCategoryMetadata(product.category);
+  const result = await db.insert(vendorProducts).values({ ...product, categoryId: category.id, categorySlug: category.slug });
   return Number(result[0].insertId);
 }
 
@@ -1465,12 +1472,19 @@ export async function updateVendorDraftProduct(
   update: Pick<InsertVendorProduct, "title" | "category" | "price" | "description" | "imageUrl" | "imageUrls">,
 ) {
   const db = await requireDb();
-  await db.update(vendorProducts).set(update).where(eq(vendorProducts.id, id));
+  const category = getMarketplaceCategoryMetadata(update.category);
+  await db.update(vendorProducts).set({ ...update, categoryId: category.id, categorySlug: category.slug }).where(eq(vendorProducts.id, id));
 }
 
 export async function updateVendorProductStatus(id: number, status: "draft" | "active" | "rejected") {
   const db = await requireDb();
-  await db.update(vendorProducts).set({ status }).where(eq(vendorProducts.id, id));
+  const isPublished = status === "active";
+  await db.update(vendorProducts).set({
+    status,
+    isPublished: isPublished ? 1 : 0,
+    publicationStatus: status === "active" ? "APPROVED" : status === "rejected" ? "REJECTED" : "DRAFT",
+    inStock: isPublished ? 1 : 0,
+  }).where(eq(vendorProducts.id, id));
 }
 
 export type OfficialProductInput = {
@@ -1511,6 +1525,8 @@ export async function listActiveOfficialProducts() {
     id: officialProducts.id,
     title: officialProducts.title,
     category: officialProducts.category,
+    categoryId: officialProducts.categoryId,
+    categorySlug: officialProducts.categorySlug,
     price: officialProducts.price,
     formerPrice: officialProducts.formerPrice,
     badge: officialProducts.badge,
@@ -1528,6 +1544,8 @@ export async function listActiveOfficialProductsWithSourcing() {
     id: officialProducts.id,
     title: officialProducts.title,
     category: officialProducts.category,
+    categoryId: officialProducts.categoryId,
+    categorySlug: officialProducts.categorySlug,
     price: officialProducts.price,
     formerPrice: officialProducts.formerPrice,
     badge: officialProducts.badge,
@@ -1622,9 +1640,14 @@ export async function getOfficialProductWithSourcing(id: number) {
 export async function createOfficialProduct(input: OfficialProductInput) {
   const db = await requireDb();
   return db.transaction(async tx => {
+    const category = getMarketplaceCategoryMetadata(input.category);
+    const isPublished = input.status === "active";
+    const stockQuantity = isPublished && input.stockQuantity === undefined ? 1 : input.stockQuantity ?? null;
     const productResult = await tx.insert(officialProducts).values({
       title: input.title,
       category: input.category,
+      categoryId: category.id,
+      categorySlug: category.slug,
       price: input.price,
       formerPrice: input.formerPrice ?? null,
       badge: input.badge ?? null,
@@ -1638,7 +1661,10 @@ export async function createOfficialProduct(input: OfficialProductInput) {
       imageUrl: input.imageUrls[0] ?? null,
       imageUrls: input.imageUrls,
       status: input.status,
-      stockQuantity: input.stockQuantity ?? null,
+      isPublished: isPublished ? 1 : 0,
+      publicationStatus: isPublished ? "APPROVED" : input.status === "rejected" ? "REJECTED" : "DRAFT",
+      inStock: isPublished && stockQuantity !== 0 ? 1 : 0,
+      stockQuantity,
       inventorySyncedAt: input.inventorySyncedAt ?? null,
       inventorySyncStatus: input.inventorySyncStatus ?? "not_managed",
     });
@@ -1651,9 +1677,14 @@ export async function createOfficialProduct(input: OfficialProductInput) {
 export async function updateOfficialProduct(id: number, input: OfficialProductInput) {
   const db = await requireDb();
   return db.transaction(async tx => {
+    const category = getMarketplaceCategoryMetadata(input.category);
+    const isPublished = input.status === "active";
+    const stockQuantity = isPublished && input.stockQuantity === undefined ? 1 : input.stockQuantity;
     await tx.update(officialProducts).set({
       title: input.title,
       category: input.category,
+      categoryId: category.id,
+      categorySlug: category.slug,
       price: input.price,
       formerPrice: input.formerPrice ?? null,
       badge: input.badge ?? null,
@@ -1667,7 +1698,10 @@ export async function updateOfficialProduct(id: number, input: OfficialProductIn
       imageUrl: input.imageUrls[0] ?? null,
       imageUrls: input.imageUrls,
       status: input.status,
-      ...(input.stockQuantity === undefined ? {} : { stockQuantity: input.stockQuantity }),
+      isPublished: isPublished ? 1 : 0,
+      publicationStatus: isPublished ? "APPROVED" : input.status === "rejected" ? "REJECTED" : "DRAFT",
+      inStock: isPublished && stockQuantity !== 0 ? 1 : 0,
+      ...(stockQuantity === undefined ? {} : { stockQuantity }),
       ...(input.inventorySyncedAt === undefined ? {} : { inventorySyncedAt: input.inventorySyncedAt }),
       ...(input.inventorySyncStatus === undefined ? {} : { inventorySyncStatus: input.inventorySyncStatus }),
     }).where(eq(officialProducts.id, id));
@@ -1700,7 +1734,19 @@ export async function saveOfficialProductGeminiEnhancement(id: number, enhanceme
 
 export async function updateOfficialProductStatus(id: number, status: "draft" | "active" | "rejected") {
   const db = await requireDb();
-  await db.update(officialProducts).set({ status }).where(eq(officialProducts.id, id));
+  await db.transaction(async tx => {
+    const product = (await tx.select({ stockQuantity: officialProducts.stockQuantity }).from(officialProducts).where(eq(officialProducts.id, id)).limit(1))[0];
+    if (!product) throw new Error("Official product was not found.");
+    const isPublished = status === "active";
+    const stockQuantity = isPublished && product.stockQuantity === null ? 1 : product.stockQuantity;
+    await tx.update(officialProducts).set({
+      status,
+      isPublished: isPublished ? 1 : 0,
+      publicationStatus: isPublished ? "APPROVED" : status === "rejected" ? "REJECTED" : "DRAFT",
+      inStock: isPublished && stockQuantity !== 0 ? 1 : 0,
+      ...(stockQuantity === null ? {} : { stockQuantity }),
+    }).where(eq(officialProducts.id, id));
+  });
 }
 
 export async function getFulfilmentIntegration(provider: "cj_dropshipping" | "custom_webhook") {

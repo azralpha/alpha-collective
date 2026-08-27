@@ -340,3 +340,11 @@
 - [x] Add tiered-reward persistence, admin configuration, customer cart progress, and eligible-catalogue recommendation controls
 - [x] Add verified-settlement reward allocation with idempotency and safe gift fulfilment treatment
 - [x] Add eligibility, profit, wallet, gift, smart-upsell, access-control, and responsive UI regression coverage before checkpointing
+
+- [x] Audit published product filters, vendor trust fields, category mapping, publication mutation, and public cache behavior
+- [x] Publish approved products from verified and unverified vendors while exposing only safe trust signals
+- [x] Add accessible dynamic Verified, Unverified, Lightning Seller, and Top Rated badges on product cards and product details
+- [x] Normalize Vehicles category publication values and synchronize approved/in-stock fields in the administrator publish action
+- [x] Invalidate the Express public catalogue cache after publication changes without introducing unsupported framework revalidation calls
+- [x] Add regression coverage and verify responsive public category and product views before checkpointing
+- [x] Fix the public product-detail hook-order error revealed after the asynchronous catalogue query resolves

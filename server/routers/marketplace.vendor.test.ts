@@ -112,7 +112,7 @@ describe("marketplace vendor image workflow", () => {
     }));
   });
 
-  it("maps active vendor products with persisted galleries for the public catalogue", async () => {
+  it("maps published products from an unverified vendor with persisted galleries and an unverified trust tag", async () => {
     mocks.listApprovedVendorProducts.mockResolvedValue([{
       id: 91,
       title: "Approved image find",
@@ -122,13 +122,33 @@ describe("marketplace vendor image workflow", () => {
       imageUrl: "/manus-storage/vendor-products/7/product_123.jpg",
       imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg", "/manus-storage/vendor-products/7/product_456.jpg"],
       vendor: "Test Store",
+      verificationStatus: "pending",
+      lightningSeller: 0,
+      averageRatingTenths: 0,
+      ratingCount: 0,
     }]);
 
     await expect(caller().publicProducts()).resolves.toEqual([expect.objectContaining({
       id: "vendor-91",
       imageUrl: "/manus-storage/vendor-products/7/product_123.jpg",
       imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg", "/manus-storage/vendor-products/7/product_456.jpg"],
-      badge: "Verified seller find",
+      badge: "Seller find",
+      categoryId: "fashion",
+      categorySlug: "fashion",
+      vendorTrust: { verification: "unverified", lightningSeller: false, topRated: false },
+    })]);
+  });
+
+  it("exposes only qualified dynamic store trust signals for an approved vendor", async () => {
+    mocks.listApprovedVendorProducts.mockResolvedValue([{
+      id: 92, title: "Fast delivery find", category: "Vehicles", price: 3_500_000, description: "A verified seller vehicle listing for the public shop.", imageUrl: "/manus-storage/vendor-products/7/vehicle.jpg", imageUrls: ["/manus-storage/vendor-products/7/vehicle.jpg"], vendor: "Speedy Motors", verificationStatus: "approved", lightningSeller: 1, averageRatingTenths: 47, ratingCount: 12,
+    }]);
+
+    await expect(caller().publicProducts()).resolves.toEqual([expect.objectContaining({
+      id: "vendor-92",
+      categoryId: "vehicles",
+      categorySlug: "vehicles",
+      vendorTrust: { verification: "verified", lightningSeller: true, topRated: true },
     })]);
   });
 
@@ -174,7 +194,7 @@ describe("marketplace vendor image workflow", () => {
   it("allows administrators to review and publish a vendor draft", async () => {
     mocks.listAdminReviewProducts.mockResolvedValue([{ id: 91, productStatus: "draft" }]);
     await expect(adminCaller().admin.reviewProducts()).resolves.toEqual([{ id: 91, productStatus: "draft" }]);
-    await expect(adminCaller().admin.setProductStatus({ id: 91, status: "active" })).resolves.toEqual({ id: 91, status: "active" });
+    await expect(adminCaller().admin.setProductStatus({ id: 91, status: "active" })).resolves.toMatchObject({ id: 91, status: "active", publicCatalogueRevision: expect.any(Number) });
     expect(mocks.updateVendorProductStatus).toHaveBeenCalledWith(91, "active");
   });
 

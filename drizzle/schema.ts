@@ -231,6 +231,9 @@ export const vendorRewardProfiles = mysqlTable("vendorRewardProfiles", {
   vendorUserId: int("vendorUserId").notNull().unique(),
   hasLightningSellerBadge: int("hasLightningSellerBadge").notNull().default(0),
   lightningBadgeAwardedAt: timestamp("lightningBadgeAwardedAt"),
+  /** Rating fields remain zero until a genuine marketplace review flow records them. */
+  averageRatingTenths: int("averageRatingTenths").notNull().default(0),
+  ratingCount: int("ratingCount").notNull().default(0),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
@@ -375,11 +378,16 @@ export const vendorProducts = mysqlTable("vendorProducts", {
   vendorApplicationId: int("vendorApplicationId").notNull(),
   title: varchar("title", { length: 180 }).notNull(),
   category: mysqlEnum("category", ["Fashion", "Gadgets", "Beauty", "Home & Furniture", "Vehicles", "Animals & Pets"]).$type<MarketplaceCategory>().notNull(),
+  categoryId: varchar("categoryId", { length: 64 }).notNull().default("fashion"),
+  categorySlug: varchar("categorySlug", { length: 64 }).notNull().default("fashion"),
   price: int("price").notNull(),
   description: text("description").notNull(),
   imageUrl: text("imageUrl"),
   imageUrls: json("imageUrls").$type<string[]>(),
   status: mysqlEnum("status", ["draft", "active", "rejected"]).notNull().default("draft"),
+  isPublished: int("isPublished").notNull().default(0),
+  publicationStatus: mysqlEnum("publicationStatus", ["DRAFT", "APPROVED", "REJECTED"]).notNull().default("DRAFT"),
+  inStock: int("inStock").notNull().default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
@@ -388,6 +396,8 @@ export const officialProducts = mysqlTable("officialProducts", {
   id: int("id").autoincrement().primaryKey(),
   title: varchar("title", { length: 180 }).notNull(),
   category: mysqlEnum("category", ["Fashion", "Gadgets", "Beauty", "Home & Furniture", "Vehicles", "Animals & Pets"]).$type<MarketplaceCategory>().notNull(),
+  categoryId: varchar("categoryId", { length: 64 }).notNull().default("fashion"),
+  categorySlug: varchar("categorySlug", { length: 64 }).notNull().default("fashion"),
   price: int("price").notNull(),
   formerPrice: int("formerPrice"),
   badge: varchar("badge", { length: 80 }),
@@ -402,6 +412,9 @@ export const officialProducts = mysqlTable("officialProducts", {
   imageUrl: text("imageUrl"),
   imageUrls: json("imageUrls").$type<string[]>(),
   status: mysqlEnum("status", ["draft", "active", "rejected"]).notNull().default("draft"),
+  isPublished: int("isPublished").notNull().default(0),
+  publicationStatus: mysqlEnum("publicationStatus", ["DRAFT", "APPROVED", "REJECTED"]).notNull().default("DRAFT"),
+  inStock: int("inStock").notNull().default(0),
   /** Null means the listing is not supplier-stock-managed; zero is explicitly sold out. */
   stockQuantity: int("stockQuantity"),
   inventorySyncedAt: timestamp("inventorySyncedAt"),

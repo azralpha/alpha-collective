@@ -4,7 +4,7 @@ import { useAuth } from "@/_core/hooks/useAuth";
 import { startLogin } from "@/const";
 import { trpc } from "@/lib/trpc";
 import { HERO_CAROUSEL_SLIDES, nextHeroSlide } from "@/lib/heroCarousel";
-import { MARKETPLACE_CATEGORIES, MARKETPLACE_PRODUCTS, type MarketplaceCategory } from "@shared/marketplace";
+import { getMarketplaceCategoryMetadata, MARKETPLACE_CATEGORIES, MARKETPLACE_PRODUCTS, type MarketplaceCategory } from "@shared/marketplace";
 import { ArrowRight, CheckCircle2, Flame, MessageCircle, PackageCheck, ShieldCheck, Tag, Truck } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -102,7 +102,7 @@ export default function Home() {
         </div>
         <div className="category-grid">
           {categoryCards.map(category => (
-            <Link key={category.name} href={`/shop?category=${category.name}`} className="category-card">
+            <Link key={category.name} href={`/shop?category=${getMarketplaceCategoryMetadata(category.name).slug}`} className="category-card">
               <img src={category.product.imageUrl} alt="" />
               <span>{category.name}</span>
               <small>{category.note}</small>

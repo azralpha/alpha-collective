@@ -7,6 +7,7 @@ import {
   MARKETPLACE_PRODUCTS,
   REFERRAL_DISCOUNT,
   REFERRAL_MINIMUM_SUBTOTAL,
+  getMarketplaceCategoryMetadata,
   type MarketplaceProduct,
   getCartSubtotal,
   qualifiesForReferralDiscount,
@@ -113,6 +114,7 @@ import { hashTransactionPin, validateTransactionPin, verifyTransactionPin } from
 import { generateWithdrawalOtp, hashWithdrawalOtp } from "../withdrawalOtpSecurity";
 import { hasSufficientWithdrawalBalance, quotePaystackWithdrawalFee } from "../paystackTransferFee";
 import { sanitizePlainText } from "../securityText";
+import { revalidatePublicCataloguePaths } from "../performanceControls";
 import { generateGeminiProductEnhancement, tryGenerateGeminiProductEnhancement } from "../geminiProductEnhancer";
 import { isWithdrawalOtpEmailDeliveryConfigured } from "../withdrawalOtpEmail";
 import { processCjFulfilmentQueue } from "../fulfilmentQueue";
@@ -264,9 +266,16 @@ function createVendorCatalog(products: Awaited<ReturnType<typeof listApprovedVen
       vendorUserId: product.vendorUserId,
       vendorCommissionRate: product.commissionRate,
       category: product.category,
+      categoryId: product.categoryId || getMarketplaceCategoryMetadata(product.category).id,
+      categorySlug: product.categorySlug || getMarketplaceCategoryMetadata(product.category).slug,
+      vendorTrust: {
+        verification: product.verificationStatus === "approved" ? "verified" : "unverified",
+        lightningSeller: Boolean(product.lightningSeller),
+        topRated: Number(product.ratingCount ?? 0) >= 5 && Number(product.averageRatingTenths ?? 0) >= 45,
+      },
       price: product.price,
       formerPrice: undefined,
-      badge: product.lightningSeller ? "Lightning Seller • Verified" : "Verified seller find",
+      badge: "Seller find",
       imageUrl: imageUrls[0],
       imageUrls,
       description: product.description,
@@ -284,6 +293,8 @@ function createOfficialCatalog(products: Awaited<ReturnType<typeof listActiveOff
       title: product.title,
       vendor: "Alpha Collective Official",
       category: product.category,
+      categoryId: product.categoryId || getMarketplaceCategoryMetadata(product.category).id,
+      categorySlug: product.categorySlug || getMarketplaceCategoryMetadata(product.category).slug,
       price: product.price,
       formerPrice: product.formerPrice ?? undefined,
       badge: product.badge ?? "Alpha Collective pick",
@@ -677,7 +688,7 @@ export const marketplaceRouter = router({
       .input(z.object({ id: z.number().int().positive(), status: z.enum(["active", "rejected"]) }))
       .mutation(async ({ input }) => {
         await updateVendorProductStatus(input.id, input.status);
-        return { id: input.id, status: input.status };
+        return { id: input.id, status: input.status, publicCatalogueRevision: revalidatePublicCataloguePaths() };
       }),
     officialProducts: adminProcedure.input(savedProductListInputSchema.optional()).query(({ input }) => listAdminOfficialProducts(input ?? {})),
     uploadOfficialProductImage: adminProcedure
@@ -745,19 +756,19 @@ export const marketplaceRouter = router({
       .input(officialProductInputSchema)
       .mutation(async ({ input }) => {
         const id = await createOfficialProduct(toOfficialProductInput(input));
-        return { id };
+        return { id, publicCatalogueRevision: revalidatePublicCataloguePaths() };
       }),
     updateOfficialProduct: adminProcedure
       .input(officialProductInputSchema.safeExtend({ id: z.number().int().positive() }))
       .mutation(async ({ input }) => {
         await updateOfficialProduct(input.id, toOfficialProductInput(input));
-        return { id: input.id };
+        return { id: input.id, publicCatalogueRevision: revalidatePublicCataloguePaths() };
       }),
     setOfficialProductStatus: adminProcedure
       .input(z.object({ id: z.number().int().positive(), status: z.enum(["draft", "active", "rejected"]) }))
       .mutation(async ({ input }) => {
         await updateOfficialProductStatus(input.id, input.status);
-        return input;
+        return { ...input, publicCatalogueRevision: revalidatePublicCataloguePaths() };
       }),
     fulfilmentIntegration: adminProcedure.query(async () => {
       const integration = await getFulfilmentIntegration("cj_dropshipping");

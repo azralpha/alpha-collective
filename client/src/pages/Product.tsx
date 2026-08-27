@@ -1,5 +1,6 @@
 import MarketplaceShell, { WHATSAPP_SUPPORT_URL } from "@/components/MarketplaceShell";
 import ProductCard from "@/components/ProductCard";
+import VendorTrustBadges from "@/components/VendorTrustBadges";
 import { useCart } from "@/contexts/CartContext";
 import { trpc } from "@/lib/trpc";
 import { useDocumentSeo } from "@/lib/useDocumentSeo";
@@ -11,10 +12,17 @@ import { Link, useRoute } from "wouter";
 
 export default function Product() {
   const [, params] = useRoute("/product/:id");
-  const approvedProducts = trpc.marketplace.publicProducts.useQuery(undefined, { staleTime: 60_000, gcTime: 10 * 60_000, refetchOnWindowFocus: false });
-  const product = getProduct(params?.id ?? "") ?? approvedProducts.data?.find(item => item.id === params?.id);
+  const approvedProducts = trpc.marketplace.publicProducts.useQuery(undefined, { staleTime: 0, gcTime: 10 * 60_000, refetchOnWindowFocus: true });
+  const product = (getProduct(params?.id ?? "") ?? approvedProducts.data?.find(item => item.id === params?.id)) as MarketplaceProduct | undefined;
   const { addItem } = useCart();
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const productPath = `/product/${encodeURIComponent(params?.id ?? "")}`;
+  useDocumentSeo({
+    title: product ? `${product.title} | Alpha Market` : "Product | Alpha Market",
+    description: product?.description ?? "Browse marketplace finds on Alpha Market.",
+    canonicalPath: productPath,
+    product,
+  });
 
   if (!product && approvedProducts.isLoading) return <MarketplaceShell><div className="page-shell"><p className="loading-line">Loading this seller find…</p></div></MarketplaceShell>;
   if (!product) {
@@ -23,14 +31,13 @@ export default function Product() {
 
   const related = [...MARKETPLACE_PRODUCTS, ...(approvedProducts.data ?? [])].filter(item => item.id !== product.id && item.category === product.category).slice(0, 3);
   const isVendorFind = product.id.startsWith("vendor-");
-  const normalizedProduct = product as MarketplaceProduct;
+  const normalizedProduct = product;
   const isSoldOut = !isVendorFind && normalizedProduct.stockQuantity === 0;
   const lowStockLabel = !isVendorFind && normalizedProduct.stockQuantity !== undefined && normalizedProduct.stockQuantity > 0 && normalizedProduct.stockQuantity <= 5
     ? `Only ${normalizedProduct.stockQuantity} item${normalizedProduct.stockQuantity === 1 ? "" : "s"} left in stock`
     : null;
   const galleryImages = normalizedProduct.imageUrls?.length ? normalizedProduct.imageUrls : [product.imageUrl];
   const displayedImage = selectedImage && galleryImages.includes(selectedImage) ? selectedImage : galleryImages[0];
-  useDocumentSeo({ title: `${product.title} | Alpha Market`, description: product.description || product.detail, canonicalPath: `/product/${encodeURIComponent(product.id)}`, product: normalizedProduct });
   return (
     <MarketplaceShell>
       <div className="page-shell">
@@ -39,7 +46,7 @@ export default function Product() {
           <div className="detail-copy">
             <span className="eyebrow">{product.category} / {product.badge ?? "collective find"}</span>
             <h1>{product.title}</h1>
-            <p className="vendor-byline">By {product.vendor}</p>
+            <p className="vendor-byline">By {product.vendor} <VendorTrustBadges trust={normalizedProduct.vendorTrust} /></p>
             <div className="detail-price">{formatNaira(product.price)} {product.formerPrice ? <s>{formatNaira(product.formerPrice)}</s> : null}</div>
             {lowStockLabel ? <p className="stock-note stock-note-low">{lowStockLabel}</p> : null}
             {isSoldOut ? <p className="stock-note stock-note-empty">Currently out of stock</p> : null}

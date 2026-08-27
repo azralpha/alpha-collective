@@ -17,7 +17,7 @@ import { registerVendorRewardsSchedule } from "../vendorRewardsSchedule";
 import { registerEscrowReleaseSchedule } from "../escrowReleaseSchedule";
 import { registerNowPaymentsWebhook } from "../nowpaymentsWebhook";
 import { createExpressRateLimit } from "../requestRateLimit";
-import { PRIVATE_API_CACHE_CONTROL, PUBLIC_CATALOGUE_CACHE_CONTROL } from "../performanceControls";
+import { getPublicCatalogueRevision, PRIVATE_API_CACHE_CONTROL, PUBLIC_CATALOGUE_CACHE_CONTROL } from "../performanceControls";
 import { registerSeoRoutes } from "../seo";
 import { registerAlphaAiSupportRoute } from "../alphaAiSupportRoute";
 import { registerCartRewardUpsellRoute } from "../cartRewardUpsellRoute";
@@ -65,6 +65,7 @@ async function startServer() {
     const paths = req.path.split(",").map(path => path.replace(/^\//, ""));
     const isCatalogueRead = req.method === "GET" && paths.length > 0 && paths.every(path => path === "marketplace.publicProducts");
     res.set("Cache-Control", isCatalogueRead ? PUBLIC_CATALOGUE_CACHE_CONTROL : PRIVATE_API_CACHE_CONTROL);
+    if (isCatalogueRead) res.set("X-Alpha-Catalogue-Revision", String(getPublicCatalogueRevision()));
     next();
   });
   // tRPC API

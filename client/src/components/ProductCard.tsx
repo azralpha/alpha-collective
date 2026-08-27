@@ -2,6 +2,8 @@ import { useCart } from "@/contexts/CartContext";
 import { formatNaira, type MarketplaceProduct } from "@shared/marketplace";
 import { Plus } from "lucide-react";
 import { Link } from "wouter";
+import VendorTrustBadges from "./VendorTrustBadges";
+import "./vendorTrustBadges.css";
 
 export default function ProductCard({ product }: { product: MarketplaceProduct }) {
   const { addItem } = useCart();
@@ -15,7 +17,7 @@ export default function ProductCard({ product }: { product: MarketplaceProduct }
         <img src={product.imageUrl} alt={product.title} className="product-image" />
       </Link>
       <div className="product-card-copy">
-        <div className="product-meta"><span>{product.category}</span><span className="meta-separator">/</span><span>{product.vendor.split(",")[0]}</span></div>
+        <div className="product-meta"><span>{product.category}</span><span className="meta-separator">/</span><span>{product.vendor.split(",")[0]}</span><VendorTrustBadges trust={product.vendorTrust} /></div>
         <Link href={`/product/${product.id}`} className="product-title">{product.title}</Link>
         <p className="product-description">{product.description}</p>
         <div className="product-bottom-row">

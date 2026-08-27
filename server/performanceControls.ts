@@ -1,6 +1,23 @@
-export const PUBLIC_CATALOGUE_CACHE_CONTROL = "public, max-age=30, s-maxage=60, stale-while-revalidate=300";
+/**
+ * The marketplace is an Express app, not a Next.js deployment, so revalidatePath is unavailable.
+ * Zero freshness plus must-revalidate requires browser and intermediary caches to validate catalogue
+ * responses with the origin before reuse, preserving immediate publication changes without page builds.
+ */
+export const PUBLIC_CATALOGUE_CACHE_CONTROL = "public, max-age=0, s-maxage=0, must-revalidate";
 export const PRIVATE_API_CACHE_CONTROL = "no-store";
 export const IMMUTABLE_PRODUCT_IMAGE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
+let publicCatalogueRevision = 0;
+
+/** Marks a publication change for local diagnostics; response freshness is guaranteed by Cache-Control. */
+export function revalidatePublicCataloguePaths() {
+  publicCatalogueRevision += 1;
+  return publicCatalogueRevision;
+}
+
+export function getPublicCatalogueRevision() {
+  return publicCatalogueRevision;
+}
 
 export function parseDatabasePoolLimit(value: string | undefined) {
   const parsed = Number(value);

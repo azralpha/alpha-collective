@@ -1,6 +1,6 @@
 import { useCart } from "@/contexts/CartContext";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { MARKETPLACE_CATEGORIES } from "@shared/marketplace";
+import { getMarketplaceCategoryMetadata, MARKETPLACE_CATEGORIES } from "@shared/marketplace";
 import { Gift, Grid2X2, Home, Search, ShieldCheck, ShoppingCart, Store, WalletCards, X } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import { useState } from "react";
@@ -58,7 +58,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
           </div>
         </div>
         <nav aria-label="Shop categories" className="header-category-nav">
-          {MARKETPLACE_CATEGORIES.map(category => <Link key={category} href={`/shop?category=${category}`} className="header-category-chip">{category}</Link>)}
+          {MARKETPLACE_CATEGORIES.map(category => <Link key={category} href={`/shop?category=${getMarketplaceCategoryMetadata(category).slug}`} className="header-category-chip">{category}</Link>)}
           <Link href="/rewards" className="header-category-chip header-reward-chip"><Gift size={17} /> Rewards</Link>
         </nav>
       </header>

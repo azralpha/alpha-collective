@@ -2,6 +2,25 @@ export const MARKETPLACE_CATEGORIES = ["Fashion", "Gadgets", "Beauty", "Home & F
 
 export type MarketplaceCategory = (typeof MARKETPLACE_CATEGORIES)[number];
 
+export const MARKETPLACE_CATEGORY_METADATA: Record<MarketplaceCategory, { id: string; slug: string }> = {
+  Fashion: { id: "fashion", slug: "fashion" },
+  Gadgets: { id: "gadgets", slug: "gadgets" },
+  Beauty: { id: "beauty", slug: "beauty" },
+  "Home & Furniture": { id: "home-furniture", slug: "home-furniture" },
+  Vehicles: { id: "vehicles", slug: "vehicles" },
+  "Animals & Pets": { id: "animals-pets", slug: "animals-pets" },
+};
+
+export function getMarketplaceCategoryMetadata(category: MarketplaceCategory) {
+  return MARKETPLACE_CATEGORY_METADATA[category];
+}
+
+export type VendorTrust = {
+  verification: "verified" | "unverified";
+  lightningSeller: boolean;
+  topRated: boolean;
+};
+
 export type MarketplaceProduct = {
   id: string;
   title: string;
@@ -9,6 +28,11 @@ export type MarketplaceProduct = {
   vendorUserId?: number;
   vendorCommissionRate?: number;
   category: MarketplaceCategory;
+  /** Canonical public identifiers derived from the vetted marketplace category list. */
+  categoryId?: string;
+  categorySlug?: string;
+  /** Store-level signals only; private KYC, contact, supplier, and financial data are never exposed. */
+  vendorTrust?: VendorTrust;
   price: number;
   formerPrice?: number;
   badge?: string;

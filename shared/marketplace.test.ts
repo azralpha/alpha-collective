@@ -7,6 +7,7 @@ import {
   formatNaira,
   getCartSubtotal,
   getCheckoutTotals,
+  getMarketplaceCategoryMetadata,
   qualifiesForReferralDiscount,
   resolveCartLines,
 } from "./marketplace";
@@ -46,5 +47,9 @@ describe("marketplace money and cart rules", () => {
 
   it("generates readable Alpha Collective order references", () => {
     expect(createOrderReference()).toMatch(/^AC-[A-Z0-9]{5}-[A-Z0-9]{5}$/);
+  });
+
+  it("derives the public Vehicles category ID and slug from the canonical category list", () => {
+    expect(getMarketplaceCategoryMetadata("Vehicles")).toEqual({ id: "vehicles", slug: "vehicles" });
   });
 });

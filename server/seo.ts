@@ -1,6 +1,6 @@
 import type { Request, Response } from "express";
 import { listActiveOfficialProducts, listApprovedVendorProducts } from "./db";
-import { MARKETPLACE_CATEGORIES, MARKETPLACE_PRODUCTS, type MarketplaceProduct } from "@shared/marketplace";
+import { getMarketplaceCategoryMetadata, MARKETPLACE_CATEGORIES, MARKETPLACE_PRODUCTS, type MarketplaceProduct } from "@shared/marketplace";
 import { buildProductJsonLd, cleanSeoText, SEO_DEFAULT_DESCRIPTION, SEO_SITE_NAME } from "@shared/seo";
 
 const DEFAULT_CANONICAL_ORIGIN = "https://alphashop-3pdenj2y.manus.space";
@@ -77,8 +77,8 @@ export async function getPublishedSeoCatalogue(): Promise<MarketplaceProduct[]> 
 }
 
 function categoryFromUrl(url: URL): (typeof MARKETPLACE_CATEGORIES)[number] | null {
-  const category = url.searchParams.get("category");
-  return MARKETPLACE_CATEGORIES.includes(category as (typeof MARKETPLACE_CATEGORIES)[number]) ? category as (typeof MARKETPLACE_CATEGORIES)[number] : null;
+  const category = url.searchParams.get("category")?.trim().toLowerCase();
+  return MARKETPLACE_CATEGORIES.find(value => getMarketplaceCategoryMetadata(value).slug === category || value.toLowerCase() === category) ?? null;
 }
 
 export async function getSeoHead(requestUrl: string): Promise<SeoHead> {
@@ -88,7 +88,7 @@ export async function getSeoHead(requestUrl: string): Promise<SeoHead> {
   if (path === "/shop") {
     const category = categoryFromUrl(url);
     return category
-      ? { title: `Shop ${category} in Nigeria | ${SEO_SITE_NAME}`, description: `Browse ${category.toLowerCase()} finds and practical prices from independent sellers on ${SEO_SITE_NAME}.`, canonicalPath: `/shop?category=${encodeURIComponent(category)}` }
+      ? { title: `Shop ${category} in Nigeria | ${SEO_SITE_NAME}`, description: `Browse ${category.toLowerCase()} finds and practical prices from independent sellers on ${SEO_SITE_NAME}.`, canonicalPath: `/shop?category=${getMarketplaceCategoryMetadata(category).slug}` }
       : { title: `Shop local finds in Nigeria | ${SEO_SITE_NAME}`, description: `Browse fashion, gadgets, beauty, home, vehicles, and pet essentials on ${SEO_SITE_NAME}.`, canonicalPath: "/shop" };
   }
   if (path.startsWith("/product/")) {
@@ -151,7 +151,7 @@ export function buildSitemapXml(products: MarketplaceProduct[]): string {
   const urls = [
     "/",
     "/shop",
-    ...MARKETPLACE_CATEGORIES.map(category => `/shop?category=${encodeURIComponent(category)}`),
+    ...MARKETPLACE_CATEGORIES.map(category => `/shop?category=${getMarketplaceCategoryMetadata(category).slug}`),
     ...products.map(product => `/product/${encodeURIComponent(product.id)}`),
   ];
   return `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${Array.from(new Set(urls)).map(url => `  <url><loc>${htmlEscape(`${origin}${url}`)}</loc></url>`).join("\n")}\n</urlset>`;

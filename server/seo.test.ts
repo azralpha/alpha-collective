@@ -18,7 +18,7 @@ const officialProduct: MarketplaceProduct = {
 describe("technical SEO", () => {
   it("emits only canonical category and published product URLs in the sitemap", () => {
     const sitemap = buildSitemapXml([officialProduct]);
-    expect(sitemap).toContain("/shop?category=Gadgets");
+    expect(sitemap).toContain("/shop?category=gadgets");
     expect(sitemap).toContain("/product/official-51");
     expect(sitemap).not.toContain("/admin/");
   });

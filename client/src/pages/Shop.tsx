@@ -2,7 +2,7 @@ import MarketplaceShell from "@/components/MarketplaceShell";
 import ProductCard from "@/components/ProductCard";
 import { trpc } from "@/lib/trpc";
 import { useDocumentSeo } from "@/lib/useDocumentSeo";
-import { MARKETPLACE_CATEGORIES, MARKETPLACE_PRODUCTS, type MarketplaceCategory } from "@shared/marketplace";
+import { getMarketplaceCategoryMetadata, MARKETPLACE_CATEGORIES, MARKETPLACE_PRODUCTS, type MarketplaceCategory } from "@shared/marketplace";
 import { Search, SlidersHorizontal } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useSearch } from "wouter";
@@ -10,8 +10,8 @@ import { Link, useLocation, useSearch } from "wouter";
 type CategoryFilter = "All" | MarketplaceCategory;
 
 function categoryFromSearch(search: string): CategoryFilter {
-  const value = new URLSearchParams(search).get("category");
-  return MARKETPLACE_CATEGORIES.includes(value as MarketplaceCategory) ? (value as MarketplaceCategory) : "All";
+  const value = new URLSearchParams(search).get("category")?.trim().toLowerCase();
+  return MARKETPLACE_CATEGORIES.find(category => getMarketplaceCategoryMetadata(category).slug === value || category.toLowerCase() === value) ?? "All";
 }
 
 function referralFromSearch(search: string) {
@@ -25,10 +25,10 @@ export default function Shop() {
   const [search, setSearch] = useState("");
   const selectedCategory = categoryFromSearch(searchParams);
   const referralCode = referralFromSearch(searchParams);
-  const approvedProducts = trpc.marketplace.publicProducts.useQuery(undefined, { staleTime: 60_000, gcTime: 10 * 60_000, refetchOnWindowFocus: false });
+  const approvedProducts = trpc.marketplace.publicProducts.useQuery(undefined, { staleTime: 0, gcTime: 10 * 60_000, refetchOnWindowFocus: true });
   useDocumentSeo(selectedCategory === "All"
     ? { title: "Shop local finds in Nigeria | Alpha Market", description: "Browse fashion, gadgets, beauty, home, vehicles, and pet essentials on Alpha Market.", canonicalPath: "/shop" }
-    : { title: `Shop ${selectedCategory} in Nigeria | Alpha Market`, description: `Browse ${selectedCategory.toLowerCase()} finds and practical prices from independent sellers on Alpha Market.`, canonicalPath: `/shop?category=${encodeURIComponent(selectedCategory)}` });
+    : { title: `Shop ${selectedCategory} in Nigeria | Alpha Market`, description: `Browse ${selectedCategory.toLowerCase()} finds and practical prices from independent sellers on Alpha Market.`, canonicalPath: `/shop?category=${getMarketplaceCategoryMetadata(selectedCategory).slug}` });
 
   useEffect(() => {
     if (referralCode) window.localStorage.setItem("alpha-collective-referral-code", referralCode);
@@ -37,13 +37,14 @@ export default function Shop() {
   const products = useMemo(() => {
     const query = search.trim().toLowerCase();
     return [...MARKETPLACE_PRODUCTS, ...(approvedProducts.data ?? [])].filter(product => {
-      const matchesCategory = selectedCategory === "All" || product.category === selectedCategory;
+      const productCategorySlug = "categorySlug" in product ? product.categorySlug : undefined;
+      const matchesCategory = selectedCategory === "All" || (productCategorySlug ?? getMarketplaceCategoryMetadata(product.category).slug) === getMarketplaceCategoryMetadata(selectedCategory).slug;
       const matchesSearch = !query || [product.title, product.category, product.vendor].join(" ").toLowerCase().includes(query);
       return matchesCategory && matchesSearch;
     });
   }, [approvedProducts.data, search, selectedCategory]);
 
-  const setCategory = (category: CategoryFilter) => setLocation(category === "All" ? "/shop" : `/shop?category=${category}`);
+  const setCategory = (category: CategoryFilter) => setLocation(category === "All" ? "/shop" : `/shop?category=${getMarketplaceCategoryMetadata(category).slug}`);
 
   return (
     <MarketplaceShell>
