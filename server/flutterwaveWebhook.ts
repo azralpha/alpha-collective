@@ -1,5 +1,5 @@
 import express, { type Express } from "express";
-import { creditVerifiedWalletFunding, getWalletFundingAttemptByReference, settleCartRewardClaimAfterVerifiedPayment } from "./db";
+import { creditVerifiedWalletFunding, getWalletFundingAttemptByReference, settleCartRewardClaimAfterVerifiedPayment, settleSpinRewardAfterVerifiedPayment } from "./db";
 import { verifyFlutterwaveTransaction, verifyFlutterwaveWebhookSignature } from "./flutterwave";
 import { notifyAdminPaymentEvent } from "./paymentNotifications";
 
@@ -22,7 +22,10 @@ async function reconcileFunding(event: FlutterwaveWebhookEvent) {
     throw new Error("Verified Flutterwave funding did not match its stored attempt.");
   }
   const settlement = await creditVerifiedWalletFunding({ reference: verified.reference, providerTransactionId: verified.id, provider: "flutterwave" });
-  if (settlement && !settlement.alreadyProcessed && settlement.checkoutOrderReference) await settleCartRewardClaimAfterVerifiedPayment(settlement.checkoutOrderReference);
+  if (settlement && !settlement.alreadyProcessed && settlement.checkoutOrderReference) {
+    await settleCartRewardClaimAfterVerifiedPayment(settlement.checkoutOrderReference);
+    await settleSpinRewardAfterVerifiedPayment(settlement.checkoutOrderReference);
+  }
   return { reference: verified.reference, amount: attempt.amount };
 }
 

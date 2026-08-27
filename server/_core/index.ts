@@ -21,6 +21,7 @@ import { getPublicCatalogueRevision, PRIVATE_API_CACHE_CONTROL, PUBLIC_CATALOGUE
 import { registerSeoRoutes } from "../seo";
 import { registerAlphaAiSupportRoute } from "../alphaAiSupportRoute";
 import { registerCartRewardUpsellRoute } from "../cartRewardUpsellRoute";
+import { registerSpinPromotionRoute } from "../spinPromotionRoute";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -60,6 +61,7 @@ async function startServer() {
   registerSeoRoutes(app);
   registerAlphaAiSupportRoute(app);
   registerCartRewardUpsellRoute(app);
+  registerSpinPromotionRoute(app);
   registerOAuthRoutes(app);
   app.use("/api/trpc", (req, res, next) => {
     const paths = req.path.split(",").map(path => path.replace(/^\//, ""));

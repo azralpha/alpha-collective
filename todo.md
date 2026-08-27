@@ -348,3 +348,11 @@
 - [x] Invalidate the Express public catalogue cache after publication changes without introducing unsupported framework revalidation calls
 - [x] Add regression coverage and verify responsive public category and product views before checkpointing
 - [x] Fix the public product-detail hook-order error revealed after the asynchronous catalogue query resolves
+
+- [x] Audit existing rewards, cart, checkout, Gemini, promotion persistence, and visitor-state boundaries
+- [x] Define transparent spin outcomes, minimum-profit enforcement, expiry, and reward fulfilment safeguards
+- [x] Add administrator controls for enabling the promotion and setting the global profit margin policy
+- [x] Add a protected server-side spin claim route that bounds Gemini to supplied low-cost published items and verifies profit programmatically
+- [x] Add cart and checkout enforcement for active, unexpired spin claims without automatic supplier ordering or money movement
+- [x] Build an accessible, dismissible Spin to Win widget and live claimed-prize countdown banner
+- [x] Add regression coverage and responsive verification before checkpointing

@@ -102,6 +102,10 @@ import {
   updateVendorDraftProduct,
   updateWalletPin,
   settleCartRewardClaimAfterVerifiedPayment,
+  getSpinPromotionSettings,
+  reserveSpinRewardForCheckout,
+  saveSpinPromotionSettings,
+  settleSpinRewardAfterVerifiedPayment,
 } from "../db";
 import { extractClientIp, normalizeDeviceId } from "../referralFraud";
 import { storagePut } from "../storage";
@@ -122,6 +126,7 @@ import { createHeartbeatJob } from "../_core/heartbeat";
 import { COOKIE_NAME } from "@shared/const";
 import { createControlledNowPaymentsQuote, MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA, MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA, NowPaymentsError } from "../nowpayments";
 import { cartRewardUpsellInputSchema, getCartRewardUpsells } from "../cartRewardUpsell";
+import { hashSpinClaimToken } from "../spinPromotion";
 import { nowPaymentsIpnCallbackUrl, paymentRedirectUrl } from "../cryptoFundingUrl";
 import { FlutterwaveProviderError, initializeFlutterwavePayment, isDefinitiveFlutterwaveRequestFailure } from "../flutterwave";
 import {
@@ -151,6 +156,7 @@ const paystackFundingReferenceAlphabet = customAlphabet("0123456789abcdefghijklm
 const flutterwaveFundingReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
 const paystackWithdrawalReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
 const cryptoFundingReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
+const spinClaimTokenSchema = z.string().trim().min(24).max(80).regex(/^[A-Za-z0-9_-]+$/, "Use a valid Spin to Win claim.").optional();
 const walletCheckoutInputSchema = z.object({
   buyerName: z.string().trim().min(2).max(120).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid buyer name."),
   buyerPhone: z.string().trim().min(7).max(32),
@@ -161,6 +167,7 @@ const walletCheckoutInputSchema = z.object({
   transactionPin: walletPinSchema,
   referralCode: z.string().trim().max(32).optional(),
   freeDeliveryVoucherId: z.number().int().positive().optional(),
+  spinClaimToken: spinClaimTokenSchema,
 });
 const cryptoCheckoutInputSchema = z.object({
   buyerName: z.string().trim().min(2).max(120).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid buyer name."),
@@ -170,6 +177,7 @@ const cryptoCheckoutInputSchema = z.object({
   deliveryTier: z.enum(DELIVERY_SERVICE_TIERS),
   items: z.array(cartLineSchema).min(1).max(12),
   payCurrency: z.string().trim().toLowerCase().regex(/^[a-z0-9_-]{2,24}$/, "Choose a valid crypto asset."),
+  spinClaimToken: spinClaimTokenSchema,
 });
 const gatewayCheckoutInputSchema = z.object({
   provider: fiatProviderSchema,
@@ -180,6 +188,7 @@ const gatewayCheckoutInputSchema = z.object({
   packageWeightKg: z.number().positive().max(5000),
   deliveryTier: z.enum(DELIVERY_SERVICE_TIERS),
   items: z.array(cartLineSchema).min(1).max(12),
+  spinClaimToken: spinClaimTokenSchema,
 });
 
 const cjMassImportInputSchema = z.object({
@@ -377,6 +386,9 @@ export const marketplaceRouter = router({
     progress: publicProcedure.input(z.object({ items: z.array(cartLineSchema).max(12) })).query(({ input }) => getCartTierProgress(input.items)),
     smartUpsell: publicProcedure.input(cartRewardUpsellInputSchema).query(({ input }) => getCartRewardUpsells(input)),
   }),
+  spinPromotion: router({
+    publicSettings: publicProcedure.query(() => getSpinPromotionSettings().then(settings => ({ enabled: settings.enabled }))),
+  }),
   rewards: router({
     dashboard: protectedProcedure.query(async ({ ctx }) => {
       const [buyer, vendor] = await Promise.all([getBuyerRewardSummary(ctx.user.id), getVendorRewardSummary(ctx.user.id)]);
@@ -518,7 +530,8 @@ export const marketplaceRouter = router({
         try {
           const quote = await createControlledNowPaymentsQuote({ reference: cryptoReference, amountNaira: total, payCurrency: input.payCurrency, ipnCallbackUrl: nowPaymentsIpnCallbackUrl(), maximumAmountNaira: MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA, orderDescription: `Alpha Market administrator checkout ${orderReference}` });
           await saveCryptoFundingQuote({ reference: cryptoReference, providerPaymentId: quote.paymentId, quotedPayAmount: quote.payAmount, payAddress: quote.payAddress });
-          return { orderReference, cryptoReference, paymentId: quote.paymentId, payAddress: quote.payAddress, payAmount: quote.payAmount, payCurrency: quote.payCurrency, quoteExpiresAt, total, deliveryFee: deliveryQuote.deliveryFee };
+          const spinReward = input.spinClaimToken ? await reserveSpinRewardForCheckout({ tokenHash: hashSpinClaimToken(input.spinClaimToken), userId: ctx.user.id, orderReference, items: input.items }) : { eligible: false as const };
+          return { orderReference, cryptoReference, paymentId: quote.paymentId, payAddress: quote.payAddress, payAmount: quote.payAmount, payCurrency: quote.payCurrency, quoteExpiresAt, total, deliveryFee: deliveryQuote.deliveryFee, spinRewardReserved: spinReward.eligible };
         } catch (error) {
           await markCryptoFundingAttemptStatus({ reference: cryptoReference, status: "failed" });
           if (error instanceof NowPaymentsError) throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
@@ -632,6 +645,8 @@ export const marketplaceRouter = router({
             await createPendingCartRewardClaim({ orderReference: reference, userId: ctx.user.id, progress: tierProgress });
             await settleCartRewardClaimAfterVerifiedPayment(reference);
           }
+          const spinReward = input.spinClaimToken ? await reserveSpinRewardForCheckout({ tokenHash: hashSpinClaimToken(input.spinClaimToken), userId: ctx.user.id, orderReference: reference, items: input.items }) : { eligible: false as const };
+          if (spinReward.eligible) await settleSpinRewardAfterVerifiedPayment(reference);
           if (fulfilmentJobInputs.length) void processCjFulfilmentQueue(5).catch(() => undefined);
           void notifyAdminPaymentEvent({ event: "wallet_escrow_created", reference, amountNaira: total });
         } catch (error) {
@@ -682,6 +697,8 @@ export const marketplaceRouter = router({
     cartRewardTiers: adminProcedure.query(() => listCartRewardTiers(true)),
     createCartRewardTier: adminProcedure.input(cartRewardTierInputSchema).mutation(({ input }) => createCartRewardTier(input)),
     updateCartRewardTier: adminProcedure.input(cartRewardTierInputSchema.safeExtend({ id: z.number().int().positive() })).mutation(({ input }) => updateCartRewardTier(input)),
+    spinPromotionSettings: adminProcedure.query(() => getSpinPromotionSettings()),
+    saveSpinPromotionSettings: adminProcedure.input(z.object({ enabled: z.boolean(), profitSafeguardMargin: z.number().int().min(1).max(80), countdownMinutes: z.number().int().min(5).max(30) })).mutation(({ input }) => saveSpinPromotionSettings(input)),
     reviewProducts: adminProcedure.query(() => listAdminReviewProducts()),
     walletOrders: adminProcedure.query(() => listHeldWalletOrders()),
     setProductStatus: adminProcedure
@@ -895,8 +912,10 @@ export const marketplaceRouter = router({
       items: z.array(cartLineSchema).min(1).max(12),
       referralCode: z.string().trim().max(32).optional(),
       freeDeliveryVoucherId: z.number().int().positive().optional(),
+      spinClaimToken: spinClaimTokenSchema,
     }))
     .mutation(async ({ ctx, input }) => {
+      if (input.spinClaimToken) throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Spin prizes require a verified online payment method and cannot be attached to Pay on Delivery orders." });
       validateNigerianState(input.deliveryAddress.state);
       if (!isNigerianLga(input.deliveryAddress.state, input.deliveryAddress.lga)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a valid local government area for the selected state." });
@@ -1006,7 +1025,8 @@ export const marketplaceRouter = router({
         const payment = input.provider === "paystack"
           ? await initializePaystackFunding({ email: input.email.toLowerCase(), reference: paymentReference, amountNaira: total, callbackUrl: paymentRedirectUrl("paystack") })
           : await initializeFlutterwavePayment({ email: input.email.toLowerCase(), reference: paymentReference, amountNaira: total, redirectUrl: paymentRedirectUrl("flutterwave"), title: `Alpha Market checkout ${orderReference}` });
-        return { orderReference, paymentReference: payment.reference, authorizationUrl: payment.authorizationUrl, provider: input.provider, total, deliveryFee: deliveryQuote.deliveryFee, paymentStatus: "pending" as const };
+        const spinReward = input.spinClaimToken ? await reserveSpinRewardForCheckout({ tokenHash: hashSpinClaimToken(input.spinClaimToken), userId: ctx.user.id, orderReference, items: input.items }) : { eligible: false as const };
+        return { orderReference, paymentReference: payment.reference, authorizationUrl: payment.authorizationUrl, provider: input.provider, total, deliveryFee: deliveryQuote.deliveryFee, paymentStatus: "pending" as const, spinRewardReserved: spinReward.eligible };
       } catch (error) {
         await markWalletFundingAttemptFailed(paymentReference);
         if (error instanceof FlutterwaveProviderError) throw new TRPCError({ code: error.statusCode >= 500 ? "PRECONDITION_FAILED" : "BAD_REQUEST", message: error.statusCode >= 500 ? "Flutterwave checkout is temporarily unavailable. Please try again." : error.message });

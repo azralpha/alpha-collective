@@ -6,6 +6,8 @@ import { Link, useLocation } from "wouter";
 import { useState } from "react";
 import CartDrawer from "./CartDrawer";
 import AlphaAiSupport from "./AlphaAiSupport";
+import SpinClaimBanner from "./SpinClaimBanner";
+import SpinToWinPromotion from "./SpinToWinPromotion";
 
 export const WHATSAPP_SUPPORT_URL =
   "https://wa.me/2340000000000?text=Hello%20Alpha%20Market%2C%20I%20need%20help%20with%20my%20order.";
@@ -62,9 +64,11 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
           <Link href="/rewards" className="header-category-chip header-reward-chip"><Gift size={17} /> Rewards</Link>
         </nav>
       </header>
+      <SpinClaimBanner />
       <main>{children}</main>
       <CartDrawer open={cartDrawerOpen} onClose={() => setCartDrawerOpen(false)} />
       <AlphaAiSupport />
+      <SpinToWinPromotion />
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
         <Link href="/" className={location === "/" ? "active" : ""}><Home size={21} /><span>Home</span></Link>
         <Link href="/shop" className={location === "/shop" ? "active" : ""}><Grid2X2 size={21} /><span>Categories</span></Link>

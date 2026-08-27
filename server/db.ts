@@ -1,4 +1,4 @@
-import { and, count, desc, eq, gte, isNull, like, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, gte, isNull, like, lt, lte, ne, or, sql } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createPool, type Pool } from "mysql2";
 import {
@@ -28,6 +28,8 @@ import {
   referralShares,
   rewardGrants,
   rewardsAutomationSettings,
+  spinPromotionSettings,
+  spinRewardClaims,
   userSecuritySignals,
   users,
   vendorApplications,
@@ -46,7 +48,7 @@ import { ENV } from "./_core/env";
 import { hashSecuritySignal, normalizeDeviceId } from "./referralFraud";
 import { splitWalletPayment } from "./walletBalanceSplit";
 import { fundingCreditDisposition, withdrawalPaidDisposition, withdrawalRestoreDisposition } from "./walletReconciliation";
-import { getMarketplaceCategoryMetadata, type CartLine, type MarketplaceCategory } from "../shared/marketplace";
+import { getMarketplaceCategoryMetadata, MARKETPLACE_PRODUCTS, type CartLine, type MarketplaceCategory } from "../shared/marketplace";
 import { parseDatabasePoolLimit } from "./performanceControls";
 import { calculateCartTierProgress, type CartRewardTier, type CartTierProgress } from "./cartTierRewards";
 
@@ -205,6 +207,11 @@ export async function getCartRewardProductFacts(items: CartLine[]): Promise<Cart
       const supplierCost = officialProduct.supplierCurrency === "NGN" && officialProduct.supplierCost !== null ? Number(officialProduct.supplierCost) * quantity : null;
       return [{ productId: item.productId, title: officialProduct.title, price: officialProduct.price, lineTotal, platformProfit: supplierCost !== null && Number.isFinite(supplierCost) ? Math.max(0, lineTotal - supplierCost) : null }];
     }
+    const staticProduct = MARKETPLACE_PRODUCTS.find(product => product.id === item.productId);
+    if (staticProduct) {
+      const lineTotal = staticProduct.price * quantity;
+      return [{ productId: item.productId, title: staticProduct.title, price: staticProduct.price, lineTotal, platformProfit: null }];
+    }
     return [{ productId: item.productId, title: "Unknown catalogue item", price: 0, lineTotal: 0, platformProfit: null }];
   });
 }
@@ -320,6 +327,98 @@ export async function settleCartRewardClaimAfterVerifiedPayment(orderReference: 
     if (affectedRows(giftUpdate) !== 1) return { settled: false, reason: "already_settled" as const };
     await tx.update(orders).set({ orderLines: [...order.orderLines, { productId: `official-${gift.id}`, title: gift.title, quantity: 1, unitPrice: 0, lineTotal: 0, rewardGift: true, rewardTierClaimId: claim.id }] }).where(eq(orders.reference, orderReference));
     return { settled: true, rewardType: claim.rewardType, amount: 0, giftProductId: gift.id };
+  });
+}
+
+export type SpinPromotionSettings = { enabled: boolean; profitSafeguardMargin: number; countdownMinutes: number };
+type StoredSpinRewardClaim = typeof spinRewardClaims.$inferSelect;
+
+function toSpinPromotionSettings(row: typeof spinPromotionSettings.$inferSelect | undefined): SpinPromotionSettings {
+  return row ? { enabled: row.enabled === 1, profitSafeguardMargin: row.profitSafeguardMargin, countdownMinutes: row.countdownMinutes } : { enabled: false, profitSafeguardMargin: 25, countdownMinutes: 20 };
+}
+
+export async function getSpinPromotionSettings() {
+  const db = await requireDb();
+  return toSpinPromotionSettings((await db.select().from(spinPromotionSettings).where(eq(spinPromotionSettings.id, 1)).limit(1))[0]);
+}
+
+export async function saveSpinPromotionSettings(input: SpinPromotionSettings) {
+  const db = await requireDb();
+  await db.insert(spinPromotionSettings).values({ id: 1, enabled: input.enabled ? 1 : 0, profitSafeguardMargin: input.profitSafeguardMargin, countdownMinutes: input.countdownMinutes }).onDuplicateKeyUpdate({ set: { enabled: input.enabled ? 1 : 0, profitSafeguardMargin: input.profitSafeguardMargin, countdownMinutes: input.countdownMinutes } });
+  return getSpinPromotionSettings();
+}
+
+export async function listSpinEligibleGiftCandidates(requiredMargin: number) {
+  const products = await listActiveOfficialProductsWithSourcing();
+  return products.flatMap(product => {
+    if (product.supplierCurrency !== "NGN" || product.supplierCost === null || product.stockQuantity === null || product.stockQuantity < 1) return [];
+    const rewardCost = Math.max(0, Math.round(Number(product.supplierCost)));
+    const grossMargin = product.price > 0 ? (product.price - rewardCost) / product.price : 0;
+    if (!Number.isFinite(rewardCost) || rewardCost < 1 || grossMargin <= requiredMargin / 100) return [];
+    return [{ id: product.id, title: product.title, price: product.price, imageUrl: (product.imageUrls?.[0] ?? product.imageUrl) || "", rewardCost, grossMargin }];
+  }).filter(product => product.imageUrl).sort((left, right) => left.rewardCost - right.rewardCost || left.price - right.price || left.title.localeCompare(right.title)).slice(0, 12);
+}
+
+export async function getActiveSpinRewardClaimByVisitorHash(visitorHash: string) {
+  const db = await requireDb();
+  return (await db.select().from(spinRewardClaims).where(and(eq(spinRewardClaims.visitorHash, visitorHash), eq(spinRewardClaims.status, "claimed"), gt(spinRewardClaims.expiresAt, new Date()))).orderBy(desc(spinRewardClaims.createdAt)).limit(1))[0] ?? null;
+}
+
+export async function createSpinRewardClaim(input: { tokenHash: string; visitorHash: string; rewardName: string; rewardOfficialProductId: number; rewardCost: number; minimumSpend: number; profitSafeguardMargin: number; expiresAt: Date }) {
+  const db = await requireDb();
+  await db.insert(spinRewardClaims).values({ ...input, status: "claimed" });
+  return (await db.select().from(spinRewardClaims).where(eq(spinRewardClaims.tokenHash, input.tokenHash)).limit(1))[0] ?? null;
+}
+
+export async function getSpinRewardClaimByTokenHash(tokenHash: string) {
+  const db = await requireDb();
+  return (await db.select().from(spinRewardClaims).where(eq(spinRewardClaims.tokenHash, tokenHash)).limit(1))[0] ?? null;
+}
+
+export type SpinCheckoutResult = { eligible: true; claim: StoredSpinRewardClaim } | { eligible: false; reason: "not_found" | "expired" | "already_used" | "gift_in_cart" | "minimum_spend" | "unknown_profit" | "profit_safeguard" | "gift_unavailable" };
+
+export async function reserveSpinRewardForCheckout(input: { tokenHash: string | undefined; userId: number; orderReference: string; items: CartLine[] }): Promise<SpinCheckoutResult> {
+  if (!input.tokenHash) return { eligible: false, reason: "not_found" };
+  const db = await requireDb();
+  const claim = await getSpinRewardClaimByTokenHash(input.tokenHash);
+  if (!claim) return { eligible: false, reason: "not_found" };
+  if (claim.expiresAt <= new Date()) {
+    await db.update(spinRewardClaims).set({ status: "expired" }).where(and(eq(spinRewardClaims.id, claim.id), eq(spinRewardClaims.status, "claimed")));
+    return { eligible: false, reason: "expired" };
+  }
+  if (claim.status !== "claimed") return { eligible: false, reason: "already_used" };
+  if (input.items.some(item => item.productId === `official-${claim.rewardOfficialProductId}`)) return { eligible: false, reason: "gift_in_cart" };
+  const [gift, facts] = await Promise.all([
+    db.select().from(officialProducts).where(and(eq(officialProducts.id, claim.rewardOfficialProductId), eq(officialProducts.status, "active"))).limit(1),
+    getCartRewardProductFacts(input.items),
+  ]);
+  if (!gift[0] || gift[0].stockQuantity === null || gift[0].stockQuantity < 1) return { eligible: false, reason: "gift_unavailable" };
+  const subtotal = facts.reduce((total, fact) => total + fact.lineTotal, 0);
+  if (subtotal < claim.minimumSpend) return { eligible: false, reason: "minimum_spend" };
+  if (facts.some(fact => fact.platformProfit === null)) return { eligible: false, reason: "unknown_profit" };
+  const profitAmount = facts.reduce((total, fact) => total + (fact.platformProfit ?? 0), 0) - claim.rewardCost;
+  if (profitAmount < Math.ceil(subtotal * claim.profitSafeguardMargin / 100)) return { eligible: false, reason: "profit_safeguard" };
+  const reserved = await db.update(spinRewardClaims).set({ userId: input.userId, orderReference: input.orderReference, status: "pending_payment" }).where(and(eq(spinRewardClaims.id, claim.id), eq(spinRewardClaims.status, "claimed")));
+  if (affectedRows(reserved) !== 1) return { eligible: false, reason: "already_used" };
+  return { eligible: true, claim: { ...claim, userId: input.userId, orderReference: input.orderReference, status: "pending_payment" } };
+}
+
+export async function settleSpinRewardAfterVerifiedPayment(orderReference: string) {
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const claim = (await tx.select().from(spinRewardClaims).where(eq(spinRewardClaims.orderReference, orderReference)).limit(1))[0];
+    if (!claim || claim.status !== "pending_payment") return { settled: false, reason: "not_pending" as const };
+    const order = (await tx.select().from(orders).where(eq(orders.reference, orderReference)).limit(1))[0];
+    if (!order || !claim.userId || order.buyerUserId !== claim.userId || !["wallet_escrow", "gateway_escrow", "paid"].includes(order.paymentStatus)) return { settled: false, reason: "payment_not_verified" as const };
+    const gift = (await tx.select().from(officialProducts).where(and(eq(officialProducts.id, claim.rewardOfficialProductId), eq(officialProducts.status, "active"))).limit(1))[0];
+    if (!gift || gift.stockQuantity === null || gift.stockQuantity < 1) {
+      await tx.update(spinRewardClaims).set({ status: "cancelled", settledAt: new Date() }).where(and(eq(spinRewardClaims.id, claim.id), eq(spinRewardClaims.status, "pending_payment")));
+      return { settled: false, reason: "gift_unavailable" as const };
+    }
+    const updated = await tx.update(spinRewardClaims).set({ status: "gift_added", settledAt: new Date() }).where(and(eq(spinRewardClaims.id, claim.id), eq(spinRewardClaims.status, "pending_payment")));
+    if (affectedRows(updated) !== 1) return { settled: false, reason: "already_settled" as const };
+    await tx.update(orders).set({ orderLines: [...order.orderLines, { productId: `official-${gift.id}`, title: gift.title, quantity: 1, unitPrice: 0, lineTotal: 0, rewardGift: true, rewardSpinClaimId: claim.id }] }).where(eq(orders.reference, orderReference));
+    return { settled: true, rewardType: "catalog_gift" as const, giftProductId: gift.id };
   });
 }
 

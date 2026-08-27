@@ -5,6 +5,8 @@ vi.mock("./db", () => ({
   getWalletFundingAttemptByReference: vi.fn(),
   markWalletWithdrawalPaid: vi.fn(),
   reverseWalletWithdrawal: vi.fn(),
+  settleCartRewardClaimAfterVerifiedPayment: vi.fn(),
+  settleSpinRewardAfterVerifiedPayment: vi.fn(),
 }));
 
 vi.mock("./paystack", async importOriginal => {
@@ -12,7 +14,7 @@ vi.mock("./paystack", async importOriginal => {
   return { ...actual, verifyPaystackTransaction: vi.fn() };
 });
 
-import { creditVerifiedWalletFunding, getWalletFundingAttemptByReference, markWalletWithdrawalPaid, reverseWalletWithdrawal } from "./db";
+import { creditVerifiedWalletFunding, getWalletFundingAttemptByReference, markWalletWithdrawalPaid, reverseWalletWithdrawal, settleCartRewardClaimAfterVerifiedPayment, settleSpinRewardAfterVerifiedPayment } from "./db";
 import { verifyPaystackTransaction } from "./paystack";
 import { processPaystackWebhook } from "./paystackWebhook";
 
@@ -29,6 +31,17 @@ describe("Paystack webhook reconciliation", () => {
 
     expect(verifyPaystackTransaction).toHaveBeenCalledWith("acwfund_123");
     expect(creditVerifiedWalletFunding).toHaveBeenCalledWith({ reference: "acwfund_123", providerTransactionId: "991", provider: "paystack" });
+  });
+
+  it("adds a reserved spin gift only after independent provider verification returns a checkout order", async () => {
+    vi.mocked(getWalletFundingAttemptByReference).mockResolvedValue({ amount: 12_500, provider: "paystack" } as never);
+    vi.mocked(verifyPaystackTransaction).mockResolvedValue({ id: "992", reference: "acwfund_checkout", status: "success", amountKobo: 1_250_000 });
+    vi.mocked(creditVerifiedWalletFunding).mockResolvedValue({ alreadyProcessed: false, checkoutOrderReference: "AC-SPIN" } as never);
+
+    await processPaystackWebhook({ event: "charge.success", data: { reference: "acwfund_checkout" } });
+
+    expect(settleCartRewardClaimAfterVerifiedPayment).toHaveBeenCalledWith("AC-SPIN");
+    expect(settleSpinRewardAfterVerifiedPayment).toHaveBeenCalledWith("AC-SPIN");
   });
 
   it("does not attempt an external transaction verification for an unknown funding reference", async () => {

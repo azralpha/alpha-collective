@@ -22,6 +22,7 @@ export type StoredOrderLine = {
   vendorUserId?: number;
   rewardGift?: boolean;
   rewardTierClaimId?: number;
+  rewardSpinClaimId?: number;
 };
 
 export const orders = mysqlTable("orders", {
@@ -207,6 +208,34 @@ export const cartRewardClaims = mysqlTable("cartRewardClaims", {
   profitMarginPercent: int("profitMarginPercent").notNull(),
   status: mysqlEnum("status", ["pending_payment", "credited", "gift_added", "cancelled", "voided"]).notNull().default("pending_payment"),
   idempotencyKey: varchar("idempotencyKey", { length: 140 }).notNull().unique(),
+  settledAt: timestamp("settledAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** Singleton administrator policy for the optional transparent Spin to Win promotion. */
+export const spinPromotionSettings = mysqlTable("spinPromotionSettings", {
+  id: int("id").primaryKey(),
+  enabled: int("enabled").notNull().default(0),
+  profitSafeguardMargin: int("profitSafeguardMargin").notNull().default(25),
+  countdownMinutes: int("countdownMinutes").notNull().default(20),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** One opaque, expiring catalog-gift claim per visitor. Prices, supplier data, and profit calculations remain private. */
+export const spinRewardClaims = mysqlTable("spinRewardClaims", {
+  id: int("id").autoincrement().primaryKey(),
+  tokenHash: varchar("tokenHash", { length: 64 }).notNull().unique(),
+  visitorHash: varchar("visitorHash", { length: 64 }).notNull(),
+  userId: int("userId"),
+  rewardName: varchar("rewardName", { length: 120 }).notNull(),
+  rewardOfficialProductId: int("rewardOfficialProductId").notNull(),
+  rewardCost: int("rewardCost").notNull(),
+  minimumSpend: int("minimumSpend").notNull(),
+  profitSafeguardMargin: int("profitSafeguardMargin").notNull(),
+  expiresAt: timestamp("expiresAt").notNull(),
+  orderReference: varchar("orderReference", { length: 40 }).unique(),
+  status: mysqlEnum("status", ["claimed", "pending_payment", "gift_added", "cancelled", "expired"]).notNull().default("claimed"),
   settledAt: timestamp("settledAt"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),

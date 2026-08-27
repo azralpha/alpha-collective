@@ -1,6 +1,6 @@
 import type { Express, Request, Response } from "express";
 import express from "express";
-import { creditVerifiedCryptoFunding, getCryptoFundingAttemptByReference, markCryptoFundingAttemptStatus, settleCartRewardClaimAfterVerifiedPayment } from "./db";
+import { creditVerifiedCryptoFunding, getCryptoFundingAttemptByReference, markCryptoFundingAttemptStatus, settleCartRewardClaimAfterVerifiedPayment, settleSpinRewardAfterVerifiedPayment } from "./db";
 import { getVerifiedNowPaymentsPayment, verifyNowPaymentsIpn } from "./nowpayments";
 import { notifyAdminPaymentEvent } from "./paymentNotifications";
 
@@ -36,7 +36,10 @@ export async function processNowPaymentsIpn(payload: NowPaymentsIpn) {
   }
   if (verified.status !== "finished") return { credited: false, status: verified.status } as const;
   const result = await creditVerifiedCryptoFunding({ reference, providerPaymentId: verified.paymentId });
-  if (!result.alreadyProcessed && result.checkoutOrderReference) await settleCartRewardClaimAfterVerifiedPayment(result.checkoutOrderReference);
+  if (!result.alreadyProcessed && result.checkoutOrderReference) {
+    await settleCartRewardClaimAfterVerifiedPayment(result.checkoutOrderReference);
+    await settleSpinRewardAfterVerifiedPayment(result.checkoutOrderReference);
+  }
   if (!result.alreadyProcessed) void notifyAdminPaymentEvent({ event: "wallet_funding_confirmed", reference, amountNaira: attempt.amountNaira });
   return { credited: !result.alreadyProcessed, status: "finished" as const };
 }

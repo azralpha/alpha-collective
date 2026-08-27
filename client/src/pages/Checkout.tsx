@@ -11,6 +11,7 @@ import { ArrowRight, Bitcoin, CheckCircle2, Copy, CreditCard, MessageCircle, Tru
 import { FormEvent, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { Link } from "wouter";
+import { getStoredSpinClaim } from "@/lib/spinPromotion";
 
 type Confirmation = { reference: string; subtotal: number; discount: number; deliveryFee: number; total: number };
 
@@ -72,20 +73,21 @@ export default function Checkout() {
       return;
     }
     const form = new FormData(event.currentTarget);
+    const spinClaimToken = getStoredSpinClaim()?.claimToken;
     if (paymentMethod === "wallet") {
       if (!isAuthenticated) { toast.info("Sign in to pay with Alpha Wallet."); startLogin(); return; }
-      walletCheckout.mutate({ buyerName: String(form.get("buyerName") ?? ""), buyerPhone: String(form.get("buyerPhone") ?? ""), deliveryAddress: { country: NIGERIA_COUNTRY, state, lga, streetDetails }, packageWeightKg: weightKg, deliveryTier, items, transactionPin, referralCode: referralCode.trim() || undefined, freeDeliveryVoucherId });
+      walletCheckout.mutate({ buyerName: String(form.get("buyerName") ?? ""), buyerPhone: String(form.get("buyerPhone") ?? ""), deliveryAddress: { country: NIGERIA_COUNTRY, state, lga, streetDetails }, packageWeightKg: weightKg, deliveryTier, items, transactionPin, referralCode: referralCode.trim() || undefined, freeDeliveryVoucherId, spinClaimToken });
       return;
     }
     if (paymentMethod === "crypto") {
       if (!administratorTestAccess) { toast.error("Controlled crypto checkout testing is available to the administrator only."); return; }
-      cryptoCheckout.mutate({ buyerName: String(form.get("buyerName") ?? ""), buyerPhone: String(form.get("buyerPhone") ?? ""), deliveryAddress: { country: NIGERIA_COUNTRY, state, lga, streetDetails }, packageWeightKg: weightKg, deliveryTier, items, payCurrency: cryptoCurrency });
+      cryptoCheckout.mutate({ buyerName: String(form.get("buyerName") ?? ""), buyerPhone: String(form.get("buyerPhone") ?? ""), deliveryAddress: { country: NIGERIA_COUNTRY, state, lga, streetDetails }, packageWeightKg: weightKg, deliveryTier, items, payCurrency: cryptoCurrency, spinClaimToken });
       return;
     }
     if (paymentMethod === "paystack" || paymentMethod === "flutterwave") {
       if (!isAuthenticated) { toast.info("Sign in and complete KYC before starting an online checkout payment."); startLogin(); return; }
       if (!payOnDeliveryEligible) { toast.error("Complete KYC Verification before starting an online checkout payment."); return; }
-      gatewayCheckout.mutate({ provider: paymentMethod, email: gatewayEmail.trim(), buyerName: String(form.get("buyerName") ?? ""), buyerPhone: String(form.get("buyerPhone") ?? ""), deliveryAddress: { country: NIGERIA_COUNTRY, state, lga, streetDetails }, packageWeightKg: weightKg, deliveryTier, items });
+      gatewayCheckout.mutate({ provider: paymentMethod, email: gatewayEmail.trim(), buyerName: String(form.get("buyerName") ?? ""), buyerPhone: String(form.get("buyerPhone") ?? ""), deliveryAddress: { country: NIGERIA_COUNTRY, state, lga, streetDetails }, packageWeightKg: weightKg, deliveryTier, items, spinClaimToken });
       return;
     }
     if (!isAuthenticated) { toast.info("Sign in and complete KYC before saving a Pay on Delivery order."); startLogin(); return; }
@@ -104,6 +106,7 @@ export default function Checkout() {
       items,
       referralCode: referralCode.trim() || undefined,
       freeDeliveryVoucherId,
+      spinClaimToken,
     });
   };
 
