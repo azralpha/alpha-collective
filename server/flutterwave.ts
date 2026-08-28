@@ -41,6 +41,19 @@ async function flutterwaveRequest<T>(path: string, init: RequestInit = {}) {
   return payload.data as T;
 }
 
+export async function resolveFlutterwaveNigerianAccount(input: { accountNumber: string; bankCode: string }) {
+  if (!/^\d{10}$/.test(input.accountNumber)) throw new FlutterwaveProviderError("Enter a valid 10-digit Nigerian account number.", 400);
+  if (!/^[A-Za-z0-9_-]{2,24}$/.test(input.bankCode)) throw new FlutterwaveProviderError("Select a valid Nigerian bank.", 400);
+  const data = await flutterwaveRequest<{ account_number?: unknown; account_name?: unknown; bank_code?: unknown }>("/accounts/resolve", {
+    method: "POST",
+    body: JSON.stringify({ account_number: input.accountNumber, account_bank: input.bankCode }),
+  });
+  if (typeof data.account_number !== "string" || typeof data.account_name !== "string" || data.account_number !== input.accountNumber || !data.account_name.trim()) {
+    throw new FlutterwaveProviderError("Flutterwave returned incomplete bank-account details.", 502);
+  }
+  return { accountNumber: data.account_number, accountName: data.account_name.trim(), bankCode: typeof data.bank_code === "string" ? data.bank_code : input.bankCode };
+}
+
 export async function initializeFlutterwavePayment(input: { email: string; reference: string; amountNaira: number; redirectUrl: string; title: string }) {
   if (!Number.isSafeInteger(input.amountNaira) || input.amountNaira < 100) throw new FlutterwaveProviderError("Enter a whole-Naira amount of at least ₦100.", 400);
   const data = await flutterwaveRequest<{ link?: unknown }>("/payments", {

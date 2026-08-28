@@ -72,6 +72,7 @@ import {
   listWalletTransactionsForUser,
   listWithdrawalRequestsForUser,
   markWalletFundingAttemptFailed,
+  markWalletBankRecipientVerified,
   markCryptoFundingAttemptStatus,
   markFulfilmentJobRetryQueued,
   markDeliveredOrderReturned,
@@ -118,6 +119,8 @@ import { adminProcedure, protectedProcedure, publicProcedure, router, sensitiveP
 import { hashTransactionPin, validateTransactionPin, verifyTransactionPin } from "../walletSecurity";
 import { generateWithdrawalOtp, hashWithdrawalOtp } from "../withdrawalOtpSecurity";
 import { hasSufficientWithdrawalBalance, quotePaystackWithdrawalFee } from "../paystackTransferFee";
+import { resolveFlutterwaveNigerianAccount } from "../flutterwave";
+import { bankAccountNameMatchesProfile, hasUsableProfileName, maskAccountNumber } from "../bankVerification";
 import { sanitizePlainText } from "../securityText";
 import { revalidatePublicCataloguePaths } from "../performanceControls";
 import { generateGeminiProductEnhancement, tryGenerateGeminiProductEnhancement } from "../geminiProductEnhancer";
@@ -407,6 +410,19 @@ export const marketplaceRouter = router({
       validateNigerianState(input.destinationState);
       return calculateDeliveryQuote(input);
     }),
+  bankVerification: router({
+    status: protectedProcedure.query(async ({ ctx }) => {
+      const recipient = await getWalletBankRecipientForUser(ctx.user.id);
+      return recipient ? { bankName: recipient.bankName, accountNumberMasked: recipient.accountNumberMasked, accountName: recipient.accountName, locked: recipient.kycBindingStatus === "locked" } : null;
+    }),
+    listBanks: protectedProcedure.query(async () => {
+      try {
+        return await listPaystackNigerianBanks();
+      } catch (error) {
+        throw paystackErrorToTrpc(error, "Nigerian banks are temporarily unavailable. Please try again.");
+      }
+    }),
+  }),
   wallet: router({
     dashboard: walletKycProcedure.query(async ({ ctx }) => {
       const wallet = await getWalletForUser(ctx.user.id);
@@ -455,22 +471,20 @@ export const marketplaceRouter = router({
       .input(z.object({ bankCode: z.string().trim().min(2).max(24), accountNumber: z.string().regex(/^\d{10}$/, "Enter a valid 10-digit Nigerian account number.") }))
       .mutation(async ({ ctx, input }) => {
         try {
-          const banks = await listPaystackNigerianBanks();
+          const [banks, vendor] = await Promise.all([listPaystackNigerianBanks(), getVendorApplicationForUser(ctx.user.id)]);
           const bank = banks.find(candidate => candidate.code === input.bankCode);
           if (!bank) throw new TRPCError({ code: "BAD_REQUEST", message: "Select a Nigerian bank from the provided list." });
-          const resolved = await resolvePaystackNigerianAccount(input.accountNumber, input.bankCode);
-          if (resolved.accountNumber !== input.accountNumber) throw new TRPCError({ code: "BAD_REQUEST", message: "The resolved bank account did not match the account number entered." });
-          const recipientCode = await createPaystackTransferRecipient({ accountName: resolved.accountName, accountNumber: input.accountNumber, bankCode: input.bankCode });
+          const profileName = vendor?.name ?? ctx.user.name ?? "";
+          if (!hasUsableProfileName(profileName)) throw new TRPCError({ code: "CONFLICT", message: "Add your full legal name to your Alpha Market profile before verifying a bank account." });
+          const resolved = await resolveFlutterwaveNigerianAccount({ accountNumber: input.accountNumber, bankCode: input.bankCode });
+          if (!bankAccountNameMatchesProfile(profileName, resolved.accountName)) throw new TRPCError({ code: "CONFLICT", message: "The bank-account name does not match your Alpha Market profile name." });
+          const existing = await getWalletBankRecipientForUser(ctx.user.id);
+          if (existing?.kycBindingStatus === "locked") throw new TRPCError({ code: "CONFLICT", message: "Your verified payout account is locked. Contact Alpha Market support to request a controlled change." });
+          const recipientCode = await createPaystackTransferRecipient({ accountName: resolved.accountName, accountNumber: resolved.accountNumber, bankCode: bank.code });
           await ensureWalletForUser(ctx.user.id);
-          await saveWalletBankRecipient({
-            userId: ctx.user.id,
-            bankCode: bank.code,
-            bankName: bank.name,
-            accountNumberMasked: maskNigerianAccountNumber(input.accountNumber),
-            accountName: resolved.accountName,
-            paystackRecipientCode: recipientCode,
-          });
-          return { bankName: bank.name, accountNumberMasked: maskNigerianAccountNumber(input.accountNumber), accountName: resolved.accountName };
+          await saveWalletBankRecipient({ userId: ctx.user.id, bankCode: bank.code, bankName: bank.name, accountNumberMasked: maskNigerianAccountNumber(resolved.accountNumber), accountName: resolved.accountName, paystackRecipientCode: recipientCode });
+          await markWalletBankRecipientVerified({ userId: ctx.user.id, bankCode: bank.code, bankName: bank.name, accountNumberMasked: maskNigerianAccountNumber(resolved.accountNumber), accountName: resolved.accountName, paystackRecipientCode: recipientCode });
+          return { bankName: bank.name, accountNumberMasked: maskNigerianAccountNumber(resolved.accountNumber), accountName: resolved.accountName };
         } catch (error) {
           if (error instanceof TRPCError) throw error;
           throw paystackErrorToTrpc(error, "Your bank account could not be verified right now. Please try again.");
@@ -692,7 +706,7 @@ export const marketplaceRouter = router({
         const { contentType, data, extension } = decodeKycGovernmentId(input.imageDataUrl);
         const uploaded = await storagePut(`kyc-private/${ctx.user.id}/${Date.now()}.${extension}`, data, contentType);
         const profile = await submitKycGovernmentId({ userId: ctx.user.id, submittedLegalName: input.legalName, governmentIdImageUrl: uploaded.url });
-        return { status: profile?.status ?? "identity_pending", message: "Your ID was securely submitted. Smile ID verification will begin only after the provider is configured." };
+        return { status: profile?.status ?? "identity_pending", message: "Your ID was securely submitted for identity review." };
       }),
   }),
   admin: router({

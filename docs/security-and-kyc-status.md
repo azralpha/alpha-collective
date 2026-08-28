@@ -20,7 +20,7 @@ The following actions intentionally remain disabled until the necessary provider
 | --- | --- |
 | **Account-lock emails and withdrawal OTP emails** | A valid email-provider key, a verified sender, successful non-sending validation, and an explicit production activation flag. |
 | **OTP verification and provider transfer** | The email provider above; only then may a verified OTP consume a challenge and trigger the existing Paystack transfer flow. |
-| **Smile ID verification** | A validated Smile ID server API key, approved biometric/NIN integration, a published HTTPS callback URL, and callback allowlisting. |
-| **KYC bank-name approval** | A successful Smile ID legal-name result and a matched Nigerian bank-account resolution result. |
+| **Identity verification** | A configured, authorized identity-verification provider, secure server callback, and provider result that passes the platform’s identity-review checks. |
+| **KYC bank-name approval** | A successful identity-review result and a matched Flutterwave Nigerian bank-account resolution result. |
 
 > **Safety rule:** Alpha Collective never treats a document upload, a bank-recipient lookup, or a UI success message as KYC approval. No provider transfer is initiated while the required validation is unavailable.

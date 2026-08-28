@@ -587,6 +587,19 @@ export async function getKycProfileForUser(userId: number) {
   return result[0];
 }
 
+export async function markWalletBankRecipientVerified(input: { userId: number; bankCode: string; bankName: string; accountNumberMasked: string; accountName: string; paystackRecipientCode: string }) {
+  const db = await requireDb();
+  await db.update(walletBankRecipients).set({
+    bankCode: input.bankCode,
+    bankName: input.bankName,
+    accountNumberMasked: input.accountNumberMasked,
+    accountName: input.accountName,
+    paystackRecipientCode: input.paystackRecipientCode,
+    kycBindingStatus: "locked",
+    verifiedAt: new Date(),
+  }).where(eq(walletBankRecipients.userId, input.userId));
+}
+
 export async function ensureKycProfileForUser(userId: number) {
   const db = await requireDb();
   await db.insert(kycProfiles).values({ userId }).onDuplicateKeyUpdate({ set: { userId: sql`${kycProfiles.userId}` } });

@@ -373,3 +373,9 @@
 - [x] Report the commit, GitHub push result, and exact Vercel environment/setup commands
 
 - [x] Address the exposed-token risk observed in the configured GitHub remote by removing credentials from local remote configuration before any push
+
+- [x] Audit Smile ID references, existing KYC/vendor verification schema, Flutterwave integration, bank-data handling, and deployment secrets
+- [x] Define safe migration, name-normalization, bank-account privacy, error handling, and verification-state rules
+- [x] Implement Flutterwave account resolution, vendor verification persistence, and the Bank Verification Widget
+- [x] Remove obsolete Smile ID paths and connect bank verification to vendor wallet and onboarding flows
+- [x] Add normalization, account validation, name-mismatch, privacy-boundary, access-control, and responsive UI regression coverage

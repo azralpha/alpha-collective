@@ -385,7 +385,6 @@ export const kycProfiles = mysqlTable("kycProfiles", {
   submittedLegalName: varchar("submittedLegalName", { length: 160 }),
   verifiedLegalName: varchar("verifiedLegalName", { length: 160 }),
   governmentIdImageUrl: text("governmentIdImageUrl"),
-  smileJobId: varchar("smileJobId", { length: 120 }),
   failureReason: varchar("failureReason", { length: 255 }),
   identityVerifiedAt: timestamp("identityVerifiedAt"),
   bankVerifiedAt: timestamp("bankVerifiedAt"),
