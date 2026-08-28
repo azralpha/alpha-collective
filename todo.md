@@ -366,10 +366,10 @@
 
 - [x] Implement the selected administrator draft-preview-send workflow with no automatic newsletter schedule
 
-- [ ] Audit Git state, remotes, ignore rules, tracked secrets, and deployment files
-- [ ] Harden .gitignore and create a complete secret-free .env.example for Vercel configuration
-- [ ] Stage deployment-safe files, scan for leaked credentials, and create the requested deployment commit
-- [ ] Sanitize the configured GitHub remote URL and push the main branch to the private repository when safe
-- [ ] Report the commit, GitHub push result, and exact Vercel environment/setup commands
+- [x] Audit Git state, remotes, ignore rules, tracked secrets, and deployment files
+- [x] Harden .gitignore and create the complete secret-free vercel.env.example template for Vercel configuration; document the protected-workspace copy step for .env.example
+- [x] Stage deployment-safe files, scan for leaked credentials, and create the requested deployment commit
+- [x] Sanitize the configured GitHub remote URL and push the main branch to the private repository when safe
+- [x] Report the commit, GitHub push result, and exact Vercel environment/setup commands
 
-- [ ] Address the exposed-token risk observed in the configured GitHub remote by removing credentials from local remote configuration before any push
+- [x] Address the exposed-token risk observed in the configured GitHub remote by removing credentials from local remote configuration before any push
