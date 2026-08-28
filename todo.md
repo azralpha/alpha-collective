@@ -365,3 +365,11 @@
 - [x] Add subscription, unsubscribe, AI-output, broadcast-control, and responsive UI regression coverage before checkpointing
 
 - [x] Implement the selected administrator draft-preview-send workflow with no automatic newsletter schedule
+
+- [ ] Audit Git state, remotes, ignore rules, tracked secrets, and deployment files
+- [ ] Harden .gitignore and create a complete secret-free .env.example for Vercel configuration
+- [ ] Stage deployment-safe files, scan for leaked credentials, and create the requested deployment commit
+- [ ] Sanitize the configured GitHub remote URL and push the main branch to the private repository when safe
+- [ ] Report the commit, GitHub push result, and exact Vercel environment/setup commands
+
+- [ ] Address the exposed-token risk observed in the configured GitHub remote by removing credentials from local remote configuration before any push
