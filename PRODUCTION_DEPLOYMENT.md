@@ -2,7 +2,7 @@
 
 ## Published application
 
-The managed Alpha Market deployment is available at `https://alphashop-3pdenj2y.manus.space`. It runs the existing **Express + tRPC + Drizzle + MySQL/TiDB** application. It is not a Next.js, Prisma, PostgreSQL, Supabase, or Vercel deployment; do not replace the existing database URL with a PostgreSQL connection string.
+The managed Alpha Market deployment is available at `https://alphacorp.name.ng` once the custom domain binding and DNS verification are complete. The fallback managed URL is `https://alphashop-3pdenj2y.manus.space`. It runs the existing **Express + tRPC + Drizzle + MySQL/TiDB** application. It is not a Next.js, Prisma, PostgreSQL, Supabase, or Vercel deployment; do not replace the existing database URL with a PostgreSQL connection string.
 
 ## Supported managed environment values
 
@@ -28,10 +28,14 @@ Paystack and Flutterwave wallet funding and checkout redirects are available to 
 
 | Provider | Register this webhook URL | Required dashboard setting |
 | --- | --- | --- |
-| Paystack | `https://alphashop-3pdenj2y.manus.space/api/paystack/webhook` | Enable charge-success events. |
-| Flutterwave | `https://alphashop-3pdenj2y.manus.space/api/flutterwave/webhook` | Set the same Secret Hash stored in `FLUTTERWAVE_WEBHOOK_SECRET_HASH`, enable `charge.completed`, and enable retry delivery. |
+| Paystack | `https://alphacorp.name.ng/api/paystack/webhook` | Enable charge-success events. |
+| Flutterwave | `https://alphacorp.name.ng/api/flutterwave/webhook` | Set the same Secret Hash stored in `FLUTTERWAVE_WEBHOOK_SECRET_HASH`, enable `charge.completed`, and enable retry delivery. |
 
 Do not treat a provider success redirect as a settlement callback. Only the signed webhook and independent transaction check can change a wallet balance or turn a pending checkout order into gateway-held escrow.
+
+## OAuth custom-domain configuration
+
+The frontend login trigger intentionally derives its redirect URI from the active browser origin: `https://alphacorp.name.ng/api/oauth/callback` on the canonical domain. In the Manus Developer Portal, open the Alpha Market OAuth application identified by `VITE_APP_ID`, find the **Allowed Redirect URIs**, **Authorized redirect URLs**, or equivalent application security section, and add the exact callback URI `https://alphacorp.name.ng/api/oauth/callback`. If `www.alphacorp.name.ng` is also connected and users may sign in there, add `https://www.alphacorp.name.ng/api/oauth/callback` as a second exact entry. Do not add a wildcard, a trailing slash, an HTTP URL, or a callback path from an unrelated deployment. The server callback route is already registered at `/api/oauth/callback`; the frontend supplies the origin and the existing state/nonce protection remains active.
 
 ## Public verification completed
 

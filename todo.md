@@ -379,3 +379,8 @@
 - [x] Implement Flutterwave account resolution, vendor verification persistence, and the Bank Verification Widget
 - [x] Remove obsolete Smile ID paths and connect bank verification to vendor wallet and onboarding flows
 - [x] Add normalization, account validation, name-mismatch, privacy-boundary, access-control, and responsive UI regression coverage
+
+- [ ] Connect the custom domain alphacorp.name.ng to the live managed Alpha Market deployment and verify DNS/SSL readiness
+
+- [x] Audit origin handling, callback configuration, and Manus redirect allowlisting requirements for the alphacorp.name.ng OAuth error
+- [ ] Add `https://alphacorp.name.ng/api/oauth/callback` to the Manus OAuth application’s allowed redirect URIs and verify a real custom-domain login
