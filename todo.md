@@ -392,3 +392,5 @@
 - [x] Temporarily switch authentication/public-origin configuration to https://alphashop-3pdenj2y.manus.space without removing alphacorp.name.ng domain configuration
 
 - [x] Push the latest managed-host authentication update and configuration test to the connected private GitHub repository
+
+- [x] Diagnose why Android login still sends alphacorp.name.ng after the managed-host fallback and provide a verified managed-host entry path

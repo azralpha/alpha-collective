@@ -4,10 +4,10 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(new URL("./src/const.ts", import.meta.url), "utf8");
 
 describe("Manus OAuth redirect handling", () => {
-  it("uses the active browser origin for the callback rather than a hard-coded host", () => {
-    expect(source).toContain("const redirectUri = `${window.location.origin}/api/oauth/callback`;");
-    expect(source).not.toContain("alphashop-3pdenj2y.manus.space");
-    expect(source).not.toContain("alphacorp.name.ng");
+  it("hands custom-domain visitors off to the managed host before creating OAuth state", () => {
+    expect(source).toContain('import.meta.env.VITE_AUTH_ORIGIN');
+    expect(source).toContain('handoffUrl.searchParams.set("oauthHandoff", "1");');
+    expect(source).toContain("const redirectUri = `${currentOrigin}/api/oauth/callback`;");
   });
 
   it("includes the configured app identifier and callback in the authorization request", () => {

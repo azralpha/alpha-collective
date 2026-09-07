@@ -21,6 +21,8 @@ import AdminNewsletter from "@/pages/AdminNewsletter";
 import CookieConsent from "@/components/CookieConsent";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
+import { startLogin } from "@/const";
+import { useEffect } from "react";
 import { CartProvider } from "./contexts/CartContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
@@ -51,6 +53,19 @@ function Router() {
   );
 }
 
+function OAuthHandoffResume() {
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("oauthHandoff") !== "1") return;
+
+    window.history.replaceState({}, "", `${window.location.pathname}${window.location.hash}`);
+    const timer = window.setTimeout(() => startLogin(), 50);
+    return () => window.clearTimeout(timer);
+  }, []);
+
+  return null;
+}
+
 function App() {
   return (
     <ErrorBoundary>
@@ -59,6 +74,7 @@ function App() {
           <CartProvider>
             <Toaster />
             <CookieConsent />
+            <OAuthHandoffResume />
             <Router />
           </CartProvider>
         </TooltipProvider>
