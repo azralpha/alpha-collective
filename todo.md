@@ -384,3 +384,9 @@
 
 - [x] Audit origin handling, callback configuration, and Manus redirect allowlisting requirements for the alphacorp.name.ng OAuth error
 - [ ] Add `https://alphacorp.name.ng/api/oauth/callback` to the Manus OAuth application’s allowed redirect URIs and verify a real custom-domain login
+
+- [ ] Update the authenticated Manus OAuth application with the alphacorp.name.ng callback URI and verify the custom-domain login flow
+
+- [x] Evaluate and document a safe alternative for the confirmed alphacorp.name.ng OAuth redirect-domain blockage without sharing credentials
+
+- [x] Temporarily switch authentication/public-origin configuration to https://alphashop-3pdenj2y.manus.space without removing alphacorp.name.ng domain configuration
