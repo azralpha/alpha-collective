@@ -5,7 +5,13 @@ export const users = mysqlTable("users", {
   id: int("id").autoincrement().primaryKey(),
   openId: varchar("openId", { length: 64 }).notNull().unique(),
   name: text("name"),
+  username: varchar("username", { length: 80 }),
+  profileImageUrl: text("profileImageUrl"),
+  legalName: varchar("legalName", { length: 160 }),
+  dateOfBirth: varchar("dateOfBirth", { length: 10 }),
+  legalIdentityLockedAt: timestamp("legalIdentityLockedAt"),
   email: varchar("email", { length: 320 }),
+  phone: varchar("phone", { length: 32 }),
   loginMethod: varchar("loginMethod", { length: 64 }),
   role: mysqlEnum("role", ["user", "admin"]).default("user").notNull(),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -582,8 +588,52 @@ export const cjImportBatchItems = mysqlTable("cjImportBatchItems", {
   createdAt: timestamp("createdAt").defaultNow().notNull(),
 });
 
+export const userLoyaltyProfiles = mysqlTable("userLoyaltyProfiles", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull().unique(),
+  points: int("points").notNull().default(0),
+  level: varchar("level", { length: 40 }).notNull().default("Newcomer"),
+  lifetimeSpend: int("lifetimeSpend").notNull().default(0),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const userAchievements = mysqlTable("userAchievements", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  achievementKey: varchar("achievementKey", { length: 64 }).notNull(),
+  label: varchar("label", { length: 100 }).notNull(),
+  description: varchar("description", { length: 255 }).notNull(),
+  awardedAt: timestamp("awardedAt").defaultNow().notNull(),
+});
+
+export const userFollowedVendors = mysqlTable("userFollowedVendors", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  vendorUserId: int("vendorUserId").notNull(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+export const userAddresses = mysqlTable("userAddresses", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  label: varchar("label", { length: 60 }).notNull(),
+  recipientName: varchar("recipientName", { length: 120 }).notNull(),
+  phone: varchar("phone", { length: 32 }).notNull(),
+  country: varchar("country", { length: 60 }).notNull().default("Nigeria"),
+  state: varchar("state", { length: 80 }).notNull(),
+  lga: varchar("lga", { length: 100 }).notNull(),
+  streetDetails: varchar("streetDetails", { length: 255 }).notNull(),
+  isDefault: int("isDefault").notNull().default(0),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export type User = typeof users.$inferSelect;
 export type InsertUser = typeof users.$inferInsert;
+export type UserLoyaltyProfile = typeof userLoyaltyProfiles.$inferSelect;
+export type UserAchievement = typeof userAchievements.$inferSelect;
+export type UserFollowedVendor = typeof userFollowedVendors.$inferSelect;
+export type UserAddress = typeof userAddresses.$inferSelect;
 export type Order = typeof orders.$inferSelect;
 export type InsertOrder = typeof orders.$inferInsert;
 export type ReferralShare = typeof referralShares.$inferSelect;

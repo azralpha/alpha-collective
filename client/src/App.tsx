@@ -18,6 +18,7 @@ import Rewards from "@/pages/Rewards";
 import Legal from "@/pages/Legal";
 import AdminTieredCartRewards from "@/pages/AdminTieredCartRewards";
 import AdminNewsletter from "@/pages/AdminNewsletter";
+import Profile from "@/pages/Profile";
 import CookieConsent from "@/components/CookieConsent";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -37,6 +38,7 @@ function Router() {
       <Route path="/sell" component={Sell} />
       <Route path="/vendor/dashboard" component={VendorDashboard} />
       <Route path="/wallet" component={Wallet} />
+      <Route path="/profile" component={Profile} />
       <Route path="/rewards" component={Rewards} />
       <Route path="/kyc" component={KycVerification} />
       <Route path="/terms-of-use"><Legal kind="terms" /></Route>

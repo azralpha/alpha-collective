@@ -394,3 +394,7 @@
 - [x] Push the latest managed-host authentication update and configuration test to the connected private GitHub repository
 
 - [x] Diagnose why Android login still sends alphacorp.name.ng after the managed-host fallback and provide a verified managed-host entry path
+
+- [x] Verify why alphacorp.name.ng still fails OAuth after managed-host sign-in succeeds, including current DNS target and served deployment
+
+- [x] Build the secure Profile & Dashboard workspace with editable public identity, one-time locked legal identity, loyalty, followed sellers, orders/receipts, addresses, and support actions
