@@ -1,0 +1,46 @@
+services:
+  - type: web
+    name: alpha-collective
+    runtime: node
+    plan: starter
+    region: frankfurt
+    branch: main
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm build
+    startCommand: pnpm start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: VITE_APP_ID
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: DATABASE_URL
+        sync: false
+      - key: OAUTH_SERVER_URL
+        sync: false
+      - key: VITE_OAUTH_PORTAL_URL
+        sync: false
+      - key: OWNER_OPEN_ID
+        sync: false
+      - key: OWNER_NAME
+        sync: false
+      - key: BUILT_IN_FORGE_API_URL
+        sync: false
+      - key: BUILT_IN_FORGE_API_KEY
+        sync: false
+      - key: VITE_FRONTEND_FORGE_API_KEY
+        sync: false
+      - key: VITE_FRONTEND_FORGE_API_URL
+        sync: false
+      - key: TASK_REWARDS_WEBHOOK_SECRET
+        sync: false
+      - key: TASK_REWARD_HOLD_THRESHOLD_NAIRA
+        value: "3000"
+      - key: PUBLIC_APP_URL
+        value: https://alphacorp.name.ng
+      - key: VITE_AUTH_ORIGIN
+        value: https://alphacorp.name.ng
+      - key: PORT
+        value: "10000"
