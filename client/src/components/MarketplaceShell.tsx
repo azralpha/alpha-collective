@@ -13,6 +13,15 @@ import NewsletterSubscribe from "./NewsletterSubscribe";
 export const WHATSAPP_SUPPORT_URL =
   "https://wa.me/2340000000000?text=Hello%20Alpha%20Market%2C%20I%20need%20help%20with%20my%20order.";
 
+const mobileNavigation = [
+  { href: "/", label: "Home", icon: Home },
+  { href: "/shop", label: "Categories", icon: Grid2X2 },
+  { href: "/rewards", label: "Rewards", icon: Gift },
+  { href: "/sell", label: "Sell", icon: Store },
+  { href: "/wallet", label: "Wallet", icon: WalletCards },
+  { href: "/profile", label: "Profile", icon: UserRound },
+] as const;
+
 export function AlphaMark({ compact = false }: { compact?: boolean }) {
   return (
     <Link href="/" className="brand-lockup" aria-label="Alpha Market home">
@@ -72,13 +81,8 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
       <CartDrawer open={cartDrawerOpen} onClose={() => setCartDrawerOpen(false)} />
       <AlphaAiSupport />
       <SpinToWinPromotion />
-      <nav className="mobile-bottom-nav" aria-label="Mobile navigation">
-        <Link href="/" className={location === "/" ? "active" : ""}><Home size={21} /><span>Home</span></Link>
-        <Link href="/shop" className={location === "/shop" ? "active" : ""}><Grid2X2 size={21} /><span>Categories</span></Link>
-        <Link href="/rewards" className={location === "/rewards" ? "active" : ""}><Gift size={21} /><span>Rewards</span></Link>
-        <Link href="/sell" className={location === "/sell" ? "active" : ""}><Store size={21} /><span>Sell</span></Link>
-        <Link href="/wallet" className={location === "/wallet" ? "active" : ""}><WalletCards size={21} /><span>Wallet</span></Link>
-        <Link href="/profile" className={location === "/profile" ? "active" : ""}><UserRound size={21} /><span>Profile</span></Link>
+      <nav className="mobile-bottom-nav" aria-label="Mobile navigation" style={{ "--mobile-nav-index": mobileNavigation.findIndex(item => item.href === (location.startsWith("/shop") ? "/shop" : location)) } as React.CSSProperties}>
+        {mobileNavigation.map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={(href === "/shop" ? location.startsWith("/shop") : location === href) ? "active" : ""}><Icon size={21} /><span>{label}</span></Link>)}
       </nav>
       <footer className="site-footer">
         <div>

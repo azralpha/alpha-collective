@@ -1,0 +1,1 @@
+ALTER TABLE `giftCardPurchases` ADD `purchaserIp` varchar(64) NOT NULL;

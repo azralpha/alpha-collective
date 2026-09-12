@@ -1,4 +1,4 @@
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import {
   orders,
   userAchievements,
@@ -39,7 +39,7 @@ export async function getProfileDashboard(userId: number) {
   const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1);
   if (!user) throw new Error("User account was not found.");
 
-  const [loyaltyRows, achievements, follows, userOrders, addresses, wallet, vendorApplication] = await Promise.all([
+  const [loyaltyRows, achievements, follows, userOrders, addresses, wallet, vendorApplication, followerRows] = await Promise.all([
     db.select().from(userLoyaltyProfiles).where(eq(userLoyaltyProfiles.userId, userId)).limit(1),
     db.select().from(userAchievements).where(eq(userAchievements.userId, userId)).orderBy(desc(userAchievements.awardedAt)),
     db.select().from(userFollowedVendors).where(eq(userFollowedVendors.userId, userId)).orderBy(desc(userFollowedVendors.createdAt)),
@@ -47,6 +47,7 @@ export async function getProfileDashboard(userId: number) {
     db.select().from(userAddresses).where(eq(userAddresses.userId, userId)).orderBy(desc(userAddresses.isDefault), desc(userAddresses.updatedAt)),
     getWalletForUser(userId),
     db.select().from(vendorApplications).where(eq(vendorApplications.userId, userId)).limit(1),
+    db.select({ count: sql<number>`count(*)` }).from(userFollowedVendors).where(eq(userFollowedVendors.vendorUserId, userId)),
   ]);
 
   const points = loyaltyRows[0]?.points ?? 0;
@@ -87,6 +88,8 @@ export async function getProfileDashboard(userId: number) {
     loyalty: { points, level: level.name, nextLevelPoints: level.next, progressPercent: Math.min(100, Math.round((points / level.next) * 100)) },
     achievements: derivedAchievements,
     followedSellers,
+    followingCount: follows.length,
+    followersCount: Number(followerRows[0]?.count ?? 0),
     orders: userOrders,
     addresses,
     wallet: wallet ? { withdrawableBalance: wallet.withdrawableBalance, bonusBalance: wallet.bonusBalance, escrowBalance: wallet.escrowBalance } : null,

@@ -19,6 +19,34 @@ export const users = mysqlTable("users", {
   lastSignedIn: timestamp("lastSignedIn").defaultNow().notNull(),
 });
 
+export const giftCards = mysqlTable("giftCards", {
+  id: int("id").autoincrement().primaryKey(),
+  codeHash: varchar("codeHash", { length: 64 }).notNull().unique(),
+  initialBalance: int("initialBalance").notNull(),
+  currentBalance: int("currentBalance").notNull(),
+  currency: varchar("currency", { length: 3 }).notNull().default("NGN"),
+  purchaserEmail: varchar("purchaserEmail", { length: 320 }).notNull(),
+  recipientEmail: varchar("recipientEmail", { length: 320 }).notNull(),
+  status: mysqlEnum("status", ["ACTIVE", "EXPIRED", "EXHAUSTED"]).notNull().default("ACTIVE"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const giftCardPurchases = mysqlTable("giftCardPurchases", {
+  id: int("id").autoincrement().primaryKey(),
+  reference: varchar("reference", { length: 80 }).notNull().unique(),
+  purchaserUserId: int("purchaserUserId").notNull(),
+  purchaserIp: varchar("purchaserIp", { length: 64 }).notNull(),
+  amount: int("amount").notNull(),
+  purchaserEmail: varchar("purchaserEmail", { length: 320 }).notNull(),
+  recipientEmail: varchar("recipientEmail", { length: 320 }).notNull(),
+  status: mysqlEnum("status", ["PENDING", "PAID", "FAILED"]).notNull().default("PENDING"),
+  providerTransactionId: varchar("providerTransactionId", { length: 80 }),
+  giftCardId: int("giftCardId"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  paidAt: timestamp("paidAt"),
+});
+
 export type StoredOrderLine = {
   productId: string;
   title: string;

@@ -7,6 +7,7 @@ import { useMemo, useState } from "react";
 import { Link } from "wouter";
 import { toast } from "sonner";
 import { BadgeCheck, BookOpen, Camera, ChevronRight, CircleHelp, Download, Heart, Landmark, LockKeyhole, LogOut, MapPin, MessageCircle, Pencil, Plus, ShieldCheck, Sparkles, Star, Trophy, UserRound, X } from "lucide-react";
+import GiftCardSection from "@/components/GiftCardSection";
 
 const emptyAddress = { label: "Home", recipientName: "", phone: "", state: "", lga: "", streetDetails: "", isDefault: true };
 
@@ -50,7 +51,6 @@ export default function Profile() {
 
   const currentName = profile?.username || user?.name || "Alpha Market member";
   const orderCount = data?.orders.length ?? 0;
-  const followedCount = data?.followedSellers.length ?? 0;
   const defaultAddress = data?.addresses.find(address => address.isDefault === 1);
   const nextLevelLabel = useMemo(() => data?.loyalty.level === "Trailblazer" ? "You are at the top tier" : `${formatNaira(Math.max(0, (data?.loyalty.nextLevelPoints ?? 0) - (data?.loyalty.points ?? 0)))} loyalty points to the next level`, [data]);
 
@@ -82,10 +82,12 @@ export default function Profile() {
 
       <section className="profile-stat-grid" aria-label="Account summary">
         <article className="profile-stat-card"><span>Orders</span><strong>{orderCount}</strong><small>Purchase history</small></article>
-        <article className="profile-stat-card"><span>Following</span><strong>{followedCount}</strong><small>Seller updates</small></article>
+        <article className="profile-stat-card"><span>Community</span><strong className="flex gap-3 text-xl"><span>{data.followersCount}</span><span className="text-slate-300">/</span><span>{data.followingCount}</span></strong><small>Followers / Following</small></article>
         <article className="profile-stat-card"><span>Points</span><strong>{data.loyalty.points.toLocaleString()}</strong><small>{data.loyalty.level} tier</small></article>
         <article className="profile-stat-card"><span>Wallet</span><strong>{formatNaira((data.wallet?.withdrawableBalance ?? 0) + (data.wallet?.bonusBalance ?? 0))}</strong><small><Link href="/wallet">Open wallet</Link></small></article>
       </section>
+
+      <GiftCardSection />
 
       <nav className="profile-tabs" aria-label="Profile sections">
         {[['overview', 'Overview'], ['orders', 'Orders'], ['addresses', 'Addresses'], ['following', 'Following']].map(([key, label]) => <button key={key} className={activeTab === key ? "profile-tab active" : "profile-tab"} onClick={() => setActiveTab(key as typeof activeTab)}>{label}</button>)}

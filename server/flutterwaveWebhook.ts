@@ -2,10 +2,11 @@ import express, { type Express } from "express";
 import { creditVerifiedWalletFunding, getWalletFundingAttemptByReference, settleCartRewardClaimAfterVerifiedPayment, settleSpinRewardAfterVerifiedPayment } from "./db";
 import { verifyFlutterwaveTransaction, verifyFlutterwaveWebhookSignature } from "./flutterwave";
 import { notifyAdminPaymentEvent } from "./paymentNotifications";
+import { issueGiftCardFromFlutterwave } from "./giftCards";
 
 type FlutterwaveWebhookEvent = {
   type?: unknown;
-  data?: { id?: unknown; tx_ref?: unknown };
+  data?: { id?: unknown; tx_ref?: unknown; reference?: unknown };
 };
 
 function eventTransactionId(event: FlutterwaveWebhookEvent) {
@@ -31,6 +32,12 @@ async function reconcileFunding(event: FlutterwaveWebhookEvent) {
 
 export async function processFlutterwaveWebhook(event: FlutterwaveWebhookEvent) {
   if (event.type !== "charge.completed") return;
+  const eventReference = typeof event.data?.tx_ref === "string" ? event.data.tx_ref : typeof event.data?.reference === "string" ? event.data.reference : "";
+  if (eventReference.startsWith("ALPHA-GC-")) {
+    const giftCard = await issueGiftCardFromFlutterwave({ transactionId: eventTransactionId(event) ?? "" });
+    void giftCard;
+    return;
+  }
   const funding = await reconcileFunding(event);
   if (funding) void notifyAdminPaymentEvent({ event: "wallet_funding_confirmed", reference: funding.reference, amountNaira: funding.amount });
 }
