@@ -19,6 +19,7 @@ import Legal from "@/pages/Legal";
 import AdminTieredCartRewards from "@/pages/AdminTieredCartRewards";
 import AdminNewsletter from "@/pages/AdminNewsletter";
 import Profile from "@/pages/Profile";
+import Task2Earn from "@/pages/Task2Earn";
 import CookieConsent from "@/components/CookieConsent";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
@@ -40,6 +41,7 @@ function Router() {
       <Route path="/wallet" component={Wallet} />
       <Route path="/profile" component={Profile} />
       <Route path="/rewards" component={Rewards} />
+      <Route path="/task-2-earn" component={Task2Earn} />
       <Route path="/kyc" component={KycVerification} />
       <Route path="/terms-of-use"><Legal kind="terms" /></Route>
       <Route path="/privacy-policy"><Legal kind="privacy" /></Route>

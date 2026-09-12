@@ -6,6 +6,7 @@ import { marketplaceRouter } from "./routers/marketplace";
 import { supportRouter } from "./routers/support";
 import { profileRouter } from "./routers/profile";
 import { giftCardsRouter } from "./routers/giftCards";
+import { taskRewardsRouter } from "./routers/taskRewards";
 
 export const appRouter = router({
   system: systemRouter,
@@ -21,6 +22,7 @@ export const appRouter = router({
   support: supportRouter,
   profile: profileRouter,
   giftCards: giftCardsRouter,
+  taskRewards: taskRewardsRouter,
 });
 
 export type AppRouter = typeof appRouter;

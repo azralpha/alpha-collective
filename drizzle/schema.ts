@@ -47,6 +47,19 @@ export const giftCardPurchases = mysqlTable("giftCardPurchases", {
   paidAt: timestamp("paidAt"),
 });
 
+export const taskTransactions = mysqlTable("taskTransactions", {
+  id: int("id").autoincrement().primaryKey(),
+  userId: int("userId").notNull(),
+  provider: varchar("provider", { length: 80 }).notNull(),
+  externalTxId: varchar("externalTxId", { length: 160 }).notNull().unique(),
+  taskName: varchar("taskName", { length: 180 }),
+  payoutAmount: int("payoutAmount").notNull(),
+  status: mysqlEnum("status", ["PENDING", "COMPLETED", "REVERSED"]).notNull().default("PENDING"),
+  holdUntil: timestamp("holdUntil"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
 export type StoredOrderLine = {
   productId: string;
   title: string;

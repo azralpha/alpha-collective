@@ -24,6 +24,7 @@ import { registerCartRewardUpsellRoute } from "../cartRewardUpsellRoute";
 import { registerSpinPromotionRoute } from "../spinPromotionRoute";
 import { registerNewsletterRoutes } from "../newsletterRoute";
 import { registerBankVerificationRoute } from "../bankVerificationRoute";
+import { registerTaskRewardsRoutes } from "../taskRewardsRoute";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -51,6 +52,7 @@ async function startServer() {
   app.use("/api/oauth/callback", createExpressRateLimit({ scope: "oauth-callback", limit: 20, windowMs: 60_000 }));
   registerPaystackWebhook(app);
   registerFlutterwaveWebhook(app);
+  registerTaskRewardsRoutes(app);
   registerCjFulfilmentSchedule(app);
   registerCjInventorySyncSchedule(app);
   registerRewardReleaseSchedule(app);

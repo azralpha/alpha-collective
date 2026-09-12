@@ -211,6 +211,13 @@
       "when": 1789198198174,
       "tag": "0029_aspiring_loa",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "5",
+      "when": 1789199801125,
+      "tag": "0030_daily_jean_grey",
+      "breakpoints": true
     }
   ]
 }
