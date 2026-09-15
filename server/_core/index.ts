@@ -25,6 +25,7 @@ import { registerSpinPromotionRoute } from "../spinPromotionRoute";
 import { registerNewsletterRoutes } from "../newsletterRoute";
 import { registerBankVerificationRoute } from "../bankVerificationRoute";
 import { registerTaskRewardsRoutes } from "../taskRewardsRoute";
+import { registerCors } from "./cors";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -47,6 +48,8 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
 
 async function startServer() {
   const app = express();
+  app.set("trust proxy", 1);
+  registerCors(app);
   const server = createServer(app);
   registerNowPaymentsWebhook(app);
   app.use("/api/oauth/callback", createExpressRateLimit({ scope: "oauth-callback", limit: 20, windowMs: 60_000 }));
