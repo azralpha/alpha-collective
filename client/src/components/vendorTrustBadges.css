@@ -1,0 +1,8 @@
+.vendor-trust-badges { display: inline-flex; flex-wrap: wrap; align-items: center; gap: 5px; margin-left: 5px; vertical-align: middle; }
+.vendor-trust-badge { display: inline-flex; align-items: center; gap: 3px; padding: 3px 6px; border: 1px solid transparent; border-radius: 999px; font-size: 9px; font-weight: 800; letter-spacing: .01em; line-height: 1.1; white-space: nowrap; }
+.vendor-trust-verified { border-color: #a8ddbc; background: #e7f8ec; color: #176b35; }
+.vendor-trust-unverified { border-color: #d8d9d5; background: #f2f2ef; color: #676b65; }
+.vendor-trust-lightning { border-color: #f0cd70; background: #fff4cf; color: #995f00; }
+.vendor-trust-top-rated { border-color: #e6bc51; background: #fff0bd; color: #875400; }
+.vendor-byline .vendor-trust-badges { margin-top: 5px; margin-left: 0; }
+@media (max-width: 640px) { .vendor-trust-badge { padding: 3px 5px; font-size: 8px; } }

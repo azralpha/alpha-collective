@@ -1,0 +1,2 @@
+ALTER TABLE `vendorApplications` MODIFY COLUMN `category` enum('Fashion','Gadgets','Beauty','Home & Furniture','Vehicles','Animals & Pets') NOT NULL;--> statement-breakpoint
+ALTER TABLE `vendorProducts` MODIFY COLUMN `category` enum('Fashion','Gadgets','Beauty','Home & Furniture','Vehicles','Animals & Pets') NOT NULL;

@@ -15,7 +15,20 @@ export { COOKIE_NAME, ONE_YEAR_MS } from "@shared/const";
 export const startLogin = () => {
   const oauthPortalUrl = import.meta.env.VITE_OAUTH_PORTAL_URL;
   const appId = import.meta.env.VITE_APP_ID;
-  const redirectUri = `${window.location.origin}/api/oauth/callback`;
+  const configuredAuthOrigin = String(import.meta.env.VITE_AUTH_ORIGIN ?? "").replace(/\/+$/, "");
+  const currentOrigin = window.location.origin;
+
+  // OAuth state is bound to a host-only cookie. If the user opened the
+  // custom domain before Manus allowlisted it, hand off to the managed host
+  // first so the cookie and callback are created on the same origin.
+  if (configuredAuthOrigin && currentOrigin !== configuredAuthOrigin) {
+    const handoffUrl = new URL(`${configuredAuthOrigin}/`);
+    handoffUrl.searchParams.set("oauthHandoff", "1");
+    window.location.href = handoffUrl.toString();
+    return;
+  }
+
+  const redirectUri = `${currentOrigin}/api/oauth/callback`;
 
   const nonce = crypto.randomUUID();
   document.cookie = `${OAUTH_STATE_COOKIE}=${nonce}; Path=/; Max-Age=600; SameSite=None; Secure`;

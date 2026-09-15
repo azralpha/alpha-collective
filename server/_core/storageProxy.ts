@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { ENV } from "./env";
+import { IMMUTABLE_PRODUCT_IMAGE_CACHE_CONTROL, isImmutableProductImageKey, PRIVATE_API_CACHE_CONTROL } from "../performanceControls";
 
 export function registerStorageProxy(app: Express) {
   app.get("/manus-storage/*", async (req, res) => {
@@ -38,7 +39,7 @@ export function registerStorageProxy(app: Express) {
         return;
       }
 
-      res.set("Cache-Control", "no-store");
+      res.set("Cache-Control", isImmutableProductImageKey(key) ? IMMUTABLE_PRODUCT_IMAGE_CACHE_CONTROL : PRIVATE_API_CACHE_CONTROL);
       res.redirect(307, url);
     } catch (err) {
       console.error("[StorageProxy] failed:", err);

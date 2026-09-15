@@ -1,0 +1,1 @@
+ALTER TABLE `kycProfiles` DROP COLUMN `smileJobId`;

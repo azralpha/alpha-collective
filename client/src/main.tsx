@@ -8,7 +8,27 @@ import App from "./App";
 import { startLogin } from "./const";
 import "./index.css";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      staleTime: 15_000,
+      gcTime: 5 * 60_000,
+      refetchOnWindowFocus: false,
+    },
+  },
+});
+
+function getDeviceId() {
+  try {
+    const existing = localStorage.getItem("alpha-collective-device-id");
+    if (existing && /^[A-Za-z0-9_-]{16,160}$/.test(existing)) return existing;
+    const generated = crypto.randomUUID().replace(/-/g, "");
+    localStorage.setItem("alpha-collective-device-id", generated);
+    return generated;
+  } catch {
+    return "";
+  }
+}
 
 const redirectToLoginIfUnauthorized = (error: unknown) => {
   if (!(error instanceof TRPCClientError)) return;
@@ -53,14 +73,13 @@ const trpcClient = trpc.createClient({
             const prefix = `${COOKIE_NAME}=`;
             const pair = raw.split(";").find(s => s.trim().startsWith(prefix));
             const token = pair?.trim().slice(prefix.length);
-            if (token) {
-              return { Authorization: `Bearer ${token}` };
-            }
+            if (token) return { Authorization: `Bearer ${token}`, "X-Alpha-Device-Id": getDeviceId() };
           }
         } catch {
           // sessionStorage unavailable
         }
-        return {};
+        const deviceId = getDeviceId();
+        return deviceId ? { "X-Alpha-Device-Id": deviceId } : {};
       },
       fetch(input, init) {
         return globalThis.fetch(input, {

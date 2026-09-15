@@ -1,33 +1,165 @@
+import MarketplaceShell, { WHATSAPP_SUPPORT_URL } from "@/components/MarketplaceShell";
+import ProductCard from "@/components/ProductCard";
 import { useAuth } from "@/_core/hooks/useAuth";
-import { Button } from "@/components/ui/button";
-import { Loader2 } from "lucide-react";
-import { Streamdown } from 'streamdown';
+import { startLogin } from "@/const";
+import { trpc } from "@/lib/trpc";
+import { HERO_CAROUSEL_SLIDES, nextHeroSlide } from "@/lib/heroCarousel";
+import { getMarketplaceCategoryMetadata, MARKETPLACE_CATEGORIES, MARKETPLACE_PRODUCTS, type MarketplaceCategory } from "@shared/marketplace";
+import { ArrowRight, CheckCircle2, Flame, MessageCircle, PackageCheck, ShieldCheck, Tag, Truck } from "lucide-react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
+import { Link } from "wouter";
 
-/**
- * All content in this page are only for example, replace with your own feature implementation
- * When building pages, remember your instructions in Frontend Workflow, Frontend Best Practices, Design Guide and Common Pitfalls
- */
+const categoryNotes: Record<MarketplaceCategory, string> = {
+  Fashion: "wear it out",
+  Gadgets: "plug in",
+  Beauty: "feel good",
+  "Home & Furniture": "stay in",
+  Vehicles: "get moving",
+  "Animals & Pets": "care well",
+};
+
+const categoryCards = MARKETPLACE_CATEGORIES.flatMap(name => {
+  const product = MARKETPLACE_PRODUCTS.find(item => item.category === name);
+  return product ? [{ name, product, note: categoryNotes[name] }] : [];
+});
+
 export default function Home() {
-  // The useAuth hook provides authentication state.
-  // To implement login/logout, call logout(), or start login from an event
-  // handler: onClick={() => startLogin()} (imported from "@/const"). Never call
-  // startLogin() during render (no href={startLogin()}) — it mints a one-time
-  // nonce cookie and must run only at the moment of navigation.
-  let { user, loading, error, isAuthenticated, logout } = useAuth();
+  const { isAuthenticated } = useAuth();
+  const [shareCode, setShareCode] = useState<string | null>(null);
+  const [activeHeroSlide, setActiveHeroSlide] = useState(0);
+  const [reduceHeroMotion, setReduceHeroMotion] = useState(false);
+  const referralStatus = trpc.marketplace.myReferralStatus.useQuery(undefined, { enabled: isAuthenticated });
+  const createReferralShare = trpc.marketplace.createReferralShare.useMutation({
+    onSuccess: async data => {
+      setShareCode(data.shareCode);
+      const shareUrl = `${window.location.origin}/shop?ref=${data.shareCode}`;
+      const shareText = `Shop Alpha Market with my referral code ${data.shareCode} and get ₦${data.rewardValue.toLocaleString("en-NG")} off orders from ₦${data.minimumOrderSubtotal.toLocaleString("en-NG")}: ${shareUrl}`;
+      try {
+        await navigator.clipboard.writeText(shareText);
+        toast.success("Your referral message is ready to share.");
+      } catch {
+        toast.success("Your referral code is ready to share.");
+      }
+      window.open(`https://wa.me/?text=${encodeURIComponent(shareText)}`, "_blank", "noopener,noreferrer");
+    },
+    onError: error => toast.error(error.message || "We could not prepare a referral code. Please try again."),
+  });
+  const rewardInProgress = referralStatus.data?.find(share => share.rewardStatus === "pending" || share.rewardStatus === "released");
 
-  // If theme is switchable in App.tsx, we can implement theme toggling like this:
-  // const { theme, toggleTheme } = useTheme();
+  const createOrShareReferral = () => {
+    if (!isAuthenticated) {
+      startLogin();
+      return;
+    }
+    createReferralShare.mutate({ channel: "whatsapp" });
+  };
+
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const syncPreference = () => setReduceHeroMotion(media.matches);
+    syncPreference();
+    media.addEventListener("change", syncPreference);
+    return () => media.removeEventListener("change", syncPreference);
+  }, []);
+
+  useEffect(() => {
+    if (reduceHeroMotion) return;
+    const timer = window.setInterval(() => setActiveHeroSlide(current => nextHeroSlide(current)), 4500);
+    return () => window.clearInterval(timer);
+  }, [reduceHeroMotion]);
 
   return (
-    <div className="min-h-screen flex flex-col">
-      <main>
-        {/* Example: lucide-react for icons */}
-        <Loader2 className="animate-spin" />
-        Example Page
-        {/* Example: Streamdown for markdown rendering */}
-        <Streamdown>Any **markdown** content</Streamdown>
-        <Button variant="default">Example Button</Button>
-      </main>
-    </div>
+    <MarketplaceShell>
+      <section className="deal-hero">
+        <div className="deal-hero-carousel" role="region" aria-roledescription="carousel" aria-label="Alpha Market shopping lifestyle highlights">
+          {HERO_CAROUSEL_SLIDES.map((slide, index) => <img key={slide.src} src={slide.src} alt="" aria-hidden="true" className={index === activeHeroSlide ? "active" : ""} />)}
+        </div>
+        <div className="deal-hero-overlay" />
+        <div className="deal-hero-content">
+          <span className="deal-hero-kicker"><Flame size={17} /> Local sellers. Good prices.</span>
+          <h1>Naija deals,<br />straight from<br />independent sellers.</h1>
+          <p>Fashion, gadgets, beauty, home, vehicles and pet essentials in Naira — with KYC-verified Pay on Delivery so your order is protected before delivery.</p>
+          <div className="deal-hero-actions">
+            <Link href="/shop" className="deal-cta deal-cta-primary">Shop Naija’s Good Finds <ArrowRight size={19} /></Link>
+            <Link href="/sell" className="deal-cta deal-cta-secondary">Sell on Alpha Market <ArrowRight size={19} /></Link>
+          </div>
+          <div className="deal-hero-trust">
+            <span><Truck size={19} /> KYC-verified delivery</span>
+            <span><PackageCheck size={19} /> Order saved</span>
+            <a href={WHATSAPP_SUPPORT_URL} target="_blank" rel="noreferrer"><MessageCircle size={19} /> WhatsApp help</a>
+          </div>
+        </div>
+      </section>
+
+      <section className="section deal-discovery-section">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">Browse by feeling</span>
+            <h2 className="section-title">Small categories. Good surprises.</h2>
+          </div>
+          <Link href="/shop" className="text-link">All collections <ArrowRight size={16} /></Link>
+        </div>
+        <div className="category-grid">
+          {categoryCards.map(category => (
+            <Link key={category.name} href={`/shop?category=${getMarketplaceCategoryMetadata(category.name).slug}`} className="category-card">
+              <img src={category.product.imageUrl} alt="" />
+              <span>{category.name}</span>
+              <small>{category.note}</small>
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      <section className="section deal-products-section">
+        <div className="section-heading">
+          <div>
+            <span className="eyebrow">This week’s good price</span>
+            <h2 className="section-title">Flash finds from the collective.</h2>
+          </div>
+          <Link href="/shop" className="text-link">See all finds <ArrowRight size={16} /></Link>
+        </div>
+        <div className="product-grid">
+          {MARKETPLACE_PRODUCTS.map(product => <ProductCard key={product.id} product={product} />)}
+        </div>
+        <div className="trust-row">
+          <div className="trust-item"><Truck className="trust-icon" size={22} /><div><strong>Pay on Delivery</strong><p>KYC-verified buyers can choose delivery payment at checkout. Their order is saved before the hand-off.</p></div></div>
+          <div className="trust-item"><MessageCircle className="trust-icon" size={22} /><div><strong>WhatsApp support</strong><p><a href={WHATSAPP_SUPPORT_URL} target="_blank" rel="noreferrer">Ask a real question</a> when you need help with an order or seller.</p></div></div>
+          <div className="trust-item"><ShieldCheck className="trust-icon" size={22} /><div><strong>Seller-led delivery</strong><p>Each listing keeps the vendor name close, so your local find stays traceable.</p></div></div>
+        </div>
+      </section>
+
+      <section id="rewards" className="section">
+        <div className="referral-band">
+          <div>
+            <span className="eyebrow eyebrow-dark" style={{color: '#ffffff'}}>Bring your people</span>
+            <h2>Share verified rewards.</h2>
+            <p>Verify your profile or bank-name match, create a code, then share it with a different shopper. When their first eligible order is delivered, both accounts receive Shopping Bonus after the 48-hour return window.</p>
+          </div>
+          <div className="referral-action">
+            <button className="button button-cream" onClick={createOrShareReferral} disabled={createReferralShare.isPending}>
+              <Tag size={16} /> {!isAuthenticated ? "Sign in to create a code" : createReferralShare.isPending ? "Preparing…" : "Create a referral code"}
+            </button>
+            {shareCode ? <div className="referral-code">Your share code: <strong>{shareCode}</strong></div> : rewardInProgress ? <div className="referral-code">Shopping Bonus: <strong>{rewardInProgress.rewardStatus === "pending" ? "Pending 48-hour release" : "Available in Alpha Wallet"}</strong></div> : <span className="referral-code">Verified referrer · eligible first order · Shopping Bonus</span>}
+          </div>
+        </div>
+      </section>
+
+      <section className="section">
+        <div className="seller-panel">
+          <div className="seller-panel-copy">
+            <span className="eyebrow eyebrow-dark">A seller-first market</span>
+            <h2>Bring your good thing to more people.</h2>
+            <p>Open a practical storefront, keep your catalogue moving, and receive clear payout guidance for local transfers.</p>
+            <Link href="/sell" className="button button-cream">Sell on Alpha Market <ArrowRight size={17} /></Link>
+          </div>
+          <div className="seller-panel-stats">
+            <div className="seller-stat"><strong>10–15%</strong><span>Transparent seller commission</span></div>
+            <div className="seller-stat"><strong>₦</strong><span>Local bank-transfer withdrawal guidance</span></div>
+            <div className="seller-stat"><strong><CheckCircle2 size={32} /></strong><span>Product drafts before you go live</span></div>
+          </div>
+        </div>
+      </section>
+    </MarketplaceShell>
   );
 }

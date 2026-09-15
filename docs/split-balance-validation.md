@@ -1,0 +1,13 @@
+# Split-Balance Wallet Validation Notes
+
+The mobile wallet route rendered the revised five-part balance summary without a runtime error. The visible labels distinguish total, withdrawable, Shopping Bonus, pending rewards, and escrow, and the withdrawal card explicitly states that Shopping Bonus cannot be transferred to a bank.
+
+The mobile administrator delivery route rendered the configurable first-order threshold and per-person Shopping Bonus controls, a pending-delivery action, and a separate return-window area for cancelling pending rewards. No delivery action, return action, wallet transfer, or reward release was submitted during this visual check.
+
+The signed-in wallet and administrator reward screens were subsequently confirmed by the project owner. The mobile wallet privacy control was also visually rechecked after a contrast adjustment: the high-contrast **Hide** control is visible within the green wallet summary and masks displayed wallet amounts locally without invoking a financial operation.
+
+The new `/rewards` route was visually checked on mobile and desktop while signed out. Its Rewards navigation link, responsive hero, Buyer Rewards and Vendor Rewards tabs, and signed-in entry experience render without a route or client runtime error. Signed-in data and actions remain to be checked separately without submitting a reward, delivery, or financial action.
+
+The homepage hero was rechecked on desktop and mobile after the static potted-plant image was replaced. The hero now shows an African retail lifestyle background beneath a strong evergreen overlay, keeping the white headline, body text, and orange calls to action readable at both breakpoints. Carousel controls and slide layers are present in the rendered hero; no marketplace action was submitted during the visual checks.
+
+The hero was subsequently simplified as requested. Desktop and mobile visual checks confirm the carousel remains readable and uncluttered with no pause/play button and no progress dots visible; it continuously rotates through the expanded ten-slide image set in the background.
