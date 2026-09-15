@@ -19,7 +19,7 @@ services:
       - key: DATABASE_URL
         sync: false
       - key: OAUTH_SERVER_URL
-        sync: false
+        value: https://api.manus.im
       - key: VITE_OAUTH_PORTAL_URL
         sync: false
       - key: OWNER_OPEN_ID

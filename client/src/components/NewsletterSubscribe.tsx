@@ -9,7 +9,7 @@ export default function NewsletterSubscribe() {
     event.preventDefault();
     setIsSubmitting(true);
     try {
-      const response = await fetch("/api/marketing/subscribe", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
+      const response = await fetch("/api/marketing/subscribe", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
       const payload = await response.json() as { subscribed?: boolean; error?: string };
       if (!response.ok || !payload.subscribed) throw new Error(payload.error || "Newsletter signup is unavailable right now.");
       setEmail("");

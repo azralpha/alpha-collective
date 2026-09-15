@@ -69,7 +69,7 @@ export default function SpinToWinPromotion() {
     if (spinning) return;
     setSpinning(true);
     try {
-      const response = await fetch("/api/rewards/spin-claim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ visitorId: getSpinVisitorId() }) });
+      const response = await fetch("/api/rewards/spin-claim", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ visitorId: getSpinVisitorId() }) });
       const data = await response.json() as ClaimResponse;
       await new Promise(resolve => window.setTimeout(resolve, 3_000));
       if (!response.ok || !data.claimed || !data.claimToken || !data.rewardName || !data.rewardItemId || !data.minimumSpend || !data.expiresAt) {

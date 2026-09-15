@@ -3,7 +3,7 @@ import { listActiveOfficialProducts, listApprovedVendorProducts } from "./db";
 import { getMarketplaceCategoryMetadata, MARKETPLACE_CATEGORIES, MARKETPLACE_PRODUCTS, type MarketplaceProduct } from "@shared/marketplace";
 import { buildProductJsonLd, cleanSeoText, SEO_DEFAULT_DESCRIPTION, SEO_SITE_NAME } from "@shared/seo";
 
-const DEFAULT_CANONICAL_ORIGIN = "https://alphacorp.name.ng";
+const DEFAULT_CANONICAL_ORIGIN = "https://alphamarket.name.ng";
 
 export type SeoHead = {
   title: string;
