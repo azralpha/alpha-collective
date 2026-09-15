@@ -4,15 +4,14 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(new URL("./src/const.ts", import.meta.url), "utf8");
 
 describe("Manus OAuth redirect handling", () => {
-  it("hands custom-domain visitors off to the managed host before creating OAuth state", () => {
-    expect(source).toContain('import.meta.env.VITE_AUTH_ORIGIN');
-    expect(source).toContain('handoffUrl.searchParams.set("oauthHandoff", "1");');
-    expect(source).toContain("const redirectUri = `${currentOrigin}/api/oauth/callback`;");
+  it("starts OAuth on the configured Render API origin", () => {
+    expect(source).toContain("import.meta.env.VITE_API_ORIGIN");
+    expect(source).toContain('apiUrl("/api/oauth/start")');
+    expect(source).toContain('url.searchParams.set("returnTo", returnTo);');
   });
 
-  it("includes the configured app identifier and callback in the authorization request", () => {
-    expect(source).toContain("url.searchParams.set(\"appId\", appId);");
-    expect(source).toContain("url.searchParams.set(\"redirectUri\", redirectUri);");
-    expect(source).toContain("url.searchParams.set(\"state\", state);");
+  it("keeps the browser return location with the OAuth start request", () => {
+    expect(source).toContain("window.location.pathname");
+    expect(source).toContain("window.location.search");
   });
 });

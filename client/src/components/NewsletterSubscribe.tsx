@@ -1,6 +1,7 @@
 import { Mail, Send } from "lucide-react";
 import { FormEvent, useState } from "react";
 import { toast } from "sonner";
+import { apiUrl } from "@/const";
 
 export default function NewsletterSubscribe() {
   const [email, setEmail] = useState("");
@@ -9,7 +10,7 @@ export default function NewsletterSubscribe() {
     event.preventDefault();
     setIsSubmitting(true);
     try {
-      const response = await fetch("/api/marketing/subscribe", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
+      const response = await fetch(apiUrl("/api/marketing/subscribe"), { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ email }) });
       const payload = await response.json() as { subscribed?: boolean; error?: string };
       if (!response.ok || !payload.subscribed) throw new Error(payload.error || "Newsletter signup is unavailable right now.");
       setEmail("");

@@ -42,6 +42,8 @@ services:
         value: https://alphamarket.name.ng
       - key: VITE_AUTH_ORIGIN
         value: https://alphamarket.name.ng
+      - key: VITE_API_ORIGIN
+        value: https://alpha-giddy-main.onrender.com
       - key: CORS_ALLOWED_ORIGINS
         value: https://alphamarket.name.ng
       - key: PORT

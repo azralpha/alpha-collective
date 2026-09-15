@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { BadgeCheck, Building2, Loader2, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import { trpc } from "@/lib/trpc";
+import { apiUrl } from "@/const";
 
 type VerifiedBank = { bankName: string; accountNumberMasked: string; accountName: string };
 
@@ -21,7 +22,7 @@ export default function BankVerificationWidget({ existing }: { existing?: Verifi
     event.preventDefault();
     setIsSubmitting(true);
     try {
-      const response = await fetch("/api/verify-bank-account", {
+      const response = await fetch(apiUrl("/api/verify-bank-account"), {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

@@ -1,6 +1,7 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import MarketplaceShell from "@/components/MarketplaceShell";
 import { trpc } from "@/lib/trpc";
+import { apiUrl } from "@/const";
 import { formatNaira } from "@shared/marketplace";
 import { Eye, Image, Mail, RefreshCw, Send, ShieldCheck, Users } from "lucide-react";
 import { useState } from "react";
@@ -20,7 +21,7 @@ export default function AdminNewsletter() {
   const generateDraft = async () => {
     setIsGenerating(true);
     try {
-      const response = await fetch("/api/marketing/auto-newsletter", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "draft" }) });
+      const response = await fetch(apiUrl("/api/marketing/auto-newsletter"), { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "draft" }) });
       const payload = await response.json() as { campaign?: StagedCampaign; error?: string };
       if (!response.ok || !payload.campaign) throw new Error(payload.error || "The newsletter draft could not be generated.");
       setCampaign({ ...payload.campaign, htmlPreview: payload.campaign.htmlBody.replaceAll("{{ALPHA_UNSUBSCRIBE_URL}}", "#unsubscribe-preview") });
@@ -34,7 +35,7 @@ export default function AdminNewsletter() {
     if (!campaign) return;
     setIsSending(true);
     try {
-      const response = await fetch("/api/marketing/auto-newsletter", { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "send", campaignId: campaign.id, confirmation }) });
+      const response = await fetch(apiUrl("/api/marketing/auto-newsletter"), { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ action: "send", campaignId: campaign.id, confirmation }) });
       const payload = await response.json() as { result?: { sent: number; failed: number; total: number }; error?: string };
       if (!response.ok || !payload.result) throw new Error(payload.error || "The newsletter could not be sent.");
       toast.success(`Campaign processed: ${payload.result.sent} sent, ${payload.result.failed} failed.`);
