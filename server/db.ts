@@ -138,6 +138,19 @@ export async function getUserByOpenId(openId: string) {
   return result[0];
 }
 
+export async function getUserByEmail(email: string) {
+  const db = await getDb();
+  if (!db) return undefined;
+  const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+  return result[0];
+}
+
+export async function linkUserToGoogle(userId: number, googleOpenId: string, name: string | null) {
+  const db = await getDb();
+  if (!db) throw new Error("The marketplace database is not available.");
+  await db.update(users).set({ openId: googleOpenId, loginMethod: "google", name: name ?? undefined, lastSignedIn: new Date() }).where(eq(users.id, userId));
+}
+
 function toCartRewardTier(row: typeof cartRewardTiers.$inferSelect): CartRewardTier {
   return {
     id: row.id,

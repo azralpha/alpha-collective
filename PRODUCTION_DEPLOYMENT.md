@@ -33,9 +33,9 @@ Paystack and Flutterwave wallet funding and checkout redirects are available to 
 
 Do not treat a provider success redirect as a settlement callback. Only the signed webhook and independent transaction check can change a wallet balance or turn a pending checkout order into gateway-held escrow.
 
-## OAuth custom-domain configuration
+## Google Sign-In and cross-origin deployment configuration
 
-The frontend login trigger intentionally derives its redirect URI from the active browser origin: `https://alphacorp.name.ng/api/oauth/callback` on the canonical domain. In the Manus Developer Portal, open the Alpha Market OAuth application identified by `VITE_APP_ID`, find the **Allowed Redirect URIs**, **Authorized redirect URLs**, or equivalent application security section, and add the exact callback URI `https://alphacorp.name.ng/api/oauth/callback`. If `www.alphacorp.name.ng` is also connected and users may sign in there, add `https://www.alphacorp.name.ng/api/oauth/callback` as a second exact entry. Do not add a wildcard, a trailing slash, an HTTP URL, or a callback path from an unrelated deployment. The server callback route is already registered at `/api/oauth/callback`; the frontend supplies the origin and the existing state/nonce protection remains active.
+The production frontend is hosted on Cloudflare at `https://alphamarket.name.ng`, while the Express API is hosted on Render at `https://alpha-giddy-main.onrender.com`. Configure the Render service with `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_REDIRECT_URI`, `PUBLIC_APP_URL`, and `JWT_SECRET`. Configure the Cloudflare build with `VITE_API_ORIGIN=https://alpha-giddy-main.onrender.com` and add `https://alphamarket.name.ng` as an authorized JavaScript origin in Google Cloud Console. The backend verifies Google Identity Services ID tokens, stores identities as `google:<sub>`, links verified existing email accounts, and issues an `httpOnly`, `secure`, `SameSite=None` session cookie without a hardcoded domain. Render must run with proxy trust enabled so the secure cookie is preserved.
 
 ## Public verification completed
 

@@ -17,6 +17,7 @@ const mobileNavigation = [
   { href: "/", label: "Home", icon: Home },
   { href: "/shop", label: "Categories", icon: Grid2X2 },
   { href: "/rewards", label: "Rewards", icon: Gift },
+  { href: "/task-2-earn", label: "Earn", icon: Sparkles },
   { href: "/sell", label: "Sell", icon: Store },
   { href: "/wallet", label: "Wallet", icon: WalletCards },
   { href: "/profile", label: "Profile", icon: UserRound },
@@ -83,7 +84,7 @@ export default function MarketplaceShell({ children }: { children: React.ReactNo
       <AlphaAiSupport />
       <SpinToWinPromotion />
       <nav className="mobile-bottom-nav" aria-label="Mobile navigation" style={{ "--mobile-nav-index": mobileNavigation.findIndex(item => item.href === (location.startsWith("/shop") ? "/shop" : location)) } as React.CSSProperties}>
-        {mobileNavigation.map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={(href === "/shop" ? location.startsWith("/shop") : location === href) ? "active" : ""}><Icon size={21} /><span>{label}</span></Link>)}
+        {mobileNavigation.map(({ href, label, icon: Icon }) => <Link key={href} href={href} className={(href === "/shop" ? location.startsWith("/shop") : location === href) ? "active" : ""}><Icon size={20} /><span>{label}</span></Link>)}
       </nav>
       <footer className="site-footer">
         <div>

@@ -3,7 +3,7 @@ import express from "express";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
-import { registerOAuthRoutes } from "./oauth";
+import { registerGoogleAuthRoute } from "../googleAuthRoute";
 import { registerStorageProxy } from "./storageProxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
@@ -71,7 +71,7 @@ async function startServer() {
   registerSpinPromotionRoute(app);
   registerNewsletterRoutes(app);
   registerBankVerificationRoute(app);
-  registerOAuthRoutes(app);
+  registerGoogleAuthRoute(app);
   app.use("/api/trpc", (req, res, next) => {
     const paths = req.path.split(",").map(path => path.replace(/^\//, ""));
     const isCatalogueRead = req.method === "GET" && paths.length > 0 && paths.every(path => path === "marketplace.publicProducts");

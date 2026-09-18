@@ -20,11 +20,10 @@ import AdminTieredCartRewards from "@/pages/AdminTieredCartRewards";
 import AdminNewsletter from "@/pages/AdminNewsletter";
 import Profile from "@/pages/Profile";
 import Task2Earn from "@/pages/Task2Earn";
+import Login from "@/pages/Login";
 import CookieConsent from "@/components/CookieConsent";
 import { Route, Switch } from "wouter";
 import ErrorBoundary from "./components/ErrorBoundary";
-import { startLogin } from "@/const";
-import { useEffect } from "react";
 import { CartProvider } from "./contexts/CartContext";
 import { ThemeProvider } from "./contexts/ThemeContext";
 
@@ -32,6 +31,7 @@ function Router() {
   return (
     <Switch>
       <Route path="/" component={Home} />
+      <Route path="/login" component={Login} />
       <Route path="/shop" component={Shop} />
       <Route path="/product/:id" component={Product} />
       <Route path="/cart" component={Cart} />
@@ -57,19 +57,6 @@ function Router() {
   );
 }
 
-function OAuthHandoffResume() {
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get("oauthHandoff") !== "1") return;
-
-    window.history.replaceState({}, "", `${window.location.pathname}${window.location.hash}`);
-    const timer = window.setTimeout(() => startLogin(), 50);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  return null;
-}
-
 function App() {
   return (
     <ErrorBoundary>
@@ -78,7 +65,6 @@ function App() {
           <CartProvider>
             <Toaster />
             <CookieConsent />
-            <OAuthHandoffResume />
             <Router />
           </CartProvider>
         </TooltipProvider>
