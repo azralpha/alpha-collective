@@ -52,7 +52,7 @@ async function startServer() {
   registerCors(app);
   const server = createServer(app);
   registerNowPaymentsWebhook(app);
-  app.use("/api/oauth/callback", createExpressRateLimit({ scope: "oauth-callback", limit: 20, windowMs: 60_000 }));
+  app.use("/api/auth/google/callback", createExpressRateLimit({ scope: "google-auth-callback", limit: 20, windowMs: 60_000 }));
   registerPaystackWebhook(app);
   registerFlutterwaveWebhook(app);
   registerTaskRewardsRoutes(app);

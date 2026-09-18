@@ -21,7 +21,7 @@ services:
       - key: GOOGLE_CLIENT_SECRET
         sync: false
       - key: GOOGLE_REDIRECT_URI
-        value: https://alpha-giddy-main.onrender.com/api/auth/google
+        value: https://alpha-giddy-main.onrender.com/api/auth/google/callback
       - key: PUBLIC_APP_URL
         value: https://alphamarket.name.ng
       - key: VITE_API_ORIGIN
