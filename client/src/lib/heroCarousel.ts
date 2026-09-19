@@ -9,6 +9,8 @@ export const HERO_CAROUSEL_SLIDES = [
   { src: "/manus-storage/hero-african-furniture_0134f857.jpg", label: "A modern African home-furnishing showroom" },
   { src: "/manus-storage/hero-african-artisan-market_6beb1352.jpg", label: "An African artisan retail market" },
   { src: "/manus-storage/hero-african-family-grocery_ed013a3a.jpg", label: "An African family grocery shopping" },
+  { src: "/manus-storage/hero-african-sneaker-store_6f44d735.jpg", label: "Young Nigerians browsing a sneaker store" },
+  { src: "/manus-storage/hero-african-tech-market_2632f9e3.jpg", label: "A shopper comparing phones in a modern electronics market" },
 ] as const;
 
 export function nextHeroSlide(currentSlide: number, totalSlides = HERO_CAROUSEL_SLIDES.length) {
