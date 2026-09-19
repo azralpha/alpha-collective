@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: alpha-collective
+    name: alpha-giddy-main
     runtime: node
     plan: starter
     region: frankfurt
