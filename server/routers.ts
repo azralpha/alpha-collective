@@ -7,6 +7,7 @@ import { supportRouter } from "./routers/support";
 import { profileRouter } from "./routers/profile";
 import { giftCardsRouter } from "./routers/giftCards";
 import { taskRewardsRouter } from "./routers/taskRewards";
+import { telegramInquiriesRouter } from "./routers/telegramInquiries";
 
 export const appRouter = router({
   system: systemRouter,
@@ -23,6 +24,7 @@ export const appRouter = router({
   profile: profileRouter,
   giftCards: giftCardsRouter,
   taskRewards: taskRewardsRouter,
+  telegramInquiries: telegramInquiriesRouter,
 });
 
 export type AppRouter = typeof appRouter;

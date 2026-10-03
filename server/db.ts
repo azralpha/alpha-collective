@@ -40,9 +40,11 @@ import {
   vendorDispatchEvents,
   vendorProducts,
   vendorRewardProfiles,
+  telegramInquiries,
   walletBankRecipients,
   walletFundingAttempts,
   walletTransactions,
+  taskTransactions,
   wallets,
   withdrawalOtpChallenges,
   withdrawalRequests,
@@ -1588,6 +1590,85 @@ export async function createVendorApplication(application: InsertVendorApplicati
   return Number(result[0].insertId);
 }
 
+function normalizeTelegramVendorToken(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+export async function getTelegramVendorLinkForUser(userId: number) {
+  const db = await requireDb();
+  const application = (await db.select().from(vendorApplications).where(eq(vendorApplications.userId, userId)).limit(1))[0];
+  if (!application) return undefined;
+  const vendorId = application.telegramVendorId ?? `${application.storeName.replace(/[^A-Za-z0-9]/g, "")}_${application.userId}`;
+  return { ...application, vendorId };
+}
+
+export async function findVendorApplicationByTelegramVendorId(vendorId: string) {
+  const db = await requireDb();
+  const normalized = normalizeTelegramVendorToken(vendorId);
+  const applications = await db.select().from(vendorApplications).where(eq(vendorApplications.status, "approved"));
+  return applications.find(application => {
+    const stored = application.telegramVendorId ?? `${application.storeName}_${application.userId}`;
+    return normalizeTelegramVendorToken(stored) === normalized;
+  });
+}
+
+export async function findVendorApplicationByTelegramUserId(telegramUserId: string) {
+  const db = await requireDb();
+  return (await db.select().from(vendorApplications).where(eq(vendorApplications.telegramUserId, telegramUserId)).limit(1))[0];
+}
+
+export async function linkVendorTelegram(applicationId: number, vendorId: string, chatId: string, telegramUserId: string) {
+  const db = await requireDb();
+  await db.update(vendorApplications).set({ telegramVendorId: vendorId, telegramChatId: chatId, telegramUserId, telegramLinkedAt: new Date() }).where(eq(vendorApplications.id, applicationId));
+  return getTelegramVendorLinkForUser((await db.select({ userId: vendorApplications.userId }).from(vendorApplications).where(eq(vendorApplications.id, applicationId)).limit(1))[0]?.userId ?? -1);
+}
+
+export async function createTelegramInquiry(input: {
+  inquiryId: string;
+  buyerUserId: number;
+  vendorUserId: number;
+  vendorApplicationId: number;
+  productId: number;
+  productTitle: string;
+  productPrice: number;
+  buyerQuestion: string;
+}) {
+  const db = await requireDb();
+  await db.insert(telegramInquiries).values(input);
+  return (await db.select().from(telegramInquiries).where(eq(telegramInquiries.inquiryId, input.inquiryId)).limit(1))[0];
+}
+
+export async function updateTelegramInquiryMessages(inquiryId: string, messages: { vendorMessageId?: string; groupMessageId?: string; replyPromptMessageId?: string; status?: "pending" | "replied" | "failed" }) {
+  const db = await requireDb();
+  await db.update(telegramInquiries).set({
+    ...(messages.vendorMessageId ? { telegramVendorMessageId: messages.vendorMessageId } : {}),
+    ...(messages.groupMessageId ? { telegramGroupMessageId: messages.groupMessageId } : {}),
+    ...(messages.replyPromptMessageId ? { telegramReplyPromptMessageId: messages.replyPromptMessageId } : {}),
+    ...(messages.status ? { status: messages.status } : {}),
+  }).where(eq(telegramInquiries.inquiryId, inquiryId));
+}
+
+export async function getTelegramInquiry(inquiryId: string) {
+  const db = await requireDb();
+  return (await db.select().from(telegramInquiries).where(eq(telegramInquiries.inquiryId, inquiryId)).limit(1))[0];
+}
+
+export async function getTelegramInquiryByReplyPrompt(promptMessageId: string, vendorUserId: number) {
+  const db = await requireDb();
+  return (await db.select().from(telegramInquiries).where(and(eq(telegramInquiries.telegramReplyPromptMessageId, promptMessageId), eq(telegramInquiries.vendorUserId, vendorUserId))).limit(1))[0];
+}
+
+export async function listTelegramInquiriesForBuyer(buyerUserId: number, productId: number) {
+  const db = await requireDb();
+  return db.select().from(telegramInquiries).where(and(eq(telegramInquiries.buyerUserId, buyerUserId), eq(telegramInquiries.productId, productId))).orderBy(desc(telegramInquiries.createdAt));
+}
+
+export async function saveTelegramInquiryReply(inquiryId: string, vendorUserId: number, reply: string) {
+  const db = await requireDb();
+  await db.update(telegramInquiries).set({ vendorReply: reply, status: "replied", repliedAt: new Date() }).where(and(eq(telegramInquiries.inquiryId, inquiryId), eq(telegramInquiries.vendorUserId, vendorUserId)));
+  return getTelegramInquiry(inquiryId);
+}
+
 export type SavedProductStatusFilter = "draft" | "active" | "rejected";
 
 export type SavedProductListOptions = {
@@ -1672,6 +1753,11 @@ export async function getCurrentVendorCommissionRate(vendorUserId: number, baseR
   const db = await requireDb();
   const override = (await db.select().from(vendorCommissionOverrides).where(and(eq(vendorCommissionOverrides.vendorUserId, vendorUserId), eq(vendorCommissionOverrides.rewardMonth, rewardMonthKey()))).limit(1))[0];
   return override?.commissionRate ?? baseRate;
+}
+
+export async function getActiveVendorProductForInquiry(productId: number) {
+  const db = await requireDb();
+  return (await db.select({ product: vendorProducts, application: vendorApplications }).from(vendorProducts).innerJoin(vendorApplications, eq(vendorProducts.vendorApplicationId, vendorApplications.id)).where(and(eq(vendorProducts.id, productId), eq(vendorProducts.status, "active"), eq(vendorApplications.status, "approved"))).limit(1))[0];
 }
 
 export async function listAdminReviewProducts() {

@@ -284,3 +284,13 @@ img { display: block; max-width: 100%; }
 .task-history-panel { margin-top:16px; }.task-ledger-note { color:var(--muted); font-size:11px; }
 .task-table-wrap { overflow-x:auto; margin-top:15px; }.task-table { width:100%; border-collapse:collapse; min-width:700px; font-size:12px; }.task-table th { padding:10px; border-bottom:1px solid var(--line); color:var(--muted); text-align:left; font:10px "DM Mono",monospace; text-transform:uppercase; }.task-table td { padding:13px 10px; border-bottom:1px solid rgba(222,213,200,.7); }.task-status,.task-hold { display:inline-flex; align-items:center; gap:5px; padding:5px 8px; border-radius:999px; font:10px "DM Mono",monospace; }.task-status.pending,.task-hold { background:#fff2cf; color:#765400; }.task-status.completed { background:#e3f4e8; color:#17613c; }.task-status.reversed { background:#f9dfd8; color:#8f3022; }.task-support-link { color:var(--tomato); font-weight:700; }
 @media (max-width:760px) { .task-earn-hero { align-items:flex-start; padding:25px; }.task-earn-hero h1 { font-size:44px; }.task-earn-hero > svg { display:none; }.task-credit-summary { grid-template-columns:1fr 1fr; }.task-credit-summary > div:last-child { grid-column:1/-1; }.task-earn-layout { grid-template-columns:1fr; }.task-offer-panel,.task-activity-panel,.task-history-panel { padding:16px; } }
+
+.inquiry-replies { margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); }
+.inquiry-reply { margin-top: 10px; padding: 12px 14px; background: #eef4e9; border: 1px solid #c9d8bf; font-size: 13px; line-height: 1.5; }
+.inquiry-reply p { margin: 0 0 6px; }
+.inquiry-reply p:last-child { margin-bottom: 0; }
+[data-slot="dialog-content"] textarea { width: 100%; min-height: 138px; resize: vertical; margin: 12px 0 6px; }
+.telegram-vendor-card { margin-top: 18px; padding: 20px 22px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 18px; background: #e9f1e6; border: 1px solid #c7d8bf; }
+.telegram-vendor-card h2 { margin: 7px 0 0; font: 600 27px/1 "Newsreader", serif; }
+.telegram-vendor-card p { max-width: 560px; margin: 8px 0 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+.telegram-vendor-actions { display: flex; flex-wrap: wrap; gap: 9px; }

@@ -117,6 +117,10 @@ export const vendorApplications = mysqlTable("vendorApplications", {
   name: varchar("name", { length: 120 }).notNull(),
   storeName: varchar("storeName", { length: 160 }).notNull(),
   whatsapp: varchar("whatsapp", { length: 32 }).notNull(),
+  telegramVendorId: varchar("telegramVendorId", { length: 180 }).unique(),
+  telegramChatId: varchar("telegramChatId", { length: 80 }),
+  telegramUserId: varchar("telegramUserId", { length: 80 }),
+  telegramLinkedAt: timestamp("telegramLinkedAt"),
   category: mysqlEnum("category", ["Fashion", "Gadgets", "Beauty", "Home & Furniture", "Vehicles", "Animals & Pets"]).notNull(),
   status: mysqlEnum("status", ["pending", "approved", "rejected"]).notNull().default("pending"),
   commissionRate: int("commissionRate").notNull().default(12),
@@ -505,6 +509,27 @@ export const vendorProducts = mysqlTable("vendorProducts", {
   publicationStatus: mysqlEnum("publicationStatus", ["DRAFT", "APPROVED", "REJECTED"]).notNull().default("DRAFT"),
   inStock: int("inStock").notNull().default(0),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
+});
+
+/** Buyer questions routed to a vendor's Telegram chat and the Vendors group. */
+export const telegramInquiries = mysqlTable("telegramInquiries", {
+  id: int("id").autoincrement().primaryKey(),
+  inquiryId: varchar("inquiryId", { length: 32 }).notNull().unique(),
+  buyerUserId: int("buyerUserId").notNull(),
+  vendorUserId: int("vendorUserId").notNull(),
+  vendorApplicationId: int("vendorApplicationId").notNull(),
+  productId: int("productId").notNull(),
+  productTitle: varchar("productTitle", { length: 180 }).notNull(),
+  productPrice: int("productPrice").notNull(),
+  buyerQuestion: text("buyerQuestion").notNull(),
+  telegramVendorMessageId: varchar("telegramVendorMessageId", { length: 80 }),
+  telegramGroupMessageId: varchar("telegramGroupMessageId", { length: 80 }),
+  telegramReplyPromptMessageId: varchar("telegramReplyPromptMessageId", { length: 80 }),
+  status: mysqlEnum("status", ["pending", "replied", "failed"]).notNull().default("pending"),
+  vendorReply: text("vendorReply"),
+  repliedAt: timestamp("repliedAt"),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
 
 /** Public, administrator-managed catalogue items. No supplier fields are stored here. */

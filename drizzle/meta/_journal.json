@@ -218,6 +218,13 @@
       "when": 1789199801125,
       "tag": "0030_daily_jean_grey",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "5",
+      "when": 1790996497853,
+      "tag": "0031_gorgeous_lady_mastermind",
+      "breakpoints": true
     }
   ]
 }
