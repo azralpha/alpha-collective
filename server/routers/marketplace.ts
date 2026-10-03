@@ -133,6 +133,7 @@ import { cartRewardUpsellInputSchema, getCartRewardUpsells } from "../cartReward
 import { hashSpinClaimToken } from "../spinPromotion";
 import { getNewsletterDraftForPreview } from "../newsletter";
 import { nowPaymentsIpnCallbackUrl, paymentRedirectUrl } from "../cryptoFundingUrl";
+import { ENV } from "../_core/env";
 import { FlutterwaveProviderError, initializeFlutterwavePayment, isDefinitiveFlutterwaveRequestFailure } from "../flutterwave";
 import {
   PaystackProviderError,
@@ -322,7 +323,8 @@ function createOfficialCatalog(products: Awaited<ReturnType<typeof listActiveOff
 }
 
 const productImageDataUrlSchema = z.string().max(7_000_000);
-const vendorProductInputSchema = z.object({ title: z.string().trim().min(2).max(180).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid product title."), category: z.enum(MARKETPLACE_CATEGORIES), price: z.number().int().min(500).max(5000000), description: z.string().trim().min(12).max(1200).transform(sanitizePlainText).refine(value => value.length >= 12, "Enter a valid product description."), imageUrls: z.array(z.string().startsWith("/manus-storage/").max(500)).min(1).max(5) });
+const uploadUrlSchema = z.string().max(500).refine(value => value.startsWith("/uploads/") || value.startsWith(`${ENV.apiOrigin}/uploads/`), "Upload images through the seller image uploader.");
+const vendorProductInputSchema = z.object({ title: z.string().trim().min(2).max(180).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid product title."), category: z.enum(MARKETPLACE_CATEGORIES), price: z.number().int().min(500).max(5000000), description: z.string().trim().min(12).max(1200).transform(sanitizePlainText).refine(value => value.length >= 12, "Enter a valid product description."), imageUrls: z.array(uploadUrlSchema).min(1).max(5) });
 const officialProductInputSchema = z.object({
   title: z.string().trim().min(2).max(180).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid product title."),
   category: z.enum(MARKETPLACE_CATEGORIES),
@@ -335,7 +337,7 @@ const officialProductInputSchema = z.object({
   aiSeoDescription: z.string().trim().min(40).max(600).transform(sanitizePlainText).nullable().optional(),
   aiMetaDescription: z.string().trim().min(50).max(155).transform(sanitizePlainText).nullable().optional(),
   aiSuggestedTags: z.array(z.string().trim().min(2).max(40).transform(sanitizePlainText)).length(5).nullable().optional(),
-  imageUrls: z.array(z.string().startsWith("/manus-storage/official-products/").max(500)).min(1).max(5),
+  imageUrls: z.array(z.string().startsWith("/uploads/official-products/").max(500)).min(1).max(5),
   status: z.enum(["draft", "active", "rejected"]),
   fulfillmentProvider: z.enum(["local_vendor", "auto_fulfill_api", "manual_admin"]),
   externalSkuId: z.string().trim().max(120).transform(sanitizePlainText).nullable().optional(),
@@ -1086,14 +1088,14 @@ export const marketplaceRouter = router({
       .mutation(async ({ ctx, input }) => {
         const application = await getVendorApplicationForUser(ctx.user.id);
         if (!application) throw new TRPCError({ code: "BAD_REQUEST", message: "Submit your seller application before adding a product." });
-        if (input.imageUrls.some(imageUrl => !imageUrl.startsWith(`/manus-storage/vendor-products/${ctx.user.id}/`))) {
+        if (input.imageUrls.some(imageUrl => !imageUrl.replace(`${ENV.apiOrigin}`, "").startsWith(`/uploads/vendor-products/${ctx.user.id}/`))) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Upload all product images from your seller account first." });
         }
         const id = await createVendorProduct({ vendorApplicationId: application.id, title: input.title, category: input.category, price: input.price, description: input.description, imageUrl: input.imageUrls[0], imageUrls: input.imageUrls, status: "draft" });
         return { id, status: "draft" as const };
       }),
     updateDraftProduct: protectedProcedure
-      .input(vendorProductInputSchema.extend({ id: z.number().int().positive(), imageUrls: z.array(z.string().startsWith("/manus-storage/").max(500)).min(1).max(5).optional() }))
+      .input(vendorProductInputSchema.extend({ id: z.number().int().positive(), imageUrls: z.array(uploadUrlSchema).min(1).max(5).optional() }))
       .mutation(async ({ ctx, input }) => {
         const application = await getVendorApplicationForUser(ctx.user.id);
         if (!application) throw new TRPCError({ code: "BAD_REQUEST", message: "Submit your seller application before editing a product." });
@@ -1101,7 +1103,7 @@ export const marketplaceRouter = router({
         if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "This product draft was not found in your seller catalogue." });
         if (product.status !== "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "Published products cannot be edited here. A paid change request is required." });
         const imageUrls = input.imageUrls ?? product.imageUrls ?? (product.imageUrl ? [product.imageUrl] : []);
-        if (!imageUrls.length || imageUrls.some(imageUrl => !imageUrl.startsWith(`/manus-storage/vendor-products/${ctx.user.id}/`))) {
+        if (!imageUrls.length || imageUrls.some(imageUrl => !imageUrl.replace(`${ENV.apiOrigin}`, "").startsWith(`/uploads/vendor-products/${ctx.user.id}/`))) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Use only product images uploaded from your seller account." });
         }
         await updateVendorDraftProduct(product.id, { title: input.title, category: input.category, price: input.price, description: input.description, imageUrl: imageUrls[0], imageUrls });

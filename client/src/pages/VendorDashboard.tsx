@@ -30,11 +30,14 @@ const catalogueStatusOptions: Array<{ value: CatalogueStatus; label: string }> =
 
 async function readFileAsDataUrl(file: File) {
   if (!file.size) throw new Error(`${file.name || "This image"} is empty. Choose the image again and retry.`);
-  const bytes = new Uint8Array(await file.arrayBuffer());
-  let binary = "";
-  const chunkSize = 0x8000;
-  for (let offset = 0; offset < bytes.length; offset += chunkSize) binary += String.fromCharCode.apply(null, Array.from(bytes.subarray(offset, offset + chunkSize)));
-  return `data:${file.type};base64,${btoa(binary)}`;
+  if (!(file.type === "image/jpeg" || file.type === "image/png" || file.type === "image/webp")) throw new Error("Upload a JPG, PNG, or WebP image.");
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("The selected image could not be read. Choose it again and retry."));
+    reader.onerror = () => reject(new Error("The selected image could not be read. Check the file permission and choose it again."));
+    reader.onabort = () => reject(new Error("The image read was cancelled. Choose the image again and retry."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function existingGallery(product: { imageUrl: string | null; imageUrls: string[] | null }) {

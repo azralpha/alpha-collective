@@ -1,4 +1,5 @@
 import { and, asc, count, desc, eq, gt, gte, isNull, like, lt, lte, ne, or, sql } from "drizzle-orm";
+import crypto from "node:crypto";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createPool, type Pool } from "mysql2";
 import {
@@ -1598,17 +1599,19 @@ export async function getTelegramVendorLinkForUser(userId: number) {
   const db = await requireDb();
   const application = (await db.select().from(vendorApplications).where(eq(vendorApplications.userId, userId)).limit(1))[0];
   if (!application) return undefined;
-  const vendorId = application.telegramVendorId ?? `${application.storeName.replace(/[^A-Za-z0-9]/g, "")}_${application.userId}`;
-  return { ...application, vendorId };
+  if (application.telegramVendorId) return { ...application, vendorId: application.telegramVendorId };
+  const storeSlug = application.storeName.replace(/[^A-Za-z0-9]/g, "") || "Vendor";
+  const vendorId = `${storeSlug}_${application.userId}_${crypto.randomBytes(4).toString("hex")}`;
+  await db.update(vendorApplications).set({ telegramVendorId: vendorId }).where(eq(vendorApplications.id, application.id));
+  return { ...application, telegramVendorId: vendorId, vendorId };
 }
 
 export async function findVendorApplicationByTelegramVendorId(vendorId: string) {
   const db = await requireDb();
   const normalized = normalizeTelegramVendorToken(vendorId);
-  const applications = await db.select().from(vendorApplications).where(eq(vendorApplications.status, "approved"));
+  const applications = await db.select().from(vendorApplications).where(or(eq(vendorApplications.status, "approved"), eq(vendorApplications.status, "pending")));
   return applications.find(application => {
-    const stored = application.telegramVendorId ?? `${application.storeName}_${application.userId}`;
-    return normalizeTelegramVendorToken(stored) === normalized;
+    return application.telegramVendorId ? normalizeTelegramVendorToken(application.telegramVendorId) === normalized : false;
   });
 }
 

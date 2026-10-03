@@ -89,12 +89,12 @@ describe("marketplace vendor image workflow", () => {
 
   it("stores uploaded product images and persists their ordered gallery with the draft", async () => {
     mocks.getVendorApplicationForUser.mockResolvedValue(application);
-    mocks.storeProcessedProductImage.mockResolvedValue({ key: "vendor-products/7/product_123.webp", url: "/manus-storage/vendor-products/7/product_123.webp" });
+    mocks.storeProcessedProductImage.mockResolvedValue({ key: "vendor-products/7/product_123.webp", url: "/uploads/vendor-products/7/product_123.webp" });
     mocks.createVendorProduct.mockResolvedValue(91);
     const dataUrl = `data:image/png;base64,${Buffer.from("image-bytes").toString("base64")}`;
 
     const uploaded = await caller().vendor.uploadProductImage({ dataUrl });
-    const additionalImage = "/manus-storage/vendor-products/7/product_456.jpg";
+    const additionalImage = "/uploads/vendor-products/7/product_456.jpg";
     await caller().vendor.createProduct({
       title: "Image-backed draft",
       category: "Fashion",
@@ -106,8 +106,8 @@ describe("marketplace vendor image workflow", () => {
     expect(mocks.storeProcessedProductImage).toHaveBeenCalledWith(expect.objectContaining({ storagePrefix: expect.stringMatching(/^vendor-products\/7\//) }));
     expect(mocks.createVendorProduct).toHaveBeenCalledWith(expect.objectContaining({
       vendorApplicationId: 31,
-      imageUrl: "/manus-storage/vendor-products/7/product_123.webp",
-      imageUrls: ["/manus-storage/vendor-products/7/product_123.webp", "/manus-storage/vendor-products/7/product_456.jpg"],
+      imageUrl: "/uploads/vendor-products/7/product_123.webp",
+      imageUrls: ["/uploads/vendor-products/7/product_123.webp", "/uploads/vendor-products/7/product_456.jpg"],
       status: "draft",
     }));
   });
@@ -119,8 +119,8 @@ describe("marketplace vendor image workflow", () => {
       category: "Fashion",
       price: 4500,
       description: "Approved for public category pages.",
-      imageUrl: "/manus-storage/vendor-products/7/product_123.jpg",
-      imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg", "/manus-storage/vendor-products/7/product_456.jpg"],
+      imageUrl: "/uploads/vendor-products/7/product_123.jpg",
+      imageUrls: ["/uploads/vendor-products/7/product_123.jpg", "/uploads/vendor-products/7/product_456.jpg"],
       vendor: "Test Store",
       verificationStatus: "pending",
       lightningSeller: 0,
@@ -130,8 +130,8 @@ describe("marketplace vendor image workflow", () => {
 
     await expect(caller().publicProducts()).resolves.toEqual([expect.objectContaining({
       id: "vendor-91",
-      imageUrl: "/manus-storage/vendor-products/7/product_123.jpg",
-      imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg", "/manus-storage/vendor-products/7/product_456.jpg"],
+      imageUrl: "/uploads/vendor-products/7/product_123.jpg",
+      imageUrls: ["/uploads/vendor-products/7/product_123.jpg", "/uploads/vendor-products/7/product_456.jpg"],
       badge: "Seller find",
       categoryId: "fashion",
       categorySlug: "fashion",
@@ -141,7 +141,7 @@ describe("marketplace vendor image workflow", () => {
 
   it("exposes only qualified dynamic store trust signals for an approved vendor", async () => {
     mocks.listApprovedVendorProducts.mockResolvedValue([{
-      id: 92, title: "Fast delivery find", category: "Vehicles", price: 3_500_000, description: "A verified seller vehicle listing for the public shop.", imageUrl: "/manus-storage/vendor-products/7/vehicle.jpg", imageUrls: ["/manus-storage/vendor-products/7/vehicle.jpg"], vendor: "Speedy Motors", verificationStatus: "approved", lightningSeller: 1, averageRatingTenths: 47, ratingCount: 12,
+      id: 92, title: "Fast delivery find", category: "Vehicles", price: 3_500_000, description: "A verified seller vehicle listing for the public shop.", imageUrl: "/uploads/vendor-products/7/vehicle.jpg", imageUrls: ["/uploads/vendor-products/7/vehicle.jpg"], vendor: "Speedy Motors", verificationStatus: "approved", lightningSeller: 1, averageRatingTenths: 47, ratingCount: 12,
     }]);
 
     await expect(caller().publicProducts()).resolves.toEqual([expect.objectContaining({
@@ -169,8 +169,8 @@ describe("marketplace vendor image workflow", () => {
       category: "Fashion",
       price: 4500,
       description: "Approved for public category pages.",
-      imageUrl: "/manus-storage/vendor-products/7/product_123.jpg",
-      imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg"],
+      imageUrl: "/uploads/vendor-products/7/product_123.jpg",
+      imageUrls: ["/uploads/vendor-products/7/product_123.jpg"],
       vendor: "Test Store",
     }]);
 
@@ -224,22 +224,22 @@ describe("marketplace vendor image workflow", () => {
 
   it("allows a seller to edit only their own draft and retain its gallery when no replacements are sent", async () => {
     mocks.getVendorApplicationForUser.mockResolvedValue(application);
-    mocks.getVendorProductForApplication.mockResolvedValue({ id: 91, status: "draft", imageUrl: "/manus-storage/vendor-products/7/product_123.jpg", imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg"] });
+    mocks.getVendorProductForApplication.mockResolvedValue({ id: 91, status: "draft", imageUrl: "/uploads/vendor-products/7/product_123.jpg", imageUrls: ["/uploads/vendor-products/7/product_123.jpg"] });
     await expect(caller().vendor.updateDraftProduct({ id: 91, title: "Updated draft", category: "Fashion", price: 5000, description: "An updated product draft description." })).resolves.toEqual({ id: 91, status: "draft" });
-    expect(mocks.updateVendorDraftProduct).toHaveBeenCalledWith(91, expect.objectContaining({ title: "Updated draft", imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg"] }));
+    expect(mocks.updateVendorDraftProduct).toHaveBeenCalledWith(91, expect.objectContaining({ title: "Updated draft", imageUrls: ["/uploads/vendor-products/7/product_123.jpg"] }));
   });
 
   it("allows a seller to replace the complete image gallery on their own draft", async () => {
     mocks.getVendorApplicationForUser.mockResolvedValue(application);
-    mocks.getVendorProductForApplication.mockResolvedValue({ id: 91, status: "draft", imageUrl: "/manus-storage/vendor-products/7/product_123.jpg", imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg"] });
-    const replacementGallery = ["/manus-storage/vendor-products/7/replacement_1.jpg", "/manus-storage/vendor-products/7/replacement_2.jpg"];
+    mocks.getVendorProductForApplication.mockResolvedValue({ id: 91, status: "draft", imageUrl: "/uploads/vendor-products/7/product_123.jpg", imageUrls: ["/uploads/vendor-products/7/product_123.jpg"] });
+    const replacementGallery = ["/uploads/vendor-products/7/replacement_1.jpg", "/uploads/vendor-products/7/replacement_2.jpg"];
     await expect(caller().vendor.updateDraftProduct({ id: 91, title: "Updated draft", category: "Fashion", price: 5000, description: "An updated product draft description.", imageUrls: replacementGallery })).resolves.toEqual({ id: 91, status: "draft" });
     expect(mocks.updateVendorDraftProduct).toHaveBeenCalledWith(91, expect.objectContaining({ imageUrl: replacementGallery[0], imageUrls: replacementGallery }));
   });
 
   it("blocks edits to published products", async () => {
     mocks.getVendorApplicationForUser.mockResolvedValue(application);
-    mocks.getVendorProductForApplication.mockResolvedValue({ id: 91, status: "active", imageUrl: "/manus-storage/vendor-products/7/product_123.jpg", imageUrls: ["/manus-storage/vendor-products/7/product_123.jpg"] });
+    mocks.getVendorProductForApplication.mockResolvedValue({ id: 91, status: "active", imageUrl: "/uploads/vendor-products/7/product_123.jpg", imageUrls: ["/uploads/vendor-products/7/product_123.jpg"] });
     await expect(caller().vendor.updateDraftProduct({ id: 91, title: "Published find", category: "Fashion", price: 5000, description: "A published product cannot be edited here." })).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 });
