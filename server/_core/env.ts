@@ -10,7 +10,7 @@ export const ENV = {
   googleRedirectUri: envValue("GOOGLE_REDIRECT_URI"),
   publicAppUrl: (envValue("PUBLIC_APP_URL") || "https://alphamarket.name.ng").replace(/\/+$/, ""),
   apiOrigin: (envValue("PUBLIC_API_URL") || envValue("VITE_API_ORIGIN") || "http://localhost:3000").replace(/\/+$/, ""),
-  uploadsDir: envValue("UPLOADS_DIR") || "/tmp/alpha-market-uploads",
+  uploadsDir: envValue("UPLOADS_DIR") || "/uploads",
   telegramBotToken: envValue("TELEGRAM_BOT_TOKEN"),
   telegramGroupChatId: envValue("TELEGRAM_GROUP_CHAT_ID") || "-1004418676694",
   telegramWebhookUrl: envValue("TELEGRAM_WEBHOOK_URL"),

@@ -70,6 +70,7 @@ async function startServer() {
   registerTelegramWebhook(app);
   await mkdir(ENV.uploadsDir, { recursive: true });
   app.use("/uploads", express.static(ENV.uploadsDir, { index: false, fallthrough: false, maxAge: "30d" }));
+  app.use("/manus-storage", express.static(ENV.uploadsDir, { index: false, fallthrough: false, maxAge: "30d" }));
   registerStorageProxy(app);
   registerSeoRoutes(app);
   registerAlphaAiSupportRoute(app);
