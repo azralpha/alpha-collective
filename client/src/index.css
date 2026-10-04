@@ -35,7 +35,7 @@ img { display: block; max-width: 100%; }
 .announcement-dot { width: 4px; height: 4px; border-radius: 50%; background: var(--clay); }
 .site-header { width: min(1380px, calc(100% - 48px)); margin: 0 auto; height: 88px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .brand-lockup { display: inline-flex; align-items: center; gap: 9px; flex-shrink: 0; }
-.alpha-mark { width: 32px; height: 32px; border-radius: 50% 50% 7px 7px; display: grid; place-items: center; background: var(--tomato); color: #fff8ed; font: 600 18px/1 "Newsreader", serif; transform: rotate(-6deg); box-shadow: 3px 3px 0 var(--ink); }
+.alpha-mark { width: 32px; height: 32px; border-radius: 7px; display: block; object-fit: cover; object-position: center; box-shadow: 3px 3px 0 var(--ink); }
 .brand-copy { display: grid; line-height: .84; letter-spacing: -.04em; }
 .brand-copy strong { font-size: 17px; font-weight: 700; }
 .brand-copy small { font: 10px "DM Mono", monospace; letter-spacing: .08em; margin-left: 1px; }

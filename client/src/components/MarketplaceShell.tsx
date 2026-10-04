@@ -26,7 +26,7 @@ const mobileNavigation = [
 export function AlphaMark({ compact = false }: { compact?: boolean }) {
   return (
     <Link href="/" className="brand-lockup" aria-label="Alpha Market home">
-      <span className="alpha-mark alpha-wolf-mark" aria-hidden="true" />
+      <img className="alpha-mark alpha-logo-image" src="/brand/alpha-market-logo.jpg" alt="" aria-hidden="true" />
       {!compact ? (
         <span className="brand-copy">
           <strong>ALPHA</strong>
