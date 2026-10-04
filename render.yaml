@@ -33,7 +33,7 @@ services:
       - key: PUBLIC_API_URL
         value: https://alpha-giddy-main.onrender.com
       - key: UPLOADS_DIR
-        value: /uploads
+        value: /opt/render/project/src/uploads
       - key: CORS_ALLOWED_ORIGINS
         value: https://alphamarket.name.ng
       - key: TELEGRAM_BOT_TOKEN
