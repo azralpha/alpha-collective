@@ -12,6 +12,66 @@ type TelegramUpdate = { message?: TelegramMessage; callback_query?: { id: string
 
 type InquiryProduct = { id: number; title: string; price: number; vendorUserId: number; vendorApplicationId: number; vendorChatId: string | null; vendorName: string };
 
+const TELEGRAM_COMMAND_MESSAGES = {
+  help: [
+    "Welcome to Alpha Market Bot.",
+    "",
+    "Available commands:",
+    "/start - Start the bot or link your vendor account",
+    "/link - How to link your Telegram as a vendor",
+    "/inquiries - How product inquiries work",
+    "/support - Contact Alpha Market support",
+    "/rules - Platform rules",
+    "",
+    "Need more help? Message us in the Support group.",
+  ].join("\n"),
+  start: [
+    "Welcome to the official <b>Alpha Market Bot</b>! 🛒",
+    "",
+    "This bot connects your Alpha Market store directly to Telegram for instant buyer inquiry notifications, vendor updates, and store security.",
+    "",
+    "If you are a vendor, you can link your store account using the deep-link from your <b>Vendor Dashboard</b> or type /link for instructions.",
+  ].join("\n"),
+  link: [
+    "<b>How to link your Telegram Account as a Vendor:</b>",
+    "",
+    "1️⃣ Sign in to your store account on <b>Alpha Market</b>.",
+    "2️⃣ Navigate to your <b>Vendor Dashboard</b>.",
+    "3️⃣ Click <b>\"Connect Telegram\"</b> to get your personal deep-link.",
+    "4️⃣ Click <b>Start</b> in Telegram to finalize linking!",
+    "",
+    "Once linked, all product inquiries will be forwarded straight to your private chat.",
+  ].join("\n"),
+  inquiries: [
+    "<b>How Product Inquiries Work:</b>",
+    "",
+    "1. Buyers click <b>\"Ask about product\"</b> on your product page.",
+    "2. The question is sent directly to your private Telegram chat AND the Vendors Group.",
+    "3. Click <b>💬 Reply to Buyer</b> directly under the message in Telegram to send your answer back instantly.",
+  ].join("\n"),
+  support: [
+    "<b>Alpha Market Customer &amp; Vendor Support</b>",
+    "",
+    "If you need assistance with escrow payments, disputes, KYC verification, or store configuration:",
+    "",
+    "📧 <b>Super-Admin Email:</b> Contact Super-Admin directly via account support.",
+    "💬 <b>Support Group:</b> Ask in our main Vendors Telegram Group (<code>-1004418676694</code>).",
+  ].join("\n"),
+  rules: [
+    "<b>Alpha Market Community Rules:</b>",
+    "",
+    "1️⃣ <b>Escrow Policy:</b> All payments must go through Alpha Market Escrow. Direct offline transactions are strictly prohibited and will result in a permanent ban.",
+    "2️⃣ <b>Approved Products:</b> Only legal and verified goods/services may be listed.",
+    "3️⃣ <b>KYC Requirement:</b> All vendors must complete Dojah KYC before payouts are processed.",
+    "4️⃣ <b>Respect:</b> No spamming or unauthorized advertising in the Vendors Group.",
+    "5️⃣ Any other communication line with the buyers is strictly prohibited and leads to straight up ban.",
+  ].join("\n"),
+} as const;
+
+export function getTelegramCommandResponse(command: keyof typeof TELEGRAM_COMMAND_MESSAGES) {
+  return TELEGRAM_COMMAND_MESSAGES[command];
+}
+
 function botApiUrl(method: string) {
   if (!ENV.telegramBotToken) throw new Error("TELEGRAM_BOT_TOKEN is not configured.");
   return `https://api.telegram.org/bot${ENV.telegramBotToken}/${method}`;
@@ -91,6 +151,10 @@ async function sendVendorLinkConfirmation(chatId: string, vendorId: string) {
   await telegramCall<TelegramMessage>("sendMessage", { chat_id: chatId, text: `✅ Your Alpha Market vendor Telegram is linked to ${vendorId}. You will receive buyer product questions here.` });
 }
 
+async function sendCommandResponse(chatId: string, command: keyof typeof TELEGRAM_COMMAND_MESSAGES) {
+  await telegramCall<TelegramMessage>("sendMessage", { chat_id: chatId, text: getTelegramCommandResponse(command), parse_mode: "HTML" });
+}
+
 async function handleStart(message: TelegramMessage, payload: string) {
   if (message.chat.type !== "private" || !message.from) return;
   const application = await db.findVendorApplicationByTelegramVendorId(payload);
@@ -137,8 +201,15 @@ async function processTelegramUpdate(update: TelegramUpdate) {
   }
   const message = update.message;
   if (!message) return;
-  if (message.text?.startsWith("/start")) {
-    await handleStart(message, message.text.slice("/start".length).trim());
+  const commandMatch = message.text?.trim().match(/^\/(start|help|link|inquiries|support|rules)(?:@[^\s]+)?(?:\s+(.*))?$/i);
+  if (commandMatch) {
+    const command = commandMatch[1].toLowerCase() as keyof typeof TELEGRAM_COMMAND_MESSAGES;
+    const payload = commandMatch[2]?.trim() ?? "";
+    if (command === "start" && payload) {
+      await handleStart(message, payload);
+    } else {
+      await sendCommandResponse(String(message.chat.id), command);
+    }
     return;
   }
   await handleReplyMessage(message);
