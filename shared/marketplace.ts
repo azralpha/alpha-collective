@@ -53,7 +53,7 @@ export const MARKETPLACE_PRODUCTS = [
     price: 18500,
     formerPrice: 24000,
     badge: "Flash find",
-    imageUrl: "/hero/hero-bundled-01.jpg",
+    imageUrl: "/category/fashion.jpg",
     description: "An easy, patterned carry-all made for weekday movement.",
     detail:
       "A tactile everyday tote with room for the essentials. The pictured colour and pattern are confirmed by the seller before delivery.",
@@ -66,7 +66,7 @@ export const MARKETPLACE_PRODUCTS = [
     price: 21900,
     formerPrice: 28500,
     badge: "Price drop",
-    imageUrl: "/hero/hero-bundled-07.jpg",
+    imageUrl: "/category/gadgets.jpg",
     description: "Pocket-size wireless listening for the daily commute.",
     detail:
       "A compact pair of wireless earbuds with a charging case. Product specifications and fulfilment details are confirmed by the seller before delivery.",
@@ -79,7 +79,7 @@ export const MARKETPLACE_PRODUCTS = [
     price: 12400,
     formerPrice: 15800,
     badge: "Collective pick",
-    imageUrl: "/hero/hero-bundled-06.jpg",
+    imageUrl: "/category/beauty.jpg",
     description: "A small daily care edit with a warm, uncomplicated ritual.",
     detail:
       "A clean three-piece skin-care set. Please review ingredients with the seller before ordering if you have specific sensitivities.",
@@ -92,7 +92,7 @@ export const MARKETPLACE_PRODUCTS = [
     price: 9800,
     formerPrice: 12500,
     badge: "Made local",
-    imageUrl: "/hero/hero-bundled-04.jpg",
+    imageUrl: "/category/home-furniture.jpg",
     description: "A warm, hand-finished bowl for the table or shelf.",
     detail:
       "A quietly textured ceramic bowl for everyday serving or display. Handmade pieces can vary subtly in finish.",
@@ -117,7 +117,7 @@ export const MARKETPLACE_PRODUCTS = [
     price: 86500,
     formerPrice: 112000,
     badge: "Home find",
-    imageUrl: "/hero/hero-bundled-04.jpg",
+    imageUrl: "/category/home-furniture.jpg",
     description: "A woven lounge setting that adds warmth to a quiet corner.",
     detail: "A tactile furniture edit designed for relaxed interiors. Confirm measurements, finish and delivery availability with the seller before ordering.",
   },
@@ -129,7 +129,7 @@ export const MARKETPLACE_PRODUCTS = [
     price: 17400,
     formerPrice: 22900,
     badge: "Pet pick",
-    imageUrl: "/hero/hero-bundled-03.jpg",
+    imageUrl: "/category/animals-pets.jpg",
     description: "A practical comfort set for a new pet corner at home.",
     detail: "A curated pet-home set from a local seller. Confirm size, materials and suitability for your animal before ordering.",
   },

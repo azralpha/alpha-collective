@@ -8,6 +8,7 @@ import {
   getCartSubtotal,
   getCheckoutTotals,
   getMarketplaceCategoryMetadata,
+  MARKETPLACE_PRODUCTS,
   qualifiesForReferralDiscount,
   resolveCartLines,
 } from "./marketplace";
@@ -51,5 +52,16 @@ describe("marketplace money and cart rules", () => {
 
   it("derives the public Vehicles category ID and slug from the canonical category list", () => {
     expect(getMarketplaceCategoryMetadata("Vehicles")).toEqual({ id: "vehicles", slug: "vehicles" });
+  });
+
+  it("uses the supplied real category photos instead of generated product art", () => {
+    const suppliedImages = new Set([
+      "/category/fashion.jpg",
+      "/category/gadgets.jpg",
+      "/category/beauty.jpg",
+      "/category/home-furniture.jpg",
+      "/category/animals-pets.jpg",
+    ]);
+    expect(MARKETPLACE_PRODUCTS.filter(product => suppliedImages.has(product.imageUrl)).length).toBe(6);
   });
 });
