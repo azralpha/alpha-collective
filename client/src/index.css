@@ -316,3 +316,8 @@ img { display: block; max-width: 100%; }
 .gift-card-glint { position: absolute; top: -40%; right: 15%; width: 18%; height: 180%; background: linear-gradient(90deg, transparent, rgba(255,244,184,.12), transparent); transform: rotate(24deg); pointer-events: none; }
 @media (max-width: 900px) { .gift-card-carousel { grid-template-columns: repeat(3, minmax(250px, 1fr)); overflow-x: auto; padding-bottom: 5px; scroll-snap-type: x mandatory; scrollbar-width: none; }.gift-card-carousel::-webkit-scrollbar { display: none; }.premium-gift-card { scroll-snap-align: start; } }
 @media (max-width: 560px) { .gift-card-carousel { grid-template-columns: repeat(3, minmax(275px, 1fr)); gap: 12px; margin-right: -5px; }.gift-card-surface { border-radius: 17px; }.gift-card-value { font-size: 38px; }.gift-card-code strong { font-size: 10px; } }
+
+.supplier-import-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:18px; }
+.supplier-import-heading > div { min-width:0; }
+.supplier-import-heading .button { flex:0 0 auto; white-space:nowrap; }
+@media (max-width:760px) { .supplier-import-heading { flex-direction:column; }.supplier-import-heading .button { width:100%; justify-content:center; } }

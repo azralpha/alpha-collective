@@ -227,6 +227,17 @@ export async function fetchCjProductForMassImport(sku: string, destinationCountr
   };
 }
 
+/** Returns available CJ catalogue entries for an administrator-led bulk draft import. */
+export async function fetchCjProductCatalog(limit: number) {
+  const token = await accessToken();
+  const payload = await cjFetch<CjProductListResponse>(`/product/listV2?page=1&size=${Math.min(limit, 100)}&features=enable_description`, { method: "GET", headers: { "CJ-Access-Token": token } });
+  const candidates = payload?.data?.content?.flatMap(section => section.productList ?? []) ?? [];
+  return candidates.filter(candidate => candidate.sku || candidate.spu).slice(0, limit).map(candidate => {
+    const imported = importableCjProduct(candidate, candidate.sku ?? candidate.spu ?? "CJ-CATALOG");
+    const supplierCost = imported.supplierCost ?? 0;
+    return { ...imported, externalProductId: candidate.id ?? candidate.spu ?? imported.sku, externalVariantId: null, stockQuantity: null, inventoryKnown: false, supplierProductCost: supplierCost, supplierShippingCost: 0, supplierCost, supplierCurrency: "USD" as const };
+  });
+}
 /** Reads a current stock snapshot only; it neither quotes freight nor creates a supplier order. */
 export async function fetchCjInventorySnapshot(input: { productSku: string; preferredVariantId?: string | null }) {
   const token = await accessToken();

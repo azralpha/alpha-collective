@@ -134,6 +134,8 @@ import { hashSpinClaimToken } from "../spinPromotion";
 import { getNewsletterDraftForPreview } from "../newsletter";
 import { nowPaymentsIpnCallbackUrl, paymentRedirectUrl } from "../cryptoFundingUrl";
 import { ENV } from "../_core/env";
+import { SUPPLIER_IDS } from "../supplierCatalog";
+import { importSupplierDrafts } from "../supplierImport";
 import { FlutterwaveProviderError, initializeFlutterwavePayment, isDefinitiveFlutterwaveRequestFailure } from "../flutterwave";
 import {
   PaystackProviderError,
@@ -199,6 +201,14 @@ const gatewayCheckoutInputSchema = z.object({
 
 const cjMassImportInputSchema = z.object({
   skuText: z.string().trim().min(3).max(8_000),
+  markupPercent: z.number().min(0).max(500),
+  exchangeRateNgnPerUsd: z.number().min(100).max(10_000),
+  category: z.enum(MARKETPLACE_CATEGORIES),
+});
+const supplierImportInputSchema = z.object({
+  supplier: z.enum(SUPPLIER_IDS),
+  skuText: z.string().max(8_000),
+  limit: z.number().int().min(10).max(500),
   markupPercent: z.number().min(0).max(500),
   exchangeRateNgnPerUsd: z.number().min(100).max(10_000),
   category: z.enum(MARKETPLACE_CATEGORIES),
@@ -776,6 +786,15 @@ export const marketplaceRouter = router({
         const batch = await processNextCjMassImportItem(input.batchId, ctx.user.id);
         if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "That CJ import batch was not found." });
         return batch;
+      }),
+    importSupplierProducts: adminProcedure
+      .input(supplierImportInputSchema)
+      .mutation(async ({ ctx, input }) => {
+        try {
+          return await importSupplierDrafts({ requestedByUserId: ctx.user.id, ...input });
+        } catch (error) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Supplier catalogue import failed." });
+        }
       }),
     generateGeminiProductEnhancement: adminProcedure
       .input(z.object({ title: z.string().trim().min(2).max(180).transform(sanitizePlainText), description: z.string().trim().min(12).max(1600).transform(sanitizePlainText), specifications: z.string().trim().max(1600).transform(sanitizePlainText).nullable().optional() }))
