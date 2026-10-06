@@ -1,13 +1,14 @@
 import { trpc } from "@/lib/trpc";
 import { formatNaira } from "@shared/marketplace";
+import PremiumGiftCard from "@/components/PremiumGiftCard";
 import { Gift, LockKeyhole, X } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 const cards = [
-  { amount: 1_000, tone: "from-emerald-950 to-emerald-700" },
-  { amount: 10_000, tone: "from-amber-950 to-amber-700" },
-  { amount: 50_000, tone: "from-emerald-900 to-lime-700" },
+  { amount: 1_000 },
+  { amount: 10_000 },
+  { amount: 50_000 },
 ];
 
 export default function GiftCardSection() {
@@ -23,8 +24,8 @@ export default function GiftCardSection() {
   const redeem = trpc.giftCards.redeem.useMutation({ onSuccess: result => { setShowRedeem(false); setCode(""); setCaptchaToken(""); setFailedAttempts(0); toast.success(`${formatNaira(result.appliedAmount)} applied. ${result.remainingCartBalance ? `Pay ${formatNaira(result.remainingCartBalance)} with Flutterwave.` : "Your cart is fully covered."}`); }, onError: error => { setFailedAttempts(value => value + 1); toast.error(error.message); } });
   return <section className="mt-5 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-amber-50 p-5 shadow-sm">
     <div className="flex items-start justify-between gap-3"><div><span className="eyebrow text-emerald-800">Digital gifting</span><h2 className="mt-1 text-lg font-extrabold text-emerald-950">Make a moment feel personal.</h2><p className="mt-1 max-w-xl text-sm leading-6 text-slate-600">Preview the Alpha Market gift-card range. Cards are issued after secure Flutterwave payment and delivered to the recipient by email.</p></div><Gift className="text-amber-700" size={24} /></div>
-    <div className="mt-4 flex snap-x gap-3 overflow-x-auto pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden" aria-label="Gift card amounts">
-      {cards.map(card => <div key={card.amount} className={`min-w-[180px] snap-start rounded-2xl bg-gradient-to-br ${card.tone} p-4 text-left text-white shadow-md`}><span className="text-xs font-semibold uppercase tracking-[0.18em] text-white/70">ALPHA MARKET</span><strong className="mt-8 block text-2xl">{formatNaira(card.amount)}</strong><span className="mt-1 block text-xs text-white/75">Digital preview · non-clickable value</span></div>)}
+    <div className="gift-card-carousel" aria-label="Gift card amounts">
+      {cards.map(card => <PremiumGiftCard key={card.amount} amount={card.amount} />)}
     </div>
     <div className="mt-3 flex flex-wrap gap-2"><button className="button button-primary" type="button" onClick={() => setShowPurchase(true)}>Buy Gift Card</button><button className="button button-secondary" type="button" onClick={() => setShowRedeem(true)}>Redeem Code</button></div>
     <p className="mt-3 flex items-center gap-1.5 text-xs text-slate-500"><LockKeyhole size={13} /> Store credit only. Gift-card balances are non-refundable for cash.</p>
