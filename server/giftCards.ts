@@ -29,13 +29,22 @@ export function failedRedemptionCount(ip: string) { const item = failedRedemptio
 export function checkGiftCardRedemptionRate(ip: string) {
   return failedRedemptionLimiter.consume({ key: `gift-card-redemption:ip:${ip}`, limit: 3, windowMs: 3_600_000 });
 }
-async function verifyCaptcha(token: string | undefined) {
+async function verifyTurnstile(token: string | undefined, ip: string) {
   if (!token) return false;
-  const secret = process.env.HCAPTCHA_SECRET;
-  if (!secret) return process.env.NODE_ENV !== "production" && token === "development-captcha";
-  const response = await fetch("https://hcaptcha.com/siteverify", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ secret, response: token }) });
-  const result = await response.json() as { success?: boolean };
-  return result.success === true;
+  const secret = process.env.TURNSTILE_SECRET_KEY?.trim();
+  if (!secret) {
+    console.error("[Gift card] TURNSTILE_SECRET_KEY is not configured; rejecting verification.");
+    return false;
+  }
+  try {
+    const response = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ secret, response: token, ...(ip !== "unknown" ? { remoteip: ip } : {}) }), signal: AbortSignal.timeout(10_000) });
+    if (!response.ok) return false;
+    const result = await response.json() as { success?: boolean };
+    return result.success === true;
+  } catch (error) {
+    console.error("[Gift card] Turnstile verification failed", error);
+    return false;
+  }
 }
 
 export async function initiateGiftCardPurchase(input: { userId: number; amount: number; purchaserEmail: string; recipientEmail: string; purchaserIp: string; redirectUrl: string }) {
@@ -77,10 +86,10 @@ export async function issueGiftCardFromFlutterwave(input: { transactionId: strin
   return { reference: purchase.reference, amount: purchase.amount };
 }
 
-export async function redeemGiftCard(input: { code: string; cartTotal: number; ip: string; captchaToken?: string }) {
+export async function redeemGiftCard(input: { code: string; cartTotal: number; ip: string; turnstileToken?: string }) {
   const rate = checkGiftCardRedemptionRate(input.ip);
   if (!rate.allowed) throw new Error("Too many failed redemption attempts. Please try again later.");
-  if (failedRedemptionCount(input.ip) >= 2 && !(await verifyCaptcha(input.captchaToken))) throw new Error("Complete CAPTCHA verification before trying another code.");
+  if (failedRedemptionCount(input.ip) >= 2 && !(await verifyTurnstile(input.turnstileToken, input.ip))) throw new Error("Complete Turnstile verification before trying another code.");
   const db = await requireDb();
   const [card] = await db.select().from(giftCards).where(and(eq(giftCards.codeHash, hashGiftCardCode(input.code)), eq(giftCards.status, "ACTIVE"))).limit(1);
   if (!card) { const attempts = recordFailedAttempt(input.ip); throw new Error(attempts >= 2 ? "Invalid code. CAPTCHA is now required." : "That gift-card code is invalid."); }
