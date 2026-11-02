@@ -94,7 +94,6 @@ import {
   saveFulfilmentIntegration,
   saveCjInventorySyncScheduleTaskUid,
   saveCryptoFundingQuote,
-  submitKycGovernmentId,
   updateVendorProductStatus,
   updateOfficialProduct,
   updateCartRewardTier,
@@ -110,7 +109,6 @@ import {
   settleSpinRewardAfterVerifiedPayment,
 } from "../db";
 import { extractClientIp, normalizeDeviceId } from "../referralFraud";
-import { storagePut } from "../storage";
 import { decodeProductImageDataUrl, importCjProductImage, ProductImageProcessingError, storeProcessedProductImage } from "../productImageProcessing";
 import { CjDropshippingError, fetchCjProductForImport } from "../cjDropshipping";
 import { createCjMassImportBatch, getCjMassImportBatch, processNextCjMassImportItem } from "../cjMassImport";
@@ -375,15 +373,6 @@ function decodeProductImage(dataUrl: string) {
   }
   const extension = contentType === "image/jpeg" ? "jpg" : contentType.split("/")[1];
   return { contentType, data, extension };
-}
-
-function decodeKycGovernmentId(dataUrl: string) {
-  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(dataUrl);
-  if (!match) throw new TRPCError({ code: "BAD_REQUEST", message: "Upload a JPG, PNG, or WebP government ID image." });
-  const [, contentType, base64] = match;
-  const data = Buffer.from(base64, "base64");
-  if (data.length === 0 || data.length > 5 * 1024 * 1024) throw new TRPCError({ code: "PAYLOAD_TOO_LARGE", message: "Government ID images must be 5 MB or smaller." });
-  return { contentType, data, extension: contentType === "image/jpeg" ? "jpg" : contentType.split("/")[1] };
 }
 
 export const marketplaceRouter = router({
@@ -693,21 +682,12 @@ export const marketplaceRouter = router({
       return {
         status: administratorTestAccess ? "verified" as const : profile.status,
         administratorTestAccess,
-        submittedLegalName: profile.submittedLegalName,
-        verifiedLegalName: profile.verifiedLegalName,
-        hasGovernmentId: Boolean(profile.governmentIdImageUrl),
+        provider: "didit" as const,
+        providerStatus: profile.diditStatus,
         vendorKycRequired: Boolean(vendor),
         failureReason: profile.failureReason,
       };
     }),
-    submitGovernmentId: protectedProcedure
-      .input(z.object({ legalName: z.string().trim().min(3).max(160), imageDataUrl: z.string().max(7_000_000) }))
-      .mutation(async ({ ctx, input }) => {
-        const { contentType, data, extension } = decodeKycGovernmentId(input.imageDataUrl);
-        const uploaded = await storagePut(`kyc-private/${ctx.user.id}/${Date.now()}.${extension}`, data, contentType);
-        const profile = await submitKycGovernmentId({ userId: ctx.user.id, submittedLegalName: input.legalName, governmentIdImageUrl: uploaded.url });
-        return { status: profile?.status ?? "identity_pending", message: "Your ID was securely submitted for identity review." };
-      }),
   }),
   admin: router({
     cartRewardTiers: adminProcedure.query(() => listCartRewardTiers(true)),

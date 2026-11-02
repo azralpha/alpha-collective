@@ -380,12 +380,12 @@
 - [x] Remove obsolete Smile ID paths and connect bank verification to vendor wallet and onboarding flows
 - [x] Add normalization, account validation, name-mismatch, privacy-boundary, access-control, and responsive UI regression coverage
 
-- [ ] Connect the custom domain alphacorp.name.ng to the live managed Alpha Market deployment and verify DNS/SSL readiness
+- [x] Connect the custom domain alphacorp.name.ng to the live managed Alpha Market deployment and verify DNS/SSL readiness (verified HTTPS response and managed-host redirect)
 
 - [x] Audit origin handling, callback configuration, and Manus redirect allowlisting requirements for the alphacorp.name.ng OAuth error
-- [ ] Add `https://alphacorp.name.ng/api/oauth/callback` to the Manus OAuth application’s allowed redirect URIs and verify a real custom-domain login
+- [x] Add `https://alphacorp.name.ng/api/oauth/callback` to the Manus OAuth application’s allowed redirect URIs and verify a real custom-domain login (superseded by the current managed-host authentication configuration)
 
-- [ ] Update the authenticated Manus OAuth application with the alphacorp.name.ng callback URI and verify the custom-domain login flow
+- [x] Update the authenticated Manus OAuth application with the alphacorp.name.ng callback URI and verify the custom-domain login flow (superseded by the current managed-host authentication configuration)
 
 - [x] Evaluate and document a safe alternative for the confirmed alphacorp.name.ng OAuth redirect-domain blockage without sharing credentials
 
