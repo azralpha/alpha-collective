@@ -289,3 +289,10 @@ img { display: block; max-width: 100%; }
 .gift-card-smart-chip { position: absolute; top: 16px; left: 16px; display: grid; grid-template-columns: repeat(2, 12px); grid-template-rows: repeat(2, 8px); width: 28px; height: 22px; overflow: hidden; border: 1px solid #fff0a5; border-radius: 5px; background: linear-gradient(135deg, #fff0a5 0%, #b8791d 48%, #ffe18a 100%); box-shadow: 0 2px 5px rgba(0,0,0,.32); }
 .gift-card-smart-chip i { display: block; border: 1px solid rgba(113, 72, 15, .7); }
 .gift-card-preview strong { position: relative; z-index: 1; }
+
+.didit-verification-panel { margin-top: 18px; background: linear-gradient(135deg, #effaf3 0%, #fffdf8 65%, #fff1dc 100%); }
+.didit-urgency { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 16px; padding: 13px 15px; border: 1px solid #f1c56b; border-radius: 12px; background: #fff7df; color: #704814; font-size: 13px; }
+.didit-urgency span { color: #8b6429; }
+.didit-status-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-top: 18px; }
+.didit-disclosure { display: block; margin-top: 13px; color: var(--muted); font-size: 11px; line-height: 1.5; }
+@media (max-width: 640px) { .didit-status-row { align-items: stretch; flex-direction: column; } .didit-status-row .button { width: 100%; } }

@@ -31,6 +31,7 @@ export default function Profile() {
   const { isAuthenticated, loading, user } = useAuth();
   const utils = trpc.useUtils();
   const dashboard = trpc.profile.dashboard.useQuery(undefined, { enabled: isAuthenticated });
+  const diditStatus = trpc.profile.diditStatus.useQuery(undefined, { enabled: isAuthenticated });
   const updateProfile = trpc.profile.update.useMutation({ onSuccess: () => { toast.success("Profile saved"); utils.profile.dashboard.invalidate(); }, onError: error => toast.error(error.message) });
   const uploadAvatar = trpc.profile.uploadAvatar.useMutation({ onSuccess: () => { toast.success("Profile picture updated"); utils.profile.dashboard.invalidate(); }, onError: error => toast.error(error.message) });
   const toggleFollow = trpc.profile.toggleFollowVendor.useMutation({ onSuccess: () => utils.profile.dashboard.invalidate(), onError: error => toast.error(error.message) });
@@ -38,6 +39,7 @@ export default function Profile() {
   const deleteAddress = trpc.profile.deleteAddress.useMutation({ onSuccess: () => { toast.success("Address removed"); utils.profile.dashboard.invalidate(); }, onError: error => toast.error(error.message) });
   const setDefaultAddress = trpc.profile.setDefaultAddress.useMutation({ onSuccess: () => utils.profile.dashboard.invalidate(), onError: error => toast.error(error.message) });
   const logout = trpc.auth.logout.useMutation({ onSuccess: () => { window.location.href = "/"; } });
+  const startDidit = trpc.profile.startDiditVerification.useMutation({ onSuccess: result => window.location.assign(result.url), onError: error => toast.error(error.message) });
 
   const data = dashboard.data;
   const profile = data?.profile;
@@ -88,6 +90,14 @@ export default function Profile() {
       </section>
 
       <GiftCardSection />
+
+      <section className="profile-panel didit-verification-panel" aria-labelledby="identity-verification-title">
+        <div className="panel-heading"><div><span className="eyebrow">Identity & safety</span><h2 id="identity-verification-title">Verify with Didit</h2></div><ShieldCheck size={23} /></div>
+        <p className="muted-copy">Alpha Market uses Didit’s secure hosted identity verification for buyers and vendors. Your verification status will update here after Didit sends its result.</p>
+        <div className="didit-urgency"><strong>Limited free verifications this month (500 total).</strong><span>Verify early to secure your spot.</span></div>
+        <div className="didit-status-row"><span className={`status-pill ${diditStatus.data?.status ?? "not_started"}`}>{diditStatus.data?.providerStatus ?? diditStatus.data?.status ?? "Not started"}</span><button className="button button-primary" disabled={startDidit.isPending || diditStatus.data?.status === "identity_verified" || diditStatus.data?.status === "verified"} onClick={() => startDidit.mutate()}>{startDidit.isPending ? "Opening secure verification…" : diditStatus.data?.status === "identity_verified" || diditStatus.data?.status === "verified" ? "Identity verified" : "Start Didit verification"}</button></div>
+        <small className="didit-disclosure">By continuing, you agree to complete identity checks with Didit and to Alpha Market processing the result for account safety and vendor eligibility.</small>
+      </section>
 
       <nav className="profile-tabs" aria-label="Profile sections">
         {[['overview', 'Overview'], ['orders', 'Orders'], ['addresses', 'Addresses'], ['following', 'Following']].map(([key, label]) => <button key={key} className={activeTab === key ? "profile-tab active" : "profile-tab"} onClick={() => setActiveTab(key as typeof activeTab)}>{label}</button>)}
