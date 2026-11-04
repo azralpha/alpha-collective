@@ -6,11 +6,16 @@ import { issueGiftCardFromFlutterwave } from "./giftCards";
 
 type FlutterwaveWebhookEvent = {
   type?: unknown;
-  data?: { id?: unknown; tx_ref?: unknown; reference?: unknown };
+  data?: { id?: unknown; tx_ref?: unknown; reference?: unknown; meta?: unknown; metadata?: unknown };
 };
 
 function eventTransactionId(event: FlutterwaveWebhookEvent) {
   return typeof event.data?.id === "string" || typeof event.data?.id === "number" ? String(event.data.id) : null;
+}
+
+function eventMetadata(event: FlutterwaveWebhookEvent) {
+  const candidate = event.data?.metadata ?? event.data?.meta;
+  return candidate && typeof candidate === "object" && !Array.isArray(candidate) ? candidate as Record<string, unknown> : null;
 }
 
 async function reconcileFunding(event: FlutterwaveWebhookEvent) {
@@ -31,6 +36,7 @@ async function reconcileFunding(event: FlutterwaveWebhookEvent) {
 }
 
 export async function processFlutterwaveWebhook(event: FlutterwaveWebhookEvent) {
+  if (eventMetadata(event)?.platform !== "alpha_market") return;
   if (event.type !== "charge.completed") return;
   const eventReference = typeof event.data?.tx_ref === "string" ? event.data.tx_ref : typeof event.data?.reference === "string" ? event.data.reference : "";
   if (eventReference.startsWith("ALPHA-GC-")) {

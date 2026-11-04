@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import type { FlutterwavePaymentMetadata } from "../drizzle/schema";
 
 const FLUTTERWAVE_API_URL = "https://api.flutterwave.com/v3";
 
@@ -54,11 +55,11 @@ export async function resolveFlutterwaveNigerianAccount(input: { accountNumber: 
   return { accountNumber: data.account_number, accountName: data.account_name.trim(), bankCode: typeof data.bank_code === "string" ? data.bank_code : input.bankCode };
 }
 
-export async function initializeFlutterwavePayment(input: { email: string; reference: string; amountNaira: number; redirectUrl: string; title: string }) {
+export async function initializeFlutterwavePayment(input: { email: string; reference: string; amountNaira: number; redirectUrl: string; title: string; metadata: FlutterwavePaymentMetadata }) {
   if (!Number.isSafeInteger(input.amountNaira) || input.amountNaira < 100) throw new FlutterwaveProviderError("Enter a whole-Naira amount of at least ₦100.", 400);
   const data = await flutterwaveRequest<{ link?: unknown }>("/payments", {
     method: "POST",
-    body: JSON.stringify({ tx_ref: input.reference, amount: input.amountNaira, currency: "NGN", redirect_url: input.redirectUrl, customer: { email: input.email }, customizations: { title: input.title }, meta: { alpha_reference: input.reference } }),
+    body: JSON.stringify({ tx_ref: input.reference, amount: input.amountNaira, currency: "NGN", redirect_url: input.redirectUrl, customer: { email: input.email }, customizations: { title: input.title }, meta: { ...input.metadata, alpha_reference: input.reference } }),
   });
   if (typeof data.link !== "string" || !data.link.startsWith("https://")) throw new FlutterwaveProviderError("Flutterwave did not return a valid payment link.", 502);
   return { authorizationUrl: data.link, reference: input.reference };

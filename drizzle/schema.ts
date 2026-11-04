@@ -41,6 +41,7 @@ export const giftCardPurchases = mysqlTable("giftCardPurchases", {
   purchaserEmail: varchar("purchaserEmail", { length: 320 }).notNull(),
   recipientEmail: varchar("recipientEmail", { length: 320 }).notNull(),
   status: mysqlEnum("status", ["PENDING", "PAID", "FAILED"]).notNull().default("PENDING"),
+  metadata: json("metadata").$type<FlutterwavePaymentMetadata>(),
   providerTransactionId: varchar("providerTransactionId", { length: 80 }),
   giftCardId: int("giftCardId"),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
@@ -70,6 +71,14 @@ export type StoredOrderLine = {
   rewardGift?: boolean;
   rewardTierClaimId?: number;
   rewardSpinClaimId?: number;
+};
+
+export type FlutterwavePaymentMetadata = {
+  platform: "alpha_market";
+  order_id: string | null;
+  user_id: number;
+  vendor_id: number | null;
+  source: "alphamarket.name.ng";
 };
 
 export const orders = mysqlTable("orders", {
@@ -463,6 +472,7 @@ export const walletFundingAttempts = mysqlTable("walletFundingAttempts", {
   provider: mysqlEnum("provider", ["paystack", "flutterwave"]).notNull().default("paystack"),
   amount: int("amount").notNull(),
   orderReference: varchar("orderReference", { length: 40 }),
+  metadata: json("metadata").$type<FlutterwavePaymentMetadata>(),
   status: mysqlEnum("status", ["pending", "succeeded", "failed"]).notNull().default("pending"),
   providerTransactionId: varchar("providerTransactionId", { length: 64 }),
   paidAt: timestamp("paidAt"),

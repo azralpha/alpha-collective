@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { and, eq, gte, sql } from "drizzle-orm";
 import { giftCardPurchases, giftCards, kycProfiles } from "../drizzle/schema";
+import type { FlutterwavePaymentMetadata } from "../drizzle/schema";
 import { getDb } from "./db";
 import { initializeFlutterwavePayment, verifyFlutterwaveTransaction } from "./flutterwave";
 import { FixedWindowRateLimiter } from "./performanceControls";
@@ -56,9 +57,10 @@ export async function initiateGiftCardPurchase(input: { userId: number; amount: 
   const recent = await db.select({ count: sql<number>`count(*)` }).from(giftCardPurchases).where(and(sql`(${giftCardPurchases.purchaserUserId} = ${input.userId} OR ${giftCardPurchases.purchaserIp} = ${input.purchaserIp})`, gte(giftCardPurchases.createdAt, since), sql`${giftCardPurchases.status} <> 'FAILED'`));
   if (Number(recent[0]?.count ?? 0) >= 3) throw new Error("You can purchase up to 3 gift cards in a 24-hour period.");
   const reference = `ALPHA-GC-${Date.now()}-${randomBytes(4).toString("hex").toUpperCase()}`;
-  await db.insert(giftCardPurchases).values({ reference, purchaserUserId: input.userId, purchaserIp: input.purchaserIp, amount: input.amount, purchaserEmail: input.purchaserEmail, recipientEmail: input.recipientEmail });
+  const metadata: FlutterwavePaymentMetadata = { platform: "alpha_market", order_id: null, user_id: input.userId, vendor_id: null, source: "alphamarket.name.ng" };
+  await db.insert(giftCardPurchases).values({ reference, purchaserUserId: input.userId, purchaserIp: input.purchaserIp, amount: input.amount, purchaserEmail: input.purchaserEmail, recipientEmail: input.recipientEmail, metadata });
   try {
-    return await initializeFlutterwavePayment({ email: input.purchaserEmail, reference, amountNaira: input.amount, redirectUrl: input.redirectUrl, title: "Alpha Market Gift Card" });
+    return await initializeFlutterwavePayment({ email: input.purchaserEmail, reference, amountNaira: input.amount, redirectUrl: input.redirectUrl, title: "Alpha Market Gift Card", metadata });
   } catch (error) {
     await db.update(giftCardPurchases).set({ status: "FAILED" }).where(eq(giftCardPurchases.reference, reference));
     throw error;

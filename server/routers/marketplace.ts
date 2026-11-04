@@ -133,6 +133,7 @@ import { cartRewardUpsellInputSchema, getCartRewardUpsells } from "../cartReward
 import { hashSpinClaimToken } from "../spinPromotion";
 import { getNewsletterDraftForPreview } from "../newsletter";
 import { nowPaymentsIpnCallbackUrl, paymentRedirectUrl } from "../cryptoFundingUrl";
+import type { FlutterwavePaymentMetadata } from "../../drizzle/schema";
 import { FlutterwaveProviderError, initializeFlutterwavePayment, isDefinitiveFlutterwaveRequestFailure } from "../flutterwave";
 import {
   PaystackProviderError,
@@ -162,6 +163,9 @@ const flutterwaveFundingReferenceAlphabet = customAlphabet("0123456789abcdefghij
 const paystackWithdrawalReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
 const cryptoFundingReferenceAlphabet = customAlphabet("0123456789abcdefghijklmnopqrstuvwxyz", 20);
 const spinClaimTokenSchema = z.string().trim().min(24).max(80).regex(/^[A-Za-z0-9_-]+$/, "Use a valid Spin to Win claim.").optional();
+function alphaMarketPaymentMetadata(input: { orderId?: string | null; userId: number; vendorId?: number | null }): FlutterwavePaymentMetadata {
+  return { platform: "alpha_market", order_id: input.orderId ?? null, user_id: input.userId, vendor_id: input.vendorId ?? null, source: "alphamarket.name.ng" };
+}
 const walletCheckoutInputSchema = z.object({
   buyerName: z.string().trim().min(2).max(120).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid buyer name."),
   buyerPhone: z.string().trim().min(7).max(32),
@@ -495,11 +499,12 @@ export const marketplaceRouter = router({
       .mutation(async ({ ctx, input }) => {
         const wallet = await ensureWalletForUser(ctx.user.id);
         const reference = input.provider === "paystack" ? newPaystackFundingReference() : newFlutterwaveFundingReference();
-        await createWalletFundingAttempt({ walletId: wallet.id, userId: ctx.user.id, reference, amount: input.amount, provider: input.provider });
+        const metadata = alphaMarketPaymentMetadata({ userId: ctx.user.id });
+        await createWalletFundingAttempt({ walletId: wallet.id, userId: ctx.user.id, reference, amount: input.amount, provider: input.provider, metadata });
         try {
           const payment = input.provider === "paystack"
             ? await initializePaystackFunding({ email: input.email.toLowerCase(), reference, amountNaira: input.amount, callbackUrl: paymentRedirectUrl("paystack") })
-            : await initializeFlutterwavePayment({ email: input.email.toLowerCase(), reference, amountNaira: input.amount, redirectUrl: paymentRedirectUrl("flutterwave"), title: "Alpha Wallet funding" });
+            : await initializeFlutterwavePayment({ email: input.email.toLowerCase(), reference, amountNaira: input.amount, redirectUrl: paymentRedirectUrl("flutterwave"), title: "Alpha Wallet funding", metadata });
           return { reference: payment.reference, authorizationUrl: payment.authorizationUrl };
         } catch (error) {
           if (isDefinitivePaystackRequestFailure(error) || isDefinitiveFlutterwaveRequestFailure(error)) await markWalletFundingAttemptFailed(reference);
@@ -1029,11 +1034,13 @@ export const marketplaceRouter = router({
         const commissionAmount = Math.round(line.lineTotal * commissionRate / 100);
         return [{ vendorUserId: line.product.vendorUserId, grossAmount: line.lineTotal, commissionAmount, netAmount: line.lineTotal - commissionAmount }];
       }))).flat();
+      const metadata = alphaMarketPaymentMetadata({ orderId: orderReference, userId: ctx.user.id, vendorId: allocations[0]?.vendorUserId ?? null });
       const wallet = await ensureWalletForUser(ctx.user.id);
       await createPendingGatewayCheckout({
         walletId: wallet.id,
         provider: input.provider,
         paymentReference,
+        metadata,
         allocations,
         order: { reference: orderReference, buyerUserId: ctx.user.id, buyerName: input.buyerName, buyerPhone: input.buyerPhone, deliveryAddress: formatNigerianDeliveryAddress(input.deliveryAddress), paymentMethod: input.provider, paymentStatus: "pending", fulfillmentStatus: "pending", subtotal, referralDiscount: 0, deliveryFee: deliveryQuote.deliveryFee, total, discountType: "none", orderLines: resolvedLines.map(line => ({ productId: line.product.id, title: line.product.title, quantity: line.quantity, unitPrice: line.product.price, lineTotal: line.lineTotal, vendorUserId: line.product.vendorUserId })) },
       });
@@ -1042,7 +1049,7 @@ export const marketplaceRouter = router({
       try {
         const payment = input.provider === "paystack"
           ? await initializePaystackFunding({ email: input.email.toLowerCase(), reference: paymentReference, amountNaira: total, callbackUrl: paymentRedirectUrl("paystack") })
-          : await initializeFlutterwavePayment({ email: input.email.toLowerCase(), reference: paymentReference, amountNaira: total, redirectUrl: paymentRedirectUrl("flutterwave"), title: `Alpha Market checkout ${orderReference}` });
+          : await initializeFlutterwavePayment({ email: input.email.toLowerCase(), reference: paymentReference, amountNaira: total, redirectUrl: paymentRedirectUrl("flutterwave"), title: `Alpha Market checkout ${orderReference}`, metadata });
         const spinReward = input.spinClaimToken ? await reserveSpinRewardForCheckout({ tokenHash: hashSpinClaimToken(input.spinClaimToken), userId: ctx.user.id, orderReference, items: input.items }) : { eligible: false as const };
         return { orderReference, paymentReference: payment.reference, authorizationUrl: payment.authorizationUrl, provider: input.provider, total, deliveryFee: deliveryQuote.deliveryFee, paymentStatus: "pending" as const, spinRewardReserved: spinReward.eligible };
       } catch (error) {

@@ -8,6 +8,7 @@ import {
   type InsertVendorApplication,
   type InsertVendorProduct,
   type InsertWalletTransaction,
+  type FlutterwavePaymentMetadata,
   bonusRewardHolds,
   cartRewardClaims,
   cartRewardTiers,
@@ -254,12 +255,13 @@ export async function createPendingGatewayCheckout(input: {
   walletId: number;
   provider: "paystack" | "flutterwave";
   paymentReference: string;
+  metadata: FlutterwavePaymentMetadata;
   allocations: Array<{ vendorUserId: number; grossAmount: number; commissionAmount: number; netAmount: number }>;
 }) {
   const db = await requireDb();
   await db.transaction(async tx => {
     await tx.insert(orders).values(input.order);
-    await tx.insert(walletFundingAttempts).values({ walletId: input.walletId, userId: input.order.buyerUserId ?? -1, reference: input.paymentReference, provider: input.provider, amount: input.order.total, orderReference: input.order.reference, status: "pending" });
+    await tx.insert(walletFundingAttempts).values({ walletId: input.walletId, userId: input.order.buyerUserId ?? -1, reference: input.paymentReference, provider: input.provider, amount: input.order.total, orderReference: input.order.reference, metadata: input.metadata, status: "pending" });
     if (input.allocations.length) {
       await tx.insert(escrowAllocations).values(input.allocations.map(allocation => ({ orderReference: input.order.reference, buyerWalletId: input.walletId, vendorUserId: allocation.vendorUserId, grossAmount: allocation.grossAmount, commissionAmount: allocation.commissionAmount, netAmount: allocation.netAmount, status: "pending" as const })));
     }
@@ -680,7 +682,7 @@ export async function getWalletFundingAttemptByReference(reference: string) {
   return result[0];
 }
 
-export async function createWalletFundingAttempt(input: { walletId: number; userId: number; reference: string; amount: number; provider?: "paystack" | "flutterwave"; orderReference?: string }) {
+export async function createWalletFundingAttempt(input: { walletId: number; userId: number; reference: string; amount: number; provider?: "paystack" | "flutterwave"; orderReference?: string; metadata?: FlutterwavePaymentMetadata }) {
   const db = await requireDb();
   await db.insert(walletFundingAttempts).values({ ...input, provider: input.provider ?? "paystack", status: "pending" });
   const attempt = await getWalletFundingAttemptByReference(input.reference);

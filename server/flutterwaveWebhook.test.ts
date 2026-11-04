@@ -17,7 +17,7 @@ describe("Flutterwave webhook reconciliation", () => {
     vi.mocked(getWalletFundingAttemptByReference).mockResolvedValue({ amount: 12_500, provider: "flutterwave" } as never);
     vi.mocked(verifyFlutterwaveTransaction).mockResolvedValue({ id: "445", reference: "acfwfund_123", status: "successful", amountNaira: 12_500, currency: "NGN" });
 
-    await processFlutterwaveWebhook({ type: "charge.completed", data: { id: "445" } });
+    await processFlutterwaveWebhook({ type: "charge.completed", data: { id: "445", metadata: { platform: "alpha_market" } } });
 
     expect(verifyFlutterwaveTransaction).toHaveBeenCalledWith("445");
     expect(creditVerifiedWalletFunding).toHaveBeenCalledWith({ reference: "acfwfund_123", providerTransactionId: "445", provider: "flutterwave" });
@@ -27,7 +27,14 @@ describe("Flutterwave webhook reconciliation", () => {
     vi.mocked(getWalletFundingAttemptByReference).mockResolvedValue({ amount: 12_500, provider: "paystack" } as never);
     vi.mocked(verifyFlutterwaveTransaction).mockResolvedValue({ id: "445", reference: "acfwfund_123", status: "successful", amountNaira: 12_500, currency: "NGN" });
 
-    await expect(processFlutterwaveWebhook({ type: "charge.completed", data: { id: "445" } })).rejects.toThrow("did not match");
+    await expect(processFlutterwaveWebhook({ type: "charge.completed", data: { id: "445", metadata: { platform: "alpha_market" } } })).rejects.toThrow("did not match");
+    expect(creditVerifiedWalletFunding).not.toHaveBeenCalled();
+  });
+
+  it("ignores transactions without the Alpha Market platform tag", async () => {
+    await processFlutterwaveWebhook({ type: "charge.completed", data: { id: "445", metadata: { platform: "other_platform" } } });
+
+    expect(verifyFlutterwaveTransaction).not.toHaveBeenCalled();
     expect(creditVerifiedWalletFunding).not.toHaveBeenCalled();
   });
 });
