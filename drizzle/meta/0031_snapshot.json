@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "2eaa9c64-679f-4dd8-b015-73d9c587c8d5",
+  "id": "fed81a2a-0e47-457b-a158-7e884971bd16",
   "prevId": "3c766cf0-f367-417e-83a3-dd7534aeae4c",
   "tables": {
     "bonusRewardHolds": {
@@ -1304,13 +1304,6 @@
           "autoincrement": false,
           "default": "'PENDING'"
         },
-        "metadata": {
-          "name": "metadata",
-          "type": "json",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
         "providerTransactionId": {
           "name": "providerTransactionId",
           "type": "varchar(80)",
@@ -1485,6 +1478,27 @@
           "autoincrement": false,
           "default": "'not_started'"
         },
+        "diditSessionId": {
+          "name": "diditSessionId",
+          "type": "varchar(64)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "diditStatus": {
+          "name": "diditStatus",
+          "type": "varchar(32)",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "diditUpdatedAt": {
+          "name": "diditUpdatedAt",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
         "submittedLegalName": {
           "name": "submittedLegalName",
           "type": "varchar(160)",
@@ -1560,6 +1574,12 @@
           "name": "kycProfiles_userId_unique",
           "columns": [
             "userId"
+          ]
+        },
+        "kycProfiles_diditSessionId_unique": {
+          "name": "kycProfiles_diditSessionId_unique",
+          "columns": [
+            "diditSessionId"
           ]
         }
       },
@@ -4124,13 +4144,6 @@
         "orderReference": {
           "name": "orderReference",
           "type": "varchar(40)",
-          "primaryKey": false,
-          "notNull": false,
-          "autoincrement": false
-        },
-        "metadata": {
-          "name": "metadata",
-          "type": "json",
           "primaryKey": false,
           "notNull": false,
           "autoincrement": false

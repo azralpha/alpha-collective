@@ -25,6 +25,7 @@ import { registerSpinPromotionRoute } from "../spinPromotionRoute";
 import { registerNewsletterRoutes } from "../newsletterRoute";
 import { registerBankVerificationRoute } from "../bankVerificationRoute";
 import { registerTaskRewardsRoutes } from "../taskRewardsRoute";
+import { registerDiditWebhook } from "../didit";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -53,6 +54,7 @@ async function startServer() {
   registerPaystackWebhook(app);
   registerFlutterwaveWebhook(app);
   registerTaskRewardsRoutes(app);
+  registerDiditWebhook(app);
   registerCjFulfilmentSchedule(app);
   registerCjInventorySyncSchedule(app);
   registerRewardReleaseSchedule(app);
