@@ -285,11 +285,6 @@ img { display: block; max-width: 100%; }
 .task-table-wrap { overflow-x:auto; margin-top:15px; }.task-table { width:100%; border-collapse:collapse; min-width:700px; font-size:12px; }.task-table th { padding:10px; border-bottom:1px solid var(--line); color:var(--muted); text-align:left; font:10px "DM Mono",monospace; text-transform:uppercase; }.task-table td { padding:13px 10px; border-bottom:1px solid rgba(222,213,200,.7); }.task-status,.task-hold { display:inline-flex; align-items:center; gap:5px; padding:5px 8px; border-radius:999px; font:10px "DM Mono",monospace; }.task-status.pending,.task-hold { background:#fff2cf; color:#765400; }.task-status.completed { background:#e3f4e8; color:#17613c; }.task-status.reversed { background:#f9dfd8; color:#8f3022; }.task-support-link { color:var(--tomato); font-weight:700; }
 @media (max-width:760px) { .task-earn-hero { align-items:flex-start; padding:25px; }.task-earn-hero h1 { font-size:44px; }.task-earn-hero > svg { display:none; }.task-credit-summary { grid-template-columns:1fr 1fr; }.task-credit-summary > div:last-child { grid-column:1/-1; }.task-earn-layout { grid-template-columns:1fr; }.task-offer-panel,.task-activity-panel,.task-history-panel { padding:16px; } }
 
-.gift-card-preview { overflow: hidden; }
-.gift-card-smart-chip { position: absolute; top: 16px; left: 16px; display: grid; grid-template-columns: repeat(2, 12px); grid-template-rows: repeat(2, 8px); width: 28px; height: 22px; overflow: hidden; border: 1px solid #fff0a5; border-radius: 5px; background: linear-gradient(135deg, #fff0a5 0%, #b8791d 48%, #ffe18a 100%); box-shadow: 0 2px 5px rgba(0,0,0,.32); }
-.gift-card-smart-chip i { display: block; border: 1px solid rgba(113, 72, 15, .7); }
-.gift-card-preview strong { position: relative; z-index: 1; }
-
 .didit-verification-panel { margin-top: 18px; background: linear-gradient(135deg, #effaf3 0%, #fffdf8 65%, #fff1dc 100%); }
 .didit-urgency { display: flex; flex-wrap: wrap; gap: 6px 10px; margin-top: 16px; padding: 13px 15px; border: 1px solid #f1c56b; border-radius: 12px; background: #fff7df; color: #704814; font-size: 13px; }
 .didit-urgency span { color: #8b6429; }
