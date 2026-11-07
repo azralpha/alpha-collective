@@ -8,6 +8,8 @@ export const ENV = {
   googleClientId: envValue("GOOGLE_CLIENT_ID"),
   googleClientSecret: envValue("GOOGLE_CLIENT_SECRET"),
   googleRedirectUri: envValue("GOOGLE_REDIRECT_URI"),
+  turnstileSiteKey: envValue("TURNSTILE_SITE_KEY"),
+  turnstileSecretKey: envValue("TURNSTILE_SECRET_KEY"),
   publicAppUrl: (envValue("PUBLIC_APP_URL") || "https://alphamarket.name.ng").replace(/\/+$/, ""),
   apiOrigin: (envValue("PUBLIC_API_URL") || envValue("VITE_API_ORIGIN") || "http://localhost:3000").replace(/\/+$/, ""),
   uploadsDir: envValue("UPLOADS_DIR") || "/opt/render/project/src/uploads",

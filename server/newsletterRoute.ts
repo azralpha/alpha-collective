@@ -4,6 +4,7 @@ import { unsubscribeNewsletterSubscriberById } from "./db";
 import { newsletterSubscriptionInputSchema, stageNewsletterCampaign, subscribeToNewsletter, verifyNewsletterUnsubscribeToken, sendStagedNewsletterCampaign } from "./newsletter";
 import { createExpressRateLimit } from "./requestRateLimit";
 import { sdk } from "./_core/sdk";
+import { isTurnstileConfigured, verifyRequestTurnstile } from "./turnstile";
 
 const adminActionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("draft") }),
@@ -22,6 +23,13 @@ function unsubscribeHtml(message: string) {
 
 export function registerNewsletterRoutes(app: Express) {
   app.post("/api/marketing/subscribe", createExpressRateLimit({ scope: "newsletter-subscribe", limit: 5, windowMs: 60_000 }), async (req: Request, res: Response) => {
+    if (!isTurnstileConfigured()) return res.status(503).set("Cache-Control", "no-store").json({ error: "Security verification is not configured." });
+    const turnstileToken = req.body && typeof req.body.turnstileToken === "string" ? req.body.turnstileToken : "";
+    if (!turnstileToken.trim()) return res.status(400).set("Cache-Control", "no-store").json({ error: "Complete the security verification before joining." });
+    if (!await verifyRequestTurnstile(req, turnstileToken, "newsletter_signup")) {
+      return res.status(403).set("Cache-Control", "no-store").json({ error: "Security verification failed. Please try again." });
+    }
+
     const parsed = newsletterSubscriptionInputSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).set("Cache-Control", "no-store").json({ error: "Enter a valid email address." });
     try {

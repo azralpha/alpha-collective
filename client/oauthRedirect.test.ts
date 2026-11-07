@@ -13,7 +13,9 @@ describe("Google login redirect handling", () => {
 
   it("keeps the browser return location for the Google login page", () => {
     expect(buttonSource).toContain('apiUrl("/api/auth/google/start")');
-    expect(buttonSource).toContain("window.location.assign");
-    expect(buttonSource).toContain("encodeURIComponent(destination)");
+    expect(buttonSource).toContain('method: "POST"');
+    expect(buttonSource).toContain("turnstileToken");
+    expect(buttonSource).toContain('action="google_signin"');
+    expect(buttonSource).toContain("window.location.assign(authorizationUrl.toString())");
   });
 });

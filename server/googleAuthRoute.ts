@@ -6,6 +6,8 @@ import * as db from "./db";
 import { getSessionCookieOptions } from "./_core/cookies";
 import { ENV } from "./_core/env";
 import { sdk } from "./_core/sdk";
+import { createExpressRateLimit } from "./requestRateLimit";
+import { isTurnstileConfigured, verifyRequestTurnstile } from "./turnstile";
 
 const googleClient = new OAuth2Client(ENV.googleClientId, ENV.googleClientSecret, ENV.googleRedirectUri);
 const STATE_MAX_AGE_MS = 10 * 60 * 1000;
@@ -102,13 +104,28 @@ async function createSessionForGoogleProfile(profile: GoogleProfile, req: Reques
 }
 
 export function registerGoogleAuthRoute(app: Express) {
-  app.get("/api/auth/google/start", (req: Request, res: Response) => {
+  app.get("/api/auth/google/start", (_req: Request, res: Response) => {
+    res.status(405).set("Allow", "POST").set("Cache-Control", "no-store").json({ error: "Use the sign-in form to continue." });
+  });
+
+  app.post("/api/auth/google/start", createExpressRateLimit({ scope: "google-auth-start", limit: 12, windowMs: 60_000 }), async (req: Request, res: Response) => {
     if (!redirectUriIsConfigured()) {
-      res.status(503).send("Google authentication is not configured.");
-      return;
+      return res.status(503).set("Cache-Control", "no-store").json({ error: "Google authentication is not configured." });
+    }
+    if (!isTurnstileConfigured()) {
+      return res.status(503).set("Cache-Control", "no-store").json({ error: "Security verification is not configured." });
     }
 
-    const state = createLoginState(typeof req.query.returnTo === "string" ? req.query.returnTo : "/profile");
+    const body = req.body && typeof req.body === "object" ? req.body as Record<string, unknown> : {};
+    if (typeof body.turnstileToken !== "string" || !body.turnstileToken.trim()) {
+      return res.status(400).set("Cache-Control", "no-store").json({ error: "Complete the security verification and try again." });
+    }
+    const verified = await verifyRequestTurnstile(req, body.turnstileToken, "google_signin");
+    if (!verified) {
+      return res.status(403).set("Cache-Control", "no-store").json({ error: "Security verification failed. Please try again." });
+    }
+
+    const state = createLoginState(typeof body.returnTo === "string" ? body.returnTo : "/profile");
     const authorizationUrl = googleClient.generateAuthUrl({
       access_type: "offline",
       prompt: "select_account",
@@ -116,7 +133,7 @@ export function registerGoogleAuthRoute(app: Express) {
       include_granted_scopes: true,
       state,
     });
-    res.redirect(302, authorizationUrl);
+    return res.status(200).set("Cache-Control", "no-store").json({ authorizationUrl });
   });
 
   app.get("/api/auth/google/callback", async (req: Request, res: Response) => {
