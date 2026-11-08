@@ -39,8 +39,10 @@ function loadTurnstile(): Promise<TurnstileApi> {
     if (!existing) {
       script.id = SCRIPT_ID;
       script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit";
-      script.async = true;
-      script.defer = true;
+      script.removeAttribute("async");
+      script.removeAttribute("defer");
+      script.async = false;
+      script.defer = false;
       document.head.appendChild(script);
     }
   }).catch(error => {
