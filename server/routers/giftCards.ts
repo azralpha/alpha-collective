@@ -11,5 +11,9 @@ export const giftCardsRouter = router({
     if (!ctx.user.email) throw new Error("Your account does not have a verified email address.");
     return initiateGiftCardPurchase({ userId: ctx.user.id, amount: input.amount, purchaserEmail: ctx.user.email, recipientEmail: input.recipientEmail, purchaserIp: extractClientIp(ctx.req) ?? "unknown", redirectUrl: `${process.env.APP_BASE_URL ?? "http://localhost:3000"}/wallet?giftCard=complete` });
   }),
-  redeem: protectedProcedure.input(z.object({ code: z.string().min(10).max(24), cartTotal: z.number().int().positive(), captchaToken: z.string().optional() })).mutation(({ ctx, input }) => redeemGiftCard({ ...input, ip: extractClientIp(ctx.req) ?? "unknown" })),
+  redeem: protectedProcedure.input(z.object({
+    code: z.string().min(10).max(24),
+    cartTotal: z.number().int().positive(),
+    turnstileToken: z.string().max(4096).optional(),
+  })).mutation(({ ctx, input }) => redeemGiftCard({ ...input, ip: extractClientIp(ctx.req) ?? "unknown" })),
 });

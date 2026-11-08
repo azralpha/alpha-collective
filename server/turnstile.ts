@@ -81,15 +81,19 @@ export async function verifyTurnstileToken(
   }
 }
 
-export function verifyRequestTurnstile(req: Request, token: unknown, action: string) {
+export function verifyTurnstileTokenForIp(remoteIp: string | undefined, token: unknown, action: string) {
   return verifyTurnstileToken(
     token,
     action,
-    req.ip,
+    remoteIp,
     {
       siteKey: ENV.turnstileSiteKey,
       secretKey: ENV.turnstileSecretKey,
       expectedHostname: publicHostname(),
     },
   );
+}
+
+export function verifyRequestTurnstile(req: Request, token: unknown, action: string) {
+  return verifyTurnstileTokenForIp(req.ip, token, action);
 }

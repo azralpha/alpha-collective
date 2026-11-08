@@ -4,6 +4,8 @@ import { giftCardPurchases, giftCards, kycProfiles } from "../drizzle/schema";
 import { getDb } from "./db";
 import { initializeFlutterwavePayment, verifyFlutterwaveTransaction } from "./flutterwave";
 import { FixedWindowRateLimiter } from "./performanceControls";
+import { GIFT_CARD_TURNSTILE_ACTION } from "@shared/const";
+import { isTurnstileConfigured, verifyTurnstileTokenForIp } from "./turnstile";
 
 export const GIFT_CARD_AMOUNTS = [1_000, 10_000, 50_000] as const;
 export const MAX_GIFT_CARD_AMOUNT = 50_000;
@@ -28,14 +30,6 @@ function recordFailedAttempt(ip: string) {
 export function failedRedemptionCount(ip: string) { const item = failedRedemptionCounts.get(ip); return item && item.expiresAt > Date.now() ? item.count : 0; }
 export function checkGiftCardRedemptionRate(ip: string) {
   return failedRedemptionLimiter.consume({ key: `gift-card-redemption:ip:${ip}`, limit: 3, windowMs: 3_600_000 });
-}
-async function verifyCaptcha(token: string | undefined) {
-  if (!token) return false;
-  const secret = process.env.HCAPTCHA_SECRET;
-  if (!secret) return process.env.NODE_ENV !== "production" && token === "development-captcha";
-  const response = await fetch("https://hcaptcha.com/siteverify", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ secret, response: token }) });
-  const result = await response.json() as { success?: boolean };
-  return result.success === true;
 }
 
 export async function initiateGiftCardPurchase(input: { userId: number; amount: number; purchaserEmail: string; recipientEmail: string; purchaserIp: string; redirectUrl: string }) {
@@ -77,10 +71,14 @@ export async function issueGiftCardFromFlutterwave(input: { transactionId: strin
   return { reference: purchase.reference, amount: purchase.amount };
 }
 
-export async function redeemGiftCard(input: { code: string; cartTotal: number; ip: string; captchaToken?: string }) {
+export async function redeemGiftCard(input: { code: string; cartTotal: number; ip: string; turnstileToken?: string }) {
   const rate = checkGiftCardRedemptionRate(input.ip);
   if (!rate.allowed) throw new Error("Too many failed redemption attempts. Please try again later.");
-  if (failedRedemptionCount(input.ip) >= 2 && !(await verifyCaptcha(input.captchaToken))) throw new Error("Complete CAPTCHA verification before trying another code.");
+  if (failedRedemptionCount(input.ip) >= 2) {
+    if (!isTurnstileConfigured()) throw new Error("Security verification is temporarily unavailable.");
+    const verified = await verifyTurnstileTokenForIp(input.ip, input.turnstileToken, GIFT_CARD_TURNSTILE_ACTION);
+    if (!verified) throw new Error("Complete CAPTCHA verification before trying another code.");
+  }
   const db = await requireDb();
   const [card] = await db.select().from(giftCards).where(and(eq(giftCards.codeHash, hashGiftCardCode(input.code)), eq(giftCards.status, "ACTIVE"))).limit(1);
   if (!card) { const attempts = recordFailedAttempt(input.ip); throw new Error(attempts >= 2 ? "Invalid code. CAPTCHA is now required." : "That gift-card code is invalid."); }
@@ -88,5 +86,6 @@ export async function redeemGiftCard(input: { code: string; cartTotal: number; i
   const applied = Math.min(card.currentBalance, input.cartTotal);
   const remaining = card.currentBalance - applied;
   await db.update(giftCards).set({ currentBalance: remaining, status: remaining === 0 ? "EXHAUSTED" : "ACTIVE" }).where(and(eq(giftCards.id, card.id), gte(giftCards.currentBalance, applied)));
+  failedRedemptionCounts.delete(input.ip);
   return { appliedAmount: applied, remainingCartBalance: input.cartTotal - applied, remainingGiftCardBalance: remaining };
 }

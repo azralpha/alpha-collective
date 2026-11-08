@@ -35,3 +35,5 @@ export const decodeOAuthState = (state: string): OAuthState => {
   }
   return { redirectUri: decoded };
 };
+
+export const GIFT_CARD_TURNSTILE_ACTION = "gift_card_redeem";
