@@ -4,11 +4,12 @@ type TurnstileRenderOptions = {
   sitekey: string;
   action: string;
   callback: (token: string) => void;
-  "error-callback": () => void;
+  "error-callback": (errorCode?: string) => void;
   "expired-callback": () => void;
 };
 
 type TurnstileApi = {
+  ready: (callback: () => void) => void;
   render: (container: HTMLElement, options: TurnstileRenderOptions) => string;
   remove: (widgetId: string) => void;
 };
@@ -80,23 +81,26 @@ export default function CloudflareTurnstile({
     }
 
     void loadTurnstile().then(api => {
-      const container = containerRef.current;
-      if (disposed || !container) return;
-      widgetId = api.render(container, {
-        sitekey: SITE_KEY,
-        action,
-        callback: token => {
-          onTokenRef.current(token);
-          setMessage("");
-        },
-        "error-callback": () => {
-          onTokenRef.current(null);
-          setMessage("Security verification could not load. Refresh the page and try again.");
-        },
-        "expired-callback": () => {
-          onTokenRef.current(null);
-          setMessage("Security verification expired. Please complete it again.");
-        },
+      api.ready(() => {
+        const container = containerRef.current;
+        if (disposed || !container) return;
+        widgetId = api.render(container, {
+          sitekey: SITE_KEY,
+          action,
+          callback: token => {
+            onTokenRef.current(token);
+            setMessage("");
+          },
+          "error-callback": errorCode => {
+            onTokenRef.current(null);
+            const safeCode = typeof errorCode === "string" && /^\d{6,8}$/.test(errorCode) ? ` (error ${errorCode})` : "";
+            setMessage(`Security verification could not load${safeCode}. Check your connection or privacy settings and try again.`);
+          },
+          "expired-callback": () => {
+            onTokenRef.current(null);
+            setMessage("Security verification expired. Please complete it again.");
+          },
+        });
       });
     }).catch(() => {
       if (disposed) return;
