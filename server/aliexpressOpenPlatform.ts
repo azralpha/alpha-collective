@@ -6,10 +6,18 @@ const REQUEST_TIMEOUT_MS = 20_000;
 type AliExpressParams = Record<string, string | number | boolean | null | undefined>;
 
 export class AliExpressApiError extends Error {
-  constructor(message: string, readonly retryable = false) {
+  constructor(message: string, readonly retryable = false, readonly providerCode: string | null = null, readonly requestId: string | null = null) {
     super(message);
     this.name = "AliExpressApiError";
   }
+}
+
+function safeProviderDiagnostic(error: Record<string, unknown>) {
+  const rawCode = error.code ?? error.sub_code;
+  const providerCode = typeof rawCode === "string" || typeof rawCode === "number" ? String(rawCode).replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 80) : "";
+  const rawRequestId = error.request_id ?? error.requestId;
+  const requestId = typeof rawRequestId === "string" ? rawRequestId.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 100) : "";
+  return { providerCode: providerCode || null, requestId: requestId || null };
 }
 
 function requiredCredentials() {
@@ -67,7 +75,10 @@ export async function callAliExpressSystemApi<T extends Record<string, unknown>>
   }
   const payload = await readResponse(response);
   const error = payload.error_response as Record<string, unknown> | undefined;
-  if (error) throw new AliExpressApiError("AliExpress rejected the OAuth token request.");
+  if (error) {
+    const diagnostic = safeProviderDiagnostic(error);
+    throw new AliExpressApiError(`AliExpress rejected the OAuth token request${diagnostic.providerCode ? ` (code ${diagnostic.providerCode})` : ""}.`, false, diagnostic.providerCode, diagnostic.requestId);
+  }
   return payload as T;
 }
 
@@ -83,7 +94,10 @@ export async function callAliExpressBusinessApi<T extends Record<string, unknown
   }
   const payload = await readResponse(response);
   const error = payload.error_response as Record<string, unknown> | undefined;
-  if (error) throw new AliExpressApiError("AliExpress rejected the catalogue request. Check the app's API permissions and connected account.");
+  if (error) {
+    const diagnostic = safeProviderDiagnostic(error);
+    throw new AliExpressApiError(`AliExpress rejected the catalogue request${diagnostic.providerCode ? ` (code ${diagnostic.providerCode})` : ""}. Check the app's API permissions and connected account.`, false, diagnostic.providerCode, diagnostic.requestId);
+  }
   const methodResponse = payload[`${method.replaceAll(".", "_")}_response`] as Record<string, unknown> | undefined;
   const responseBody = methodResponse ?? payload;
   const code = responseBody.code;

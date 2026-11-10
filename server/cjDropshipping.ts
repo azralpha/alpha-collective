@@ -3,14 +3,14 @@ const CJ_API_ROOT = "https://developers.cjdropshipping.com/api2.0/v1";
 type CjTokenResponse = { code?: number; result?: boolean; message?: string; data?: { accessToken?: string; accessTokenExpiryDate?: string; openId?: number } };
 type CjOrderResponse = { code?: number; result?: boolean; success?: boolean; message?: string; requestId?: string; data?: { orderId?: string; orderNumber?: string } };
 type CjProductCatalogCandidate = { id?: string; sku?: string; spu?: string; nameEn?: string; productNameEn?: string; bigImage?: string; productImage?: string; description?: string; sellPrice?: string | number; nowPrice?: string | number; discountPrice?: string | number };
-type CjProductListResponse = { code?: number; result?: boolean; message?: string; data?: { content?: Array<{ productList?: CjProductCatalogCandidate[] }> } };
+type CjProductListResponse = { code?: number; result?: boolean; message?: string; requestId?: string; data?: { content?: Array<{ productList?: CjProductCatalogCandidate[] }>; totalRecords?: number; totalPages?: number } };
 type CjProductFallbackResponse = { code?: number; result?: boolean; message?: string; data?: { list?: Array<{ pid?: string; productSku?: string; productNameEn?: string; productImage?: string; sellPrice?: string | number }> } };
 type CjProductVariant = { vid?: string; variantSku?: string; variantSellPrice?: string | number; inventoryNum?: number | string; inventories?: Array<{ countryCode?: string; totalInventory?: number | string; cjInventory?: number | string; factoryInventory?: number | string }> };
 type CjProductQueryResponse = { code?: number; result?: boolean; message?: string; data?: { pid?: string; productSku?: string; sellPrice?: string | number; variants?: CjProductVariant[] } };
 type CjFreightResponse = { code?: number; result?: boolean; message?: string; data?: Array<{ logisticPrice?: string | number; totalPostageFee?: string | number }> };
 
 export class CjDropshippingError extends Error {
-  constructor(message: string, readonly statusCode?: number, readonly retryable = false) { super(message); }
+  constructor(message: string, readonly statusCode?: number, readonly retryable = false, readonly providerCode?: string | null, readonly requestId?: string | null) { super(message); }
 }
 
 let tokenCache: { accessToken: string; expiresAt: number } | null = null;
@@ -30,6 +30,14 @@ async function cjFetch<T>(path: string, init: RequestInit) {
   }
   const payload = await response.json().catch(() => null) as T | null;
   if (!response.ok) throw new CjDropshippingError("CJ Dropshipping rejected the request.", response.status, response.status >= 500 || response.status === 429);
+  if (payload && typeof payload === "object" && "result" in payload && payload.result === false) {
+    const details = payload as { code?: string | number; message?: string; requestId?: string };
+    const providerCode = details.code === undefined ? null : String(details.code).replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 80);
+    const requestId = typeof details.requestId === "string" ? details.requestId.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 100) : null;
+    const message = typeof details.message === "string" ? details.message.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 180) : "The supplier rejected the request.";
+    console.warn("[CJ API] Supplier request returned a business error.", { endpoint: path.split("?")[0], providerCode, requestId });
+    throw new CjDropshippingError(`CJ API error${providerCode ? ` ${providerCode}` : ""}: ${message}`, 400, providerCode === "429", providerCode, requestId);
+  }
   return payload;
 }
 
@@ -50,6 +58,13 @@ export function isCjDropshippingConfigured() {
 export async function validateCjDropshippingCredential() {
   await accessToken();
   return true;
+}
+
+/** Authenticates with CJ and performs a read-only catalog probe; it never changes products or places orders. */
+export async function testCjCatalogAccess() {
+  await accessToken();
+  const products = await fetchCjProductCatalog(1);
+  return { authenticated: true, catalogCount: products.length, sampleFetched: products.length > 0 };
 }
 
 function uniqueImageUrls(values: Array<string | undefined>) {
@@ -237,6 +252,7 @@ export async function fetchCjProductCatalog(limit: number) {
   const seen = new Set<string>();
   for (let page = 1; candidates.length < limit && page <= Math.ceil(limit / pageSize); page += 1) {
     const payload = await cjFetch<CjProductListResponse>(`/product/listV2?page=${page}&size=${pageSize}&features=enable_description`, { method: "GET", headers: { "CJ-Access-Token": token } });
+    if (!payload?.result) throw new CjDropshippingError(`CJ catalogue response was incomplete${payload?.code ? ` (code ${payload.code})` : ""}${payload?.requestId ? `, request ${payload.requestId}` : ""}. Retry or verify CJ API access.`, 502, true, payload?.code === undefined ? null : String(payload.code), payload?.requestId ?? null);
     const pageProducts = payload?.data?.content?.flatMap(section => section.productList ?? []) ?? [];
     for (const candidate of pageProducts) {
       const reference = (candidate.sku ?? candidate.spu ?? candidate.id ?? "").trim().toUpperCase();
@@ -247,7 +263,24 @@ export async function fetchCjProductCatalog(limit: number) {
     }
     if (pageProducts.length < pageSize) break;
   }
-  return candidates.filter(candidate => candidate.sku || candidate.spu).slice(0, limit).map(candidate => {
+  let importableCandidates = candidates.filter(candidate => (candidate.sku || candidate.spu) && (candidate.nameEn || candidate.productNameEn) && uniqueImageUrls([candidate.bigImage, candidate.productImage, ...imageUrlsFromDescription(candidate.description)]).length > 0);
+  if (!importableCandidates.length) {
+    console.warn("[CJ API] V2 catalog query returned no importable products; trying the documented legacy list endpoint.", { requestedLimit: limit, returnedCandidates: candidates.length });
+    const legacyPageSize = Math.min(limit, 200);
+    const legacyCandidates: CjProductCatalogCandidate[] = [];
+    for (let page = 1; legacyCandidates.length < limit && page <= Math.ceil(limit / legacyPageSize); page += 1) {
+      const legacy = await cjFetch<CjProductFallbackResponse>(`/product/list?pageNum=${page}&pageSize=${legacyPageSize}&productType=SUPPLIER_PRODUCT`, { method: "GET", headers: { "CJ-Access-Token": token } });
+      const legacyProducts = legacy?.data?.list ?? [];
+      legacyCandidates.push(...legacyProducts.map(product => ({ id: product.pid, sku: product.productSku, nameEn: product.productNameEn, productImage: product.productImage, sellPrice: product.sellPrice })));
+      if (legacyProducts.length < legacyPageSize) break;
+    }
+    importableCandidates = legacyCandidates.filter(candidate => (candidate.sku || candidate.spu) && (candidate.nameEn || candidate.productNameEn) && uniqueImageUrls([candidate.bigImage, candidate.productImage]).length > 0);
+  }
+  if (!importableCandidates.length) {
+    console.warn("[CJ API] Both documented catalog endpoints returned no importable products.", { requestedLimit: limit, returnedV2Candidates: candidates.length });
+    throw new CjDropshippingError("CJ authenticated the request but both catalogue endpoints returned no importable products. Check the CJ account's API product-list permission and product availability.", 422, false);
+  }
+  return importableCandidates.slice(0, limit).map(candidate => {
     const imported = importableCjProduct(candidate, candidate.sku ?? candidate.spu ?? "CJ-CATALOG");
     const supplierCost = imported.supplierCost ?? 0;
     return { ...imported, externalProductId: candidate.id ?? candidate.spu ?? imported.sku, externalVariantId: null, stockQuantity: null, inventoryKnown: false, supplierProductCost: supplierCost, supplierShippingCost: 0, supplierCost, supplierCurrency: "USD" as const };

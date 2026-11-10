@@ -73,6 +73,43 @@ describe("CJ Dropshipping adapter", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it("surfaces CJ business errors returned with HTTP 200 instead of reporting an empty catalog", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 1600104, result: false, message: "Invalid API key or access token.", requestId: "cj-request-123" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductCatalog } = await import("./cjDropshipping");
+
+    await expect(fetchCjProductCatalog(10)).rejects.toMatchObject({ message: "CJ API error 1600104: Invalid API key or access token.", providerCode: "1600104", requestId: "cj-request-123" });
+  });
+
+  it("tests CJ catalogue visibility with a read-only one-product probe", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 200, result: true, data: { totalRecords: 431, content: [{ productList: [{ sku: "CJ-001", nameEn: "CJ probe item", sellPrice: "5.00", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/probe.png", description: "Read-only CJ catalog probe test item." }] }] } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { testCjCatalogAccess } = await import("./cjDropshipping");
+
+    await expect(testCjCatalogAccess()).resolves.toEqual({ authenticated: true, catalogCount: 1, sampleFetched: true });
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("/product/listV2?page=1&size=1");
+    expect(String(fetchMock.mock.calls[1]?.[0])).not.toContain("createOrder");
+  });
+
+  it("falls back to CJ's documented legacy catalog when V2 succeeds but returns no product rows", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 200, result: true, data: { totalRecords: 0, content: [] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 200, result: true, data: { list: [{ pid: "cj-legacy-id", productSku: "CJ-LEGACY-001", productNameEn: "Legacy Catalog Product", productImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/legacy.png", sellPrice: 7.5 }] } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductCatalog } = await import("./cjDropshipping");
+
+    await expect(fetchCjProductCatalog(10)).resolves.toMatchObject([{ sku: "CJ-LEGACY-001", title: "Legacy Catalog Product", externalProductId: "cj-legacy-id" }]);
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/product/list?pageNum=1&pageSize=10&productType=SUPPLIER_PRODUCT");
+  });
+
   it("accepts a CJ SPU when the catalogue response has a distinct fulfilment SKU", async () => {
     process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
     const fetchMock = vi.fn()

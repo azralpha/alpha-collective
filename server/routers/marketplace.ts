@@ -113,7 +113,7 @@ import {
 import { extractClientIp, normalizeDeviceId } from "../referralFraud";
 import { storagePut } from "../storage";
 import { decodeProductImageDataUrl, importCjProductImage, ProductImageProcessingError, storeProcessedProductImage } from "../productImageProcessing";
-import { CjDropshippingError, fetchCjProductForImport } from "../cjDropshipping";
+import { CjDropshippingError, fetchCjProductForImport, testCjCatalogAccess } from "../cjDropshipping";
 import { createCjMassImportBatch, getCjMassImportBatch, processNextCjMassImportItem } from "../cjMassImport";
 import { notifyAdminPaymentEvent } from "../paymentNotifications";
 import { adminProcedure, protectedProcedure, publicProcedure, router, sensitiveProtectedProcedure } from "../_core/trpc";
@@ -734,6 +734,13 @@ export const marketplaceRouter = router({
       }),
     officialProducts: adminProcedure.input(savedProductListInputSchema.optional()).query(({ input }) => listAdminOfficialProducts(input ?? {})),
     aliexpressConnectionStatus: adminProcedure.query(() => getAliExpressConnectionStatus()),
+    testCjCatalogAccess: adminProcedure.mutation(async () => {
+      try {
+        return await testCjCatalogAccess();
+      } catch (error) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof CjDropshippingError ? error.message : "CJ catalogue access could not be verified." });
+      }
+    }),
     uploadOfficialProductImage: adminProcedure
       .input(z.object({ dataUrl: productImageDataUrlSchema }))
       .mutation(async ({ ctx, input }) => {

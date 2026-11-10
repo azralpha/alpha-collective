@@ -1,4 +1,4 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes, timingSafeEqual } from "node:crypto";
+import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import type { Express, Request, Response } from "express";
 import { parse as parseCookieHeader } from "cookie";
 import { ENV } from "./_core/env";
@@ -6,9 +6,10 @@ import { sdk } from "./_core/sdk";
 import { createExpressRateLimit } from "./requestRateLimit";
 import { getSupplierOAuthCredential, saveSupplierOAuthCredential } from "./db";
 import { aliExpressAppCredentialsConfigured, callAliExpressSystemApi } from "./aliexpressOpenPlatform";
+import { createAliExpressOAuthState, isValidAliExpressOAuthState } from "./aliexpressOAuthState";
 
 const PROVIDER = "aliexpress";
-const STATE_COOKIE = "alpha_aliexpress_oauth_state";
+const STATE_COOKIE = new URL(ENV.publicAppUrl).protocol === "https:" ? "__Host-alpha_aliexpress_oauth_state" : "alpha_aliexpress_oauth_state";
 const CALLBACK_PATH = "/api/admin/suppliers/aliexpress/callback";
 const STATE_TTL_MS = 10 * 60 * 1000;
 const TOKEN_REFRESH_SKEW_MS = 90_000;
@@ -124,16 +125,10 @@ export async function getAliExpressConnectionStatus() {
   };
 }
 
-function safeStateMatches(cookieState: string, queryState: unknown) {
-  if (typeof queryState !== "string" || !queryState) return false;
-  const a = Buffer.from(cookieState);
-  const b = Buffer.from(queryState);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
-function adminStatusUrl(result: "connected" | "cancelled" | "failed") {
+function adminStatusUrl(result: "connected" | "cancelled" | "failed", reason?: string) {
   const url = new URL("/admin/dropship-integrations", ENV.publicAppUrl);
   url.searchParams.set("aliexpress", result);
+  if (result === "failed" && reason) url.searchParams.set("aliexpress_reason", reason.replace(/[^a-zA-Z0-9_.:-]/g, "").slice(0, 120));
   return url.toString();
 }
 
@@ -155,33 +150,39 @@ export function registerAliExpressOAuthRoutes(app: Express) {
   app.get("/api/admin/suppliers/aliexpress/connect", createExpressRateLimit({ scope: "aliexpress-oauth-connect", limit: 8, windowMs: 60_000 }), async (req: Request, res: Response) => {
     if (!(await requireAdmin(req, res))) return;
     if (!aliExpressAppCredentialsConfigured()) return res.status(503).set("Cache-Control", "no-store").send("AliExpress App Key and App Secret are not configured on the server.");
-    const state = `${Date.now()}.${randomBytes(32).toString("base64url")}`;
+    const oauthState = createAliExpressOAuthState(ENV.cookieSecret);
     const secure = new URL(ENV.publicAppUrl).protocol === "https:";
-    res.cookie(STATE_COOKIE, state, { httpOnly: true, secure, sameSite: "lax", path: CALLBACK_PATH, maxAge: STATE_TTL_MS });
+    res.cookie(STATE_COOKIE, oauthState.cookieValue, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge: STATE_TTL_MS });
     const authorizationUrl = new URL("/oauth/authorize", "https://api-sg.aliexpress.com");
     authorizationUrl.searchParams.set("response_type", "code");
     authorizationUrl.searchParams.set("force_auth", "true");
     authorizationUrl.searchParams.set("redirect_uri", new URL(CALLBACK_PATH, ENV.publicAppUrl).toString());
     authorizationUrl.searchParams.set("client_id", process.env.ALIEXPRESS_APP_KEY!.trim());
-    authorizationUrl.searchParams.set("state", state);
+    authorizationUrl.searchParams.set("state", oauthState.state);
     res.redirect(302, authorizationUrl.toString());
   });
 
   app.get(CALLBACK_PATH, createExpressRateLimit({ scope: "aliexpress-oauth-callback", limit: 20, windowMs: 60_000 }), async (req: Request, res: Response) => {
-    const clearStateCookie = () => res.clearCookie(STATE_COOKIE, { httpOnly: true, secure: new URL(ENV.publicAppUrl).protocol === "https:", sameSite: "lax", path: CALLBACK_PATH });
-    if (!(await requireAdmin(req, res))) { clearStateCookie(); return; }
+    const clearStateCookie = () => res.clearCookie(STATE_COOKIE, { httpOnly: true, secure: new URL(ENV.publicAppUrl).protocol === "https:", sameSite: "lax", path: "/" });
+    // The OAuth provider returns via a cross-site navigation, where application auth cookies
+    // may be absent. The one-time, browser-bound state cookie proves the flow was initiated by
+    // the authenticated admin connect endpoint; do not send a 401 and then mutate its response.
     const stateCookie = parseCookieHeader(req.headers.cookie ?? "")[STATE_COOKIE];
-    const stateParts = stateCookie?.split(".") ?? [];
-    const issuedAt = Number(stateParts[0]);
-    const cookieStateIsFresh = Number.isFinite(issuedAt) && Date.now() - issuedAt >= 0 && Date.now() - issuedAt <= STATE_TTL_MS;
-    if (!stateCookie || !cookieStateIsFresh || !safeStateMatches(stateCookie, req.query.state)) {
+    if (!isValidAliExpressOAuthState(stateCookie, req.query.state, ENV.cookieSecret)) {
       clearStateCookie();
-      return res.redirect(302, adminStatusUrl("failed"));
+      console.warn("[AliExpress OAuth] Callback rejected: missing, mismatched, or expired state.");
+      return res.redirect(302, adminStatusUrl("failed", "invalid_or_expired_state"));
     }
     clearStateCookie();
-    if (typeof req.query.error === "string" || typeof req.query.code !== "string" || req.query.code.length > 4096) return res.redirect(302, adminStatusUrl("cancelled"));
+    if (typeof req.query.error === "string") return res.redirect(302, adminStatusUrl("cancelled"));
+    if (typeof req.query.code !== "string" || req.query.code.length > 4096) {
+      console.warn("[AliExpress OAuth] Callback rejected: authorization code missing or invalid.");
+      return res.redirect(302, adminStatusUrl("failed", "authorization_code_missing"));
+    }
+    let callbackStage = "token_exchange";
     try {
       const tokens = await exchangeAliExpressAuthorizationCode(req.query.code);
+      callbackStage = "token_storage";
       await saveSupplierOAuthCredential({
         provider: PROVIDER,
         encryptedAccessToken: encryptAliExpressToken(tokens.accessToken),
@@ -192,8 +193,11 @@ export function registerAliExpressOAuthRoutes(app: Express) {
       });
       return res.redirect(302, adminStatusUrl("connected"));
     } catch (error) {
-      console.error("[AliExpress OAuth] Callback failed:", error instanceof Error ? error.message : "unknown error");
-      return res.redirect(302, adminStatusUrl("failed"));
+      const apiError = error instanceof Error && "providerCode" in error ? error as Error & { providerCode?: string | null; requestId?: string | null } : null;
+      const providerCode = apiError?.providerCode?.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 80) || null;
+      const requestId = apiError?.requestId?.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 100) || null;
+      console.error("[AliExpress OAuth] Callback failed.", { stage: callbackStage, providerCode, requestId, errorType: error instanceof Error ? error.name : "unknown" });
+      return res.redirect(302, adminStatusUrl("failed", providerCode ? `${callbackStage}:${providerCode}` : `${callbackStage}:failed`));
     }
   });
 }
