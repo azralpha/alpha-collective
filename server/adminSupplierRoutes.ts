@@ -1,8 +1,10 @@
 import type { Express, Request, Response } from "express";
 import { sdk } from "./_core/sdk";
 import { syncAllSupplierApis } from "./supplierImport";
+import { registerAliExpressOAuthRoutes } from "./aliexpressOAuth";
 
 export function registerAdminSupplierRoutes(app: Express) {
+  registerAliExpressOAuthRoutes(app);
   app.post("/api/admin/suppliers/sync-all", async (req: Request, res: Response) => {
     try {
       const user = await sdk.authenticateRequest(req);

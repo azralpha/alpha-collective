@@ -54,6 +54,25 @@ describe("CJ Dropshipping adapter", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).not.toContain("createOrder");
   });
 
+  it("paginates the CJ catalog to the requested product limit", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const requestedPages: number[] = [];
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/authentication/getAccessToken")) return new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 });
+      const page = Number(new URL(url).searchParams.get("page"));
+      requestedPages.push(page);
+      const productList = Array.from({ length: 100 }, (_, index) => ({ sku: `CJ-${(page - 1) * 100 + index}`, nameEn: `CJ Product ${(page - 1) * 100 + index}`, nowPrice: "5.00", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/item.png", description: "Catalog pagination test product description." }));
+      return new Response(JSON.stringify({ result: true, data: { content: [{ productList }] } }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductCatalog } = await import("./cjDropshipping");
+
+    await expect(fetchCjProductCatalog(250)).resolves.toHaveLength(250);
+    expect(requestedPages).toEqual([1, 2, 3]);
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it("accepts a CJ SPU when the catalogue response has a distinct fulfilment SKU", async () => {
     process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
     const fetchMock = vi.fn()

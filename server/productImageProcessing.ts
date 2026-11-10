@@ -13,10 +13,14 @@ export function decodeProductImageDataUrl(dataUrl: string) {
   return data;
 }
 
-function isApprovedCjImageUrl(value: string) {
+type SupplierImageProvider = "cj_dropshipping" | "aliexpress";
+
+function isApprovedSupplierImageUrl(value: string, supplier: SupplierImageProvider) {
   try {
     const url = new URL(value);
-    return url.protocol === "https:" && (url.hostname.endsWith(".cjdropshipping.com") || url.hostname.endsWith(".aliyuncs.com") || url.hostname.endsWith(".cjdropshipping.cn"));
+    if (url.protocol !== "https:") return false;
+    if (supplier === "cj_dropshipping") return url.hostname.endsWith(".cjdropshipping.com") || url.hostname.endsWith(".aliyuncs.com") || url.hostname.endsWith(".cjdropshipping.cn");
+    return url.hostname === "aliexpress-media.com" || url.hostname.endsWith(".aliexpress-media.com") || url.hostname === "alicdn.com" || url.hostname.endsWith(".alicdn.com");
   } catch {
     return false;
   }
@@ -43,8 +47,9 @@ export async function storeProcessedProductImage(input: { source: Buffer; storag
   return storagePut(`${input.storagePrefix}.webp`, processed, "image/webp");
 }
 
-async function readCjImageWithinLimit(response: Response) {
-  if (!response.body) throw new ProductImageProcessingError("CJ returned an empty product image response.");
+async function readSupplierImageWithinLimit(response: Response, supplier: SupplierImageProvider) {
+  const label = supplier === "cj_dropshipping" ? "CJ" : "AliExpress";
+  if (!response.body) throw new ProductImageProcessingError(`${label} returned an empty product image response.`);
   const reader = response.body.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
@@ -54,20 +59,25 @@ async function readCjImageWithinLimit(response: Response) {
       if (done) break;
       if (!value) continue;
       total += value.byteLength;
-      if (total > MAX_PRODUCT_IMAGE_BYTES) { await reader.cancel(); throw new ProductImageProcessingError("A CJ product image exceeds the 5 MB import limit."); }
+      if (total > MAX_PRODUCT_IMAGE_BYTES) { await reader.cancel(); throw new ProductImageProcessingError(`A ${label} product image exceeds the 5 MB import limit.`); }
       chunks.push(value);
     }
   } finally { reader.releaseLock(); }
-  if (!total) throw new ProductImageProcessingError("CJ returned an empty product image response.");
+  if (!total) throw new ProductImageProcessingError(`${label} returned an empty product image response.`);
   return Buffer.concat(chunks);
 }
 
-export async function importCjProductImage(input: { imageUrl: string; storagePrefix: string }) {
-  if (!isApprovedCjImageUrl(input.imageUrl)) throw new ProductImageProcessingError("CJ returned an unsupported product-image host.");
+export async function importSupplierProductImage(input: { supplier: SupplierImageProvider; imageUrl: string; storagePrefix: string }) {
+  const label = input.supplier === "cj_dropshipping" ? "CJ" : "AliExpress";
+  if (!isApprovedSupplierImageUrl(input.imageUrl, input.supplier)) throw new ProductImageProcessingError(`${label} returned an unsupported product-image host.`);
   let response: Response;
   try { response = await fetch(input.imageUrl, { redirect: "error", signal: AbortSignal.timeout(15_000) }); }
-  catch { throw new ProductImageProcessingError("A CJ product image could not be downloaded."); }
+  catch { throw new ProductImageProcessingError(`A ${label} product image could not be downloaded.`); }
   const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (!response.ok || declaredLength > MAX_PRODUCT_IMAGE_BYTES) throw new ProductImageProcessingError("CJ returned an unsupported or oversized product image.");
-  return storeProcessedProductImage({ source: await readCjImageWithinLimit(response), storagePrefix: input.storagePrefix });
+  if (!response.ok || declaredLength > MAX_PRODUCT_IMAGE_BYTES) throw new ProductImageProcessingError(`${label} returned an unsupported or oversized product image.`);
+  return storeProcessedProductImage({ source: await readSupplierImageWithinLimit(response, input.supplier), storagePrefix: input.storagePrefix });
+}
+
+export async function importCjProductImage(input: { imageUrl: string; storagePrefix: string }) {
+  return importSupplierProductImage({ ...input, supplier: "cj_dropshipping" });
 }

@@ -225,6 +225,13 @@
       "when": 1790996497853,
       "tag": "0031_gorgeous_lady_mastermind",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "5",
+      "when": 1794308071997,
+      "tag": "0032_supplier_identity_aliexpress_oauth",
+      "breakpoints": true
     }
   ]
 }

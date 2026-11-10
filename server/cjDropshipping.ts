@@ -2,7 +2,8 @@ const CJ_API_ROOT = "https://developers.cjdropshipping.com/api2.0/v1";
 
 type CjTokenResponse = { code?: number; result?: boolean; message?: string; data?: { accessToken?: string; accessTokenExpiryDate?: string; openId?: number } };
 type CjOrderResponse = { code?: number; result?: boolean; success?: boolean; message?: string; requestId?: string; data?: { orderId?: string; orderNumber?: string } };
-type CjProductListResponse = { code?: number; result?: boolean; message?: string; data?: { content?: Array<{ productList?: Array<{ id?: string; sku?: string; spu?: string; nameEn?: string; productNameEn?: string; bigImage?: string; productImage?: string; description?: string; sellPrice?: string | number; nowPrice?: string | number; discountPrice?: string | number }> }> } };
+type CjProductCatalogCandidate = { id?: string; sku?: string; spu?: string; nameEn?: string; productNameEn?: string; bigImage?: string; productImage?: string; description?: string; sellPrice?: string | number; nowPrice?: string | number; discountPrice?: string | number };
+type CjProductListResponse = { code?: number; result?: boolean; message?: string; data?: { content?: Array<{ productList?: CjProductCatalogCandidate[] }> } };
 type CjProductFallbackResponse = { code?: number; result?: boolean; message?: string; data?: { list?: Array<{ pid?: string; productSku?: string; productNameEn?: string; productImage?: string; sellPrice?: string | number }> } };
 type CjProductVariant = { vid?: string; variantSku?: string; variantSellPrice?: string | number; inventoryNum?: number | string; inventories?: Array<{ countryCode?: string; totalInventory?: number | string; cjInventory?: number | string; factoryInventory?: number | string }> };
 type CjProductQueryResponse = { code?: number; result?: boolean; message?: string; data?: { pid?: string; productSku?: string; sellPrice?: string | number; variants?: CjProductVariant[] } };
@@ -229,9 +230,23 @@ export async function fetchCjProductForMassImport(sku: string, destinationCountr
 
 /** Returns available CJ catalogue entries for an administrator-led bulk draft import. */
 export async function fetchCjProductCatalog(limit: number) {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new CjDropshippingError("Choose between 1 and 500 CJ products.", 400, false);
   const token = await accessToken();
-  const payload = await cjFetch<CjProductListResponse>(`/product/listV2?page=1&size=${Math.min(limit, 100)}&features=enable_description`, { method: "GET", headers: { "CJ-Access-Token": token } });
-  const candidates = payload?.data?.content?.flatMap(section => section.productList ?? []) ?? [];
+  const pageSize = Math.min(limit, 100);
+  const candidates: CjProductCatalogCandidate[] = [];
+  const seen = new Set<string>();
+  for (let page = 1; candidates.length < limit && page <= Math.ceil(limit / pageSize); page += 1) {
+    const payload = await cjFetch<CjProductListResponse>(`/product/listV2?page=${page}&size=${pageSize}&features=enable_description`, { method: "GET", headers: { "CJ-Access-Token": token } });
+    const pageProducts = payload?.data?.content?.flatMap(section => section.productList ?? []) ?? [];
+    for (const candidate of pageProducts) {
+      const reference = (candidate.sku ?? candidate.spu ?? candidate.id ?? "").trim().toUpperCase();
+      if (!reference || seen.has(reference)) continue;
+      seen.add(reference);
+      candidates.push(candidate);
+      if (candidates.length >= limit) break;
+    }
+    if (pageProducts.length < pageSize) break;
+  }
   return candidates.filter(candidate => candidate.sku || candidate.spu).slice(0, limit).map(candidate => {
     const imported = importableCjProduct(candidate, candidate.sku ?? candidate.spu ?? "CJ-CATALOG");
     const supplierCost = imported.supplierCost ?? 0;

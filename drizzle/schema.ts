@@ -578,6 +578,21 @@ export const officialProductSourcing = mysqlTable("officialProductSourcing", {
   supplierInventoryQuantity: int("supplierInventoryQuantity"),
   supplierInventoryCountryCode: varchar("supplierInventoryCountryCode", { length: 8 }),
   supplierCurrency: mysqlEnum("supplierCurrency", ["NGN", "USD"]).notNull().default("USD"),
+  /** Normalized supplier + catalog product ID; unique across all imported drafts. */
+  supplierIdentity: varchar("supplierIdentity", { length: 255 }).unique(),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+/** AliExpress OAuth tokens are encrypted before persistence and never returned to client APIs. */
+export const supplierOAuthCredentials = mysqlTable("supplierOAuthCredentials", {
+  id: int("id").autoincrement().primaryKey(),
+  provider: varchar("provider", { length: 32 }).notNull().unique(),
+  encryptedAccessToken: text("encryptedAccessToken").notNull(),
+  encryptedRefreshToken: text("encryptedRefreshToken").notNull(),
+  accessTokenExpiresAt: timestamp("accessTokenExpiresAt").notNull(),
+  refreshTokenExpiresAt: timestamp("refreshTokenExpiresAt"),
+  accountId: varchar("accountId", { length: 180 }),
   createdAt: timestamp("createdAt").defaultNow().notNull(),
   updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
 });
@@ -625,6 +640,7 @@ export const fulfilmentJobs = mysqlTable("fulfilmentJobs", {
 /** Durable, administrator-owned CJ draft-import request. Never exposed to buyers or vendors. */
 export const cjImportBatches = mysqlTable("cjImportBatches", {
   id: int("id").autoincrement().primaryKey(),
+  supplierId: varchar("supplierId", { length: 32 }).notNull().default("cj_dropshipping"),
   requestedByUserId: int("requestedByUserId").notNull(),
   requestedSkuCount: int("requestedSkuCount").notNull(),
   processedSkuCount: int("processedSkuCount").notNull().default(0),
@@ -646,6 +662,7 @@ export const cjImportBatchItems = mysqlTable("cjImportBatchItems", {
   batchId: int("batchId").notNull(),
   submittedSku: varchar("submittedSku", { length: 120 }).notNull(),
   normalizedSku: varchar("normalizedSku", { length: 120 }).notNull(),
+  previewImageUrl: text("previewImageUrl"),
   status: mysqlEnum("status", ["queued", "processing", "imported", "skipped", "failed"]).notNull().default("queued"),
   officialProductId: int("officialProductId"),
   errorSummary: varchar("errorSummary", { length: 255 }),

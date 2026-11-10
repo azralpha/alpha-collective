@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, gt, gte, isNull, like, lt, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, count, desc, eq, gt, gte, inArray, isNull, like, lt, lte, ne, or, sql } from "drizzle-orm";
 import crypto from "node:crypto";
 import { drizzle } from "drizzle-orm/mysql2";
 import { createPool, type Pool } from "mysql2";
@@ -26,6 +26,7 @@ import {
   fulfilmentJobs,
   officialProducts,
   officialProductSourcing,
+  supplierOAuthCredentials,
   orders,
   referralFraudChecks,
   referralRewardSettings,
@@ -1842,6 +1843,7 @@ export type OfficialProductInput = {
     supplierInventoryQuantity?: number | null;
     supplierInventoryCountryCode?: string | null;
     supplierCurrency: "NGN" | "USD";
+    supplierIdentity?: string | null;
   };
 };
 
@@ -2073,6 +2075,45 @@ export async function updateOfficialProductStatus(id: number, status: "draft" | 
       ...(stockQuantity === null ? {} : { stockQuantity }),
     }).where(eq(officialProducts.id, id));
   });
+}
+
+export async function bulkPublishOfficialProductDrafts(ids: number[]) {
+  const normalizedIds = Array.from(new Set(ids.filter(id => Number.isSafeInteger(id) && id > 0)));
+  if (!normalizedIds.length) return 0;
+  if (normalizedIds.length > 100) throw new Error("Publish up to 100 selected drafts at a time.");
+  const db = await requireDb();
+  const result = await db.update(officialProducts).set({
+    status: "active",
+    isPublished: 1,
+    publicationStatus: "APPROVED",
+    inStock: sql`CASE WHEN ${officialProducts.stockQuantity} = 0 THEN 0 ELSE 1 END`,
+    stockQuantity: sql`CASE WHEN ${officialProducts.stockQuantity} IS NULL THEN 1 ELSE ${officialProducts.stockQuantity} END`,
+  }).where(and(inArray(officialProducts.id, normalizedIds), eq(officialProducts.status, "draft")));
+  return affectedRows(result);
+}
+
+export async function getSupplierOAuthCredential(provider: string) {
+  const db = await requireDb();
+  const rows = await db.select().from(supplierOAuthCredentials).where(eq(supplierOAuthCredentials.provider, provider)).limit(1);
+  return rows[0] ?? null;
+}
+
+export async function saveSupplierOAuthCredential(input: {
+  provider: string;
+  encryptedAccessToken: string;
+  encryptedRefreshToken: string;
+  accessTokenExpiresAt: Date;
+  refreshTokenExpiresAt?: Date | null;
+  accountId?: string | null;
+}) {
+  const db = await requireDb();
+  await db.insert(supplierOAuthCredentials).values(input).onDuplicateKeyUpdate({ set: {
+    encryptedAccessToken: input.encryptedAccessToken,
+    encryptedRefreshToken: input.encryptedRefreshToken,
+    accessTokenExpiresAt: input.accessTokenExpiresAt,
+    refreshTokenExpiresAt: input.refreshTokenExpiresAt ?? null,
+    accountId: input.accountId ?? null,
+  } });
 }
 
 export async function getFulfilmentIntegration(provider: "cj_dropshipping" | "custom_webhook") {

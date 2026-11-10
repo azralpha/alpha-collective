@@ -1,17 +1,15 @@
-import { fetchCjProductCatalog, fetchCjProductForImport } from "./cjDropshipping";
+import { fetchAliExpressCatalogRefs, fetchAliExpressProductForMassImport, normalizeAliExpressProductReference } from "./aliexpressDropship";
+import { fetchCjProductCatalog, fetchCjProductForMassImport } from "./cjDropshipping";
 
-export const SUPPLIER_IDS = ["cj_dropshipping", "dsers", "inventory_source", "syncee", "doba"] as const;
+export const SUPPLIER_IDS = ["cj_dropshipping", "aliexpress"] as const;
 export type SupplierId = typeof SUPPLIER_IDS[number];
-
 export const SUPPLIER_LABELS: Record<SupplierId, string> = {
   cj_dropshipping: "CJ Dropshipping",
-  dsers: "DSers",
-  inventory_source: "Inventory Source",
-  syncee: "Syncee",
-  doba: "Doba",
+  aliexpress: "AliExpress",
 };
 
-type SupplierProduct = {
+export type SupplierCatalogRef = { id: string; previewImageUrl: string | null };
+export type SupplierProduct = {
   sku: string;
   externalProductId: string;
   externalVariantId: string | null;
@@ -19,55 +17,62 @@ type SupplierProduct = {
   description: string;
   imageUrls: string[];
   supplierCost: number;
+  supplierProductCost?: number;
+  supplierShippingCost?: number;
   supplierCurrency: "USD" | "NGN";
   stockQuantity: number | null;
   inventoryKnown: boolean;
+  inventoryCountryCode?: string | null;
 };
 
-type GenericSupplierProduct = Partial<SupplierProduct> & { id?: string; productId?: string; productSku?: string; name?: string; price?: number | string; cost?: number | string; images?: string[]; image?: string; stock?: number | string };
-
-function envKey(supplier: SupplierId, suffix: "API_URL" | "API_KEY") {
-  return process.env[`SUPPLIER_${supplier.toUpperCase()}_${suffix}`]?.trim() || "";
+export function normalizeSupplierReference(supplier: SupplierId, value: string) {
+  if (supplier === "aliexpress") return normalizeAliExpressProductReference(value);
+  const sku = value.trim().toUpperCase();
+  if (!/^[A-Z0-9_-]{3,120}$/.test(sku)) throw new Error("Each CJ entry must be a valid product SKU, SPU, or ID.");
+  return sku;
 }
 
-function normalizeProduct(product: GenericSupplierProduct, supplier: SupplierId, fallbackSku: string): SupplierProduct {
-  const sku = String(product.sku ?? product.productSku ?? fallbackSku).trim().toUpperCase();
-  const title = String(product.title ?? product.name ?? "").trim();
-  const supplierCost = Number(product.supplierCost ?? product.cost ?? product.price);
-  const imageUrls = Array.from(new Set([...(product.imageUrls ?? []), ...(product.images ?? []), product.image].filter((url): url is string => typeof url === "string" && /^https:\/\//.test(url)))).slice(0, 5);
-  if (!title || !imageUrls.length || !Number.isFinite(supplierCost) || supplierCost < 0) throw new Error(`${SUPPLIER_LABELS[supplier]} returned incomplete product data for ${fallbackSku}.`);
-  const stock = product.stockQuantity ?? product.stock;
-  const stockQuantity = stock === undefined || stock === null || stock === "" ? null : Math.max(0, Math.floor(Number(stock)));
-  return { sku, externalProductId: `${supplier}:${String(product.externalProductId ?? product.id ?? sku)}`, externalVariantId: product.externalVariantId ?? null, title, description: String(product.description ?? `${title}. Review the supplier details before publishing.`).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim().slice(0, 1200), imageUrls, supplierCost, supplierCurrency: product.supplierCurrency === "NGN" ? "NGN" : "USD", stockQuantity: Number.isFinite(stockQuantity) ? stockQuantity : null, inventoryKnown: stockQuantity !== null };
+export async function fetchSupplierCatalogRefs(supplier: SupplierId, limit: number, keyword = ""): Promise<SupplierCatalogRef[]> {
+  if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error("Choose between 1 and 500 supplier products.");
+  if (supplier === "aliexpress") {
+    const refs = await fetchAliExpressCatalogRefs(limit, keyword);
+    return refs.map(ref => ({ id: ref.productId, previewImageUrl: ref.previewImageUrl }));
+  }
+  const products = await fetchCjProductCatalog(limit);
+  return products.filter(product => Boolean(product.sku)).slice(0, limit).map(product => ({ id: String(product.sku), previewImageUrl: product.imageUrls?.[0] ?? null }));
 }
 
-async function fetchGenericSupplier(supplier: Exclude<SupplierId, "cj_dropshipping">, skus: string[], limit: number) {
-  const apiUrl = envKey(supplier, "API_URL");
-  const apiKey = envKey(supplier, "API_KEY");
-  if (!apiUrl || !apiKey) throw new Error(`${SUPPLIER_LABELS[supplier]} is not configured. Add SUPPLIER_${supplier.toUpperCase()}_API_URL and SUPPLIER_${supplier.toUpperCase()}_API_KEY on Render.`);
-  const url = new URL(apiUrl);
-  if (skus.length) url.searchParams.set("skus", skus.join(","));
-  url.searchParams.set("limit", String(limit));
-  const response = await fetch(url, { headers: { accept: "application/json", authorization: `Bearer ${apiKey}`, "x-api-key": apiKey }, signal: AbortSignal.timeout(20_000) });
-  const payload = await response.json().catch(() => null) as { products?: GenericSupplierProduct[]; data?: { products?: GenericSupplierProduct[] } } | null;
-  if (!response.ok) throw new Error(`${SUPPLIER_LABELS[supplier]} rejected the catalogue request.`);
-  const products = payload?.products ?? payload?.data?.products ?? [];
-  return products.slice(0, limit).map((product, index) => normalizeProduct(product, supplier, skus[index] ?? `${supplier}-${index + 1}`));
+export async function fetchSupplierProductForImport(supplier: SupplierId, reference: string, previewImageUrl?: string | null): Promise<SupplierProduct> {
+  const normalized = normalizeSupplierReference(supplier, reference);
+  if (supplier === "aliexpress") return fetchAliExpressProductForMassImport(normalized, previewImageUrl);
+  const product = await fetchCjProductForMassImport(normalized);
+  return {
+    sku: product.sku,
+    externalProductId: `cj_dropshipping:${product.externalProductId}`,
+    externalVariantId: product.externalVariantId,
+    title: product.title,
+    description: product.description,
+    imageUrls: product.imageUrls,
+    supplierCost: product.supplierCost,
+    supplierProductCost: product.supplierProductCost,
+    supplierShippingCost: product.supplierShippingCost,
+    supplierCurrency: product.supplierCurrency,
+    stockQuantity: product.stockQuantity,
+    inventoryKnown: product.inventoryKnown,
+    inventoryCountryCode: product.inventoryCountryCode,
+  };
 }
 
 export async function fetchSupplierProducts(input: { supplier: SupplierId; skus: string[]; limit: number }): Promise<SupplierProduct[]> {
-  if (input.supplier === "cj_dropshipping") {
-    if (!input.skus.length) return fetchCjProductCatalog(input.limit);
-    const products = [] as SupplierProduct[];
-    for (const sku of input.skus.slice(0, input.limit)) {
-      const product = await fetchCjProductForImport(sku);
-      products.push({ ...product, externalProductId: `cj_dropshipping:${product.sku}`, externalVariantId: null, supplierCost: product.supplierCost ?? 0, stockQuantity: null, inventoryKnown: false });
-    }
-    return products;
-  }
-  return fetchGenericSupplier(input.supplier, input.skus, input.limit);
+  const refs = input.skus.length
+    ? input.skus.slice(0, input.limit).map(value => ({ id: normalizeSupplierReference(input.supplier, value), previewImageUrl: null }))
+    : await fetchSupplierCatalogRefs(input.supplier, input.limit);
+  const products: SupplierProduct[] = [];
+  for (const ref of refs) products.push(await fetchSupplierProductForImport(input.supplier, ref.id, ref.previewImageUrl));
+  return products;
 }
 
 export function supplierIsConfigured(supplier: SupplierId) {
-  return supplier === "cj_dropshipping" ? Boolean(process.env.CJ_DROPSHIPPING_API_KEY?.trim()) : Boolean(envKey(supplier, "API_URL") && envKey(supplier, "API_KEY"));
+  if (supplier === "cj_dropshipping") return Boolean(process.env.CJ_DROPSHIPPING_API_KEY?.trim());
+  return Boolean(process.env.ALIEXPRESS_APP_KEY?.trim() && process.env.ALIEXPRESS_APP_SECRET?.trim());
 }

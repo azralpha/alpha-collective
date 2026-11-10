@@ -17,6 +17,7 @@ import { DELIVERY_SERVICE_TIERS, calculateDeliveryQuote } from "../../shared/del
 import { formatNigerianDeliveryAddress, isNigerianLga, isNigerianState } from "../../shared/nigeriaAddress";
 import {
   createOfficialProduct,
+  bulkPublishOfficialProductDrafts,
   createCartRewardTier,
   createPendingCartRewardClaim,
   getOfficialProductForGeminiEnhancement,
@@ -135,7 +136,7 @@ import { getNewsletterDraftForPreview } from "../newsletter";
 import { nowPaymentsIpnCallbackUrl, paymentRedirectUrl } from "../cryptoFundingUrl";
 import { ENV } from "../_core/env";
 import { SUPPLIER_IDS } from "../supplierCatalog";
-import { importSupplierDrafts } from "../supplierImport";
+import { getAliExpressConnectionStatus } from "../aliexpressOAuth";
 import { FlutterwaveProviderError, initializeFlutterwavePayment, isDefinitiveFlutterwaveRequestFailure } from "../flutterwave";
 import {
   PaystackProviderError,
@@ -199,15 +200,9 @@ const gatewayCheckoutInputSchema = z.object({
   spinClaimToken: spinClaimTokenSchema,
 });
 
-const cjMassImportInputSchema = z.object({
-  skuText: z.string().trim().min(3).max(8_000),
-  markupPercent: z.number().min(0).max(500),
-  exchangeRateNgnPerUsd: z.number().min(100).max(10_000),
-  category: z.enum(MARKETPLACE_CATEGORIES),
-});
 const supplierImportInputSchema = z.object({
   supplier: z.enum(SUPPLIER_IDS),
-  skuText: z.string().max(8_000),
+  skuText: z.string().max(64_000),
   limit: z.number().int().min(10).max(500),
   markupPercent: z.number().min(0).max(500),
   exchangeRateNgnPerUsd: z.number().min(100).max(10_000),
@@ -738,6 +733,7 @@ export const marketplaceRouter = router({
         return { id: input.id, status: input.status, publicCatalogueRevision: revalidatePublicCataloguePaths() };
       }),
     officialProducts: adminProcedure.input(savedProductListInputSchema.optional()).query(({ input }) => listAdminOfficialProducts(input ?? {})),
+    aliexpressConnectionStatus: adminProcedure.query(() => getAliExpressConnectionStatus()),
     uploadOfficialProductImage: adminProcedure
       .input(z.object({ dataUrl: productImageDataUrlSchema }))
       .mutation(async ({ ctx, input }) => {
@@ -764,37 +760,28 @@ export const marketplaceRouter = router({
         }
       }),
     startCjMassImport: adminProcedure
-      .input(cjMassImportInputSchema)
+      .input(supplierImportInputSchema)
       .mutation(async ({ ctx, input }) => {
         try {
           const batchId = await createCjMassImportBatch({ requestedByUserId: ctx.user.id, ...input });
           return await getCjMassImportBatch(batchId, ctx.user.id);
         } catch (error) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof CjDropshippingError ? error.message : "The CJ mass import could not be started." });
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "The supplier mass import could not be started." });
         }
       }),
     cjMassImportProgress: adminProcedure
       .input(z.object({ batchId: z.number().int().positive() }))
       .query(async ({ ctx, input }) => {
         const batch = await getCjMassImportBatch(input.batchId, ctx.user.id);
-        if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "That CJ import batch was not found." });
+        if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "That supplier import batch was not found." });
         return batch;
       }),
     processNextCjMassImportItem: adminProcedure
       .input(z.object({ batchId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         const batch = await processNextCjMassImportItem(input.batchId, ctx.user.id);
-        if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "That CJ import batch was not found." });
+        if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "That supplier import batch was not found." });
         return batch;
-      }),
-    importSupplierProducts: adminProcedure
-      .input(supplierImportInputSchema)
-      .mutation(async ({ ctx, input }) => {
-        try {
-          return await importSupplierDrafts({ requestedByUserId: ctx.user.id, ...input });
-        } catch (error) {
-          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "Supplier catalogue import failed." });
-        }
       }),
     generateGeminiProductEnhancement: adminProcedure
       .input(z.object({ title: z.string().trim().min(2).max(180).transform(sanitizePlainText), description: z.string().trim().min(12).max(1600).transform(sanitizePlainText), specifications: z.string().trim().max(1600).transform(sanitizePlainText).nullable().optional() }))
@@ -825,6 +812,13 @@ export const marketplaceRouter = router({
       .mutation(async ({ input }) => {
         await updateOfficialProductStatus(input.id, input.status);
         return { ...input, publicCatalogueRevision: revalidatePublicCataloguePaths() };
+      }),
+    bulkPublishOfficialProductDrafts: adminProcedure
+      .input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(100) }))
+      .mutation(async ({ input }) => {
+        const published = await bulkPublishOfficialProductDrafts(input.ids);
+        const publicCatalogueRevision = revalidatePublicCataloguePaths();
+        return { published, publicCatalogueRevision };
       }),
     fulfilmentIntegration: adminProcedure.query(async () => {
       const integration = await getFulfilmentIntegration("cj_dropshipping");

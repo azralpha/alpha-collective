@@ -1,5 +1,5 @@
 import type { Express, Request, Response } from "express";
-import { and, eq, isNotNull } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, like, not, or } from "drizzle-orm";
 import { fulfilmentIntegrations, officialProducts, officialProductSourcing } from "../drizzle/schema";
 import { fetchCjInventorySnapshot } from "./cjDropshipping";
 import { getDb } from "./db";
@@ -19,7 +19,7 @@ async function syncOneOfficialProduct(input: { officialProductId: number; extern
   const db = await requireDbForInventorySync();
   await db.transaction(async tx => {
     await tx.update(officialProducts).set({ stockQuantity: snapshot.stockQuantity, inventorySyncedAt: new Date(), inventorySyncStatus: "current" }).where(eq(officialProducts.id, input.officialProductId));
-    await tx.update(officialProductSourcing).set({ supplierInventoryQuantity: snapshot.stockQuantity, supplierInventoryCountryCode: snapshot.inventoryCountryCode, ...(snapshot.externalProductId ? { externalProductId: snapshot.externalProductId } : {}), ...(snapshot.externalVariantId ? { externalVariantId: snapshot.externalVariantId } : {}) }).where(eq(officialProductSourcing.officialProductId, input.officialProductId));
+    await tx.update(officialProductSourcing).set({ supplierInventoryQuantity: snapshot.stockQuantity, supplierInventoryCountryCode: snapshot.inventoryCountryCode, ...(snapshot.externalProductId ? { externalProductId: `cj_dropshipping:${snapshot.externalProductId}` } : {}), ...(snapshot.externalVariantId ? { externalVariantId: snapshot.externalVariantId } : {}) }).where(eq(officialProductSourcing.officialProductId, input.officialProductId));
   });
 }
 
@@ -29,7 +29,7 @@ export async function syncCjOfficialInventory(taskUid: string) {
   const integration = (await db.select().from(fulfilmentIntegrations).where(and(eq(fulfilmentIntegrations.provider, "cj_dropshipping"), eq(fulfilmentIntegrations.inventorySyncScheduleTaskUid, taskUid))).limit(1))[0];
   if (!integration) return { skipped: "orphan" as const, checked: 0, updated: 0, failed: 0 };
   await db.update(fulfilmentIntegrations).set({ inventorySyncLastStartedAt: new Date(), inventorySyncLastError: null }).where(eq(fulfilmentIntegrations.id, integration.id));
-  const products = await db.select({ officialProductId: officialProducts.id, externalSkuId: officialProductSourcing.externalSkuId, externalVariantId: officialProductSourcing.externalVariantId }).from(officialProducts).innerJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id)).where(and(eq(officialProductSourcing.fulfillmentProvider, "auto_fulfill_api"), isNotNull(officialProductSourcing.externalSkuId), isNotNull(officialProducts.stockQuantity))).limit(MAX_SYNC_PRODUCTS);
+  const products = await db.select({ officialProductId: officialProducts.id, externalSkuId: officialProductSourcing.externalSkuId, externalVariantId: officialProductSourcing.externalVariantId }).from(officialProducts).innerJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id)).where(and(eq(officialProductSourcing.fulfillmentProvider, "auto_fulfill_api"), isNotNull(officialProductSourcing.externalSkuId), isNotNull(officialProducts.stockQuantity), or(isNull(officialProductSourcing.externalProductId), not(like(officialProductSourcing.externalProductId, "aliexpress:%"))))).limit(MAX_SYNC_PRODUCTS);
   let updated = 0;
   let failed = 0;
   for (let index = 0; index < products.length; index += SYNC_CONCURRENCY) {
