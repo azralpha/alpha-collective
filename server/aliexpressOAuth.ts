@@ -6,6 +6,7 @@ import { sdk } from "./_core/sdk";
 import { createExpressRateLimit } from "./requestRateLimit";
 import { getSupplierOAuthCredential, saveSupplierOAuthCredential } from "./db";
 import { aliExpressAppCredentialsConfigured, callAliExpressSystemApi } from "./aliexpressOpenPlatform";
+import { buildAliExpressAuthorizationUrl } from "./aliexpressAuthorization";
 import { createAliExpressOAuthState, isValidAliExpressOAuthState } from "./aliexpressOAuthState";
 
 const PROVIDER = "aliexpress";
@@ -153,13 +154,12 @@ export function registerAliExpressOAuthRoutes(app: Express) {
     const oauthState = createAliExpressOAuthState(ENV.cookieSecret);
     const secure = new URL(ENV.publicAppUrl).protocol === "https:";
     res.cookie(STATE_COOKIE, oauthState.cookieValue, { httpOnly: true, secure, sameSite: "lax", path: "/", maxAge: STATE_TTL_MS });
-    const authorizationUrl = new URL("/oauth/authorize", "https://api-sg.aliexpress.com");
-    authorizationUrl.searchParams.set("response_type", "code");
-    authorizationUrl.searchParams.set("force_auth", "true");
-    authorizationUrl.searchParams.set("redirect_uri", new URL(CALLBACK_PATH, ENV.publicAppUrl).toString());
-    authorizationUrl.searchParams.set("client_id", process.env.ALIEXPRESS_APP_KEY!.trim());
-    authorizationUrl.searchParams.set("state", oauthState.state);
-    res.redirect(302, authorizationUrl.toString());
+    const authorizationUrl = buildAliExpressAuthorizationUrl({
+      appKey: process.env.ALIEXPRESS_APP_KEY!.trim(),
+      callbackUrl: new URL(CALLBACK_PATH, ENV.publicAppUrl).toString(),
+      state: oauthState.state,
+    });
+    res.redirect(302, authorizationUrl);
   });
 
   app.get(CALLBACK_PATH, createExpressRateLimit({ scope: "aliexpress-oauth-callback", limit: 20, windowMs: 60_000 }), async (req: Request, res: Response) => {
