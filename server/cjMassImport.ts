@@ -9,6 +9,7 @@ import { fetchSupplierCatalogRefs, fetchSupplierProductForImport, normalizeSuppl
 
 export const MAX_CJ_MASS_IMPORT_SKUS = 500;
 export const MAX_SUPPLIER_MASS_IMPORT_PRODUCTS = 500;
+export const CJ_MASS_IMPORT_CONCURRENCY = 4;
 type BatchStatus = "queued" | "processing" | "completed" | "completed_with_errors" | "failed";
 
 function requireDbForBatch() {
@@ -188,7 +189,12 @@ export async function processNextCjMassImportItem(batchId: number, requestedByUs
       await finishBatchItem({ batchId, itemId: item.id, status: "skipped", officialProductId: existing.id, errorSummary: "This supplier product is already mapped to an official product." });
       return getCjMassImportBatch(batchId, requestedByUserId);
     }
-    const imageUrls = await Promise.all(imported.imageUrls.map((imageUrl, index) => importSupplierProductImage({ supplier, imageUrl, storagePrefix: `official-products/${requestedByUserId}/${supplier}-batch/${batchId}-${item.id}-${index}` }).then(result => result.url)));
+    const imageResults = await Promise.allSettled(imported.imageUrls.map((imageUrl, index) => importSupplierProductImage({ supplier, imageUrl, storagePrefix: `official-products/${requestedByUserId}/${supplier}-batch/${batchId}-${item.id}-${index}` }).then(result => result.url)));
+    const imageUrls = imageResults.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
+    if (!imageUrls.length) {
+      const firstImageError = imageResults.find(result => result.status === "rejected")?.reason;
+      throw firstImageError instanceof Error ? firstImageError : new ProductImageProcessingError("The supplier returned no usable product images.");
+    }
     const price = calculateMassImportNairaPrice({ landedUsdCost: imported.supplierCost, markupPercent: Number(batch.markupPercent), exchangeRateNgnPerUsd: Number(batch.exchangeRateNgnPerUsd), currency: imported.supplierCurrency });
     const officialProductId = await createOfficialProduct({
       title: imported.title,
@@ -226,5 +232,11 @@ export async function processNextCjMassImportItem(batchId: number, requestedByUs
     }
     await finishBatchItem({ batchId, itemId: item.id, status: "failed", errorSummary: safeAdminImportError(error) });
   }
+  return getCjMassImportBatch(batchId, requestedByUserId);
+}
+
+/** Processes a small number of independently claimed items in parallel for responsive bulk imports. */
+export async function processCjMassImportChunk(batchId: number, requestedByUserId: number) {
+  await Promise.allSettled(Array.from({ length: CJ_MASS_IMPORT_CONCURRENCY }, () => processNextCjMassImportItem(batchId, requestedByUserId)));
   return getCjMassImportBatch(batchId, requestedByUserId);
 }

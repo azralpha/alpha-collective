@@ -2082,13 +2082,16 @@ export async function bulkPublishOfficialProductDrafts(ids: number[]) {
   if (!normalizedIds.length) return 0;
   if (normalizedIds.length > 100) throw new Error("Publish up to 100 selected drafts at a time.");
   const db = await requireDb();
+  const candidates = await db.select({ id: officialProducts.id, imageUrl: officialProducts.imageUrl, imageUrls: officialProducts.imageUrls }).from(officialProducts).where(and(inArray(officialProducts.id, normalizedIds), eq(officialProducts.status, "draft")));
+  const publishableIds = candidates.filter(product => Boolean(product.imageUrl?.trim() || product.imageUrls?.some(imageUrl => imageUrl.trim()))).map(product => product.id);
+  if (!publishableIds.length) return 0;
   const result = await db.update(officialProducts).set({
     status: "active",
     isPublished: 1,
     publicationStatus: "APPROVED",
     inStock: sql`CASE WHEN ${officialProducts.stockQuantity} = 0 THEN 0 ELSE 1 END`,
     stockQuantity: sql`CASE WHEN ${officialProducts.stockQuantity} IS NULL THEN 1 ELSE ${officialProducts.stockQuantity} END`,
-  }).where(and(inArray(officialProducts.id, normalizedIds), eq(officialProducts.status, "draft")));
+  }).where(and(inArray(officialProducts.id, publishableIds), eq(officialProducts.status, "draft")));
   return affectedRows(result);
 }
 

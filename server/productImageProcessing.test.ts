@@ -37,4 +37,19 @@ describe("product image processing", () => {
     await expect(importCjProductImage({ imageUrl: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/cj-item.jpg", storagePrefix: "official-products/1/cj" })).resolves.toMatchObject({ url: "/uploads/official-products/1/cj.webp" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("follows an approved CJ CDN redirect before processing the image", async () => {
+    const source = await sharp({ create: { width: 900, height: 600, channels: 3, background: { r: 16, g: 108, b: 62 } } }).jpeg().toBuffer();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/final-image.jpg" } }))
+      .mockResolvedValueOnce(new Response(source, { status: 200, headers: { "content-type": "image/jpeg" } }));
+    vi.stubGlobal("fetch", fetchMock);
+    const storage = await import("./storage");
+    vi.mocked(storage.storagePut).mockResolvedValue({ key: "official-products/1/cj-redirect.webp", url: "/uploads/official-products/1/cj-redirect.webp" });
+    const { importCjProductImage } = await import("./productImageProcessing");
+
+    await expect(importCjProductImage({ imageUrl: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/redirect-image.jpg", storagePrefix: "official-products/1/cj-redirect" })).resolves.toMatchObject({ url: "/uploads/official-products/1/cj-redirect.webp" });
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "https://cc-west-usa.oss-us-west-1.aliyuncs.com/redirect-image.jpg", expect.objectContaining({ redirect: "manual" }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "https://cc-west-usa.oss-us-west-1.aliyuncs.com/final-image.jpg", expect.objectContaining({ redirect: "manual" }));
+  });
 });

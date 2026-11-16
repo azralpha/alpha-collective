@@ -67,12 +67,35 @@ async function readSupplierImageWithinLimit(response: Response, supplier: Suppli
   return Buffer.concat(chunks);
 }
 
+async function fetchSupplierImage(imageUrl: string, supplier: SupplierImageProvider) {
+  const label = supplier === "cj_dropshipping" ? "CJ" : "AliExpress";
+  let currentUrl = imageUrl;
+  for (let redirect = 0; redirect <= 3; redirect += 1) {
+    if (!isApprovedSupplierImageUrl(currentUrl, supplier)) throw new ProductImageProcessingError(`${label} returned an unsupported product-image host.`);
+    try {
+      const response = await fetch(currentUrl, { redirect: "manual", signal: AbortSignal.timeout(15_000) });
+      if (response.status >= 300 && response.status < 400) {
+        const location = response.headers.get("location");
+        if (!location || redirect === 3) throw new ProductImageProcessingError(`${label} returned too many image redirects.`);
+        currentUrl = new URL(location, currentUrl).toString();
+        continue;
+      }
+      if (response.status === 429 || response.status >= 500) {
+        if (redirect === 3) throw new ProductImageProcessingError(`A ${label} product image could not be downloaded.`);
+        continue;
+      }
+      return response;
+    } catch (error) {
+      if (error instanceof ProductImageProcessingError) throw error;
+      if (redirect === 3) throw new ProductImageProcessingError(`A ${label} product image could not be downloaded.`);
+    }
+  }
+  throw new ProductImageProcessingError(`A ${label} product image could not be downloaded.`);
+}
+
 export async function importSupplierProductImage(input: { supplier: SupplierImageProvider; imageUrl: string; storagePrefix: string }) {
   const label = input.supplier === "cj_dropshipping" ? "CJ" : "AliExpress";
-  if (!isApprovedSupplierImageUrl(input.imageUrl, input.supplier)) throw new ProductImageProcessingError(`${label} returned an unsupported product-image host.`);
-  let response: Response;
-  try { response = await fetch(input.imageUrl, { redirect: "error", signal: AbortSignal.timeout(15_000) }); }
-  catch { throw new ProductImageProcessingError(`A ${label} product image could not be downloaded.`); }
+  const response = await fetchSupplierImage(input.imageUrl, input.supplier);
   const declaredLength = Number(response.headers.get("content-length") ?? 0);
   if (!response.ok || declaredLength > MAX_PRODUCT_IMAGE_BYTES) throw new ProductImageProcessingError(`${label} returned an unsupported or oversized product image.`);
   return storeProcessedProductImage({ source: await readSupplierImageWithinLimit(response, input.supplier), storagePrefix: input.storagePrefix });

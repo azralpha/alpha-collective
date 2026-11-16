@@ -114,7 +114,7 @@ import { extractClientIp, normalizeDeviceId } from "../referralFraud";
 import { storagePut } from "../storage";
 import { decodeProductImageDataUrl, importCjProductImage, ProductImageProcessingError, storeProcessedProductImage } from "../productImageProcessing";
 import { CjDropshippingError, fetchCjProductForImport, testCjCatalogAccess } from "../cjDropshipping";
-import { createCjMassImportBatch, getCjMassImportBatch, processNextCjMassImportItem } from "../cjMassImport";
+import { createCjMassImportBatch, getCjMassImportBatch, processCjMassImportChunk, processNextCjMassImportItem } from "../cjMassImport";
 import { notifyAdminPaymentEvent } from "../paymentNotifications";
 import { adminProcedure, protectedProcedure, publicProcedure, router, sensitiveProtectedProcedure } from "../_core/trpc";
 import { hashTransactionPin, validateTransactionPin, verifyTransactionPin } from "../walletSecurity";
@@ -329,6 +329,7 @@ function createOfficialCatalog(products: Awaited<ReturnType<typeof listActiveOff
 
 const productImageDataUrlSchema = z.string().max(7_000_000);
 const uploadUrlSchema = z.string().max(500).refine(value => value.startsWith("/uploads/") || value.startsWith(`${ENV.apiOrigin}/uploads/`), "Upload images through the seller image uploader.");
+const officialProductImageUrlSchema = z.string().max(500).refine(value => value.startsWith("/uploads/official-products/") || value.startsWith(`${ENV.apiOrigin}/uploads/official-products/`), "Upload official product images through the administrator image uploader.");
 const vendorProductInputSchema = z.object({ title: z.string().trim().min(2).max(180).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid product title."), category: z.enum(MARKETPLACE_CATEGORIES), price: z.number().int().min(500).max(5000000), description: z.string().trim().min(12).max(1200).transform(sanitizePlainText).refine(value => value.length >= 12, "Enter a valid product description."), imageUrls: z.array(uploadUrlSchema).min(1).max(5) });
 const officialProductInputSchema = z.object({
   title: z.string().trim().min(2).max(180).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid product title."),
@@ -342,7 +343,7 @@ const officialProductInputSchema = z.object({
   aiSeoDescription: z.string().trim().min(40).max(600).transform(sanitizePlainText).nullable().optional(),
   aiMetaDescription: z.string().trim().min(50).max(155).transform(sanitizePlainText).nullable().optional(),
   aiSuggestedTags: z.array(z.string().trim().min(2).max(40).transform(sanitizePlainText)).length(5).nullable().optional(),
-  imageUrls: z.array(z.string().startsWith("/uploads/official-products/").max(500)).min(1).max(5),
+  imageUrls: z.array(officialProductImageUrlSchema).min(1).max(5),
   status: z.enum(["draft", "active", "rejected"]),
   fulfillmentProvider: z.enum(["local_vendor", "auto_fulfill_api", "manual_admin"]),
   externalSkuId: z.string().trim().max(120).transform(sanitizePlainText).nullable().optional(),
@@ -787,6 +788,13 @@ export const marketplaceRouter = router({
       .input(z.object({ batchId: z.number().int().positive() }))
       .mutation(async ({ ctx, input }) => {
         const batch = await processNextCjMassImportItem(input.batchId, ctx.user.id);
+        if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "That supplier import batch was not found." });
+        return batch;
+      }),
+    processCjMassImportChunk: adminProcedure
+      .input(z.object({ batchId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        const batch = await processCjMassImportChunk(input.batchId, ctx.user.id);
         if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "That supplier import batch was not found." });
         return batch;
       }),
