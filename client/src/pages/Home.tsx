@@ -103,7 +103,7 @@ export default function Home() {
         <div className="category-grid">
           {categoryCards.map(category => (
             <Link key={category.name} href={`/shop?category=${getMarketplaceCategoryMetadata(category.name).slug}`} className="category-card">
-              <img src={category.product.imageUrl} alt="" />
+              <img src={category.name === "Vehicles" ? "/category/vehicles.jpg" : category.product.imageUrl} alt="" />
               <span>{category.name}</span>
               <small>{category.note}</small>
             </Link>
