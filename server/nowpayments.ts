@@ -2,8 +2,8 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import { isSupportedCryptoTicker, SUPPORTED_CRYPTO_TICKERS } from "../shared/crypto";
 
 const PRODUCTION_NOWPAYMENTS_API_BASE = "https://api.nowpayments.io/v1";
-export const MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA = 500;
-export const MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA = 50_000;
+export const MAX_CRYPTO_FUNDING_NAIRA = 5_000_000;
+export const MAX_CRYPTO_CHECKOUT_NAIRA = 5_000_000;
 export { SUPPORTED_CRYPTO_TICKERS };
 
 export class NowPaymentsError extends Error {}
@@ -94,9 +94,9 @@ export async function listNowPaymentsCurrencies() {
 }
 
 export async function createControlledNowPaymentsQuote(input: { reference: string; amountNaira: number; payCurrency: string; ipnCallbackUrl: string; maximumAmountNaira?: number; orderDescription?: string }) {
-  const maximumAmountNaira = input.maximumAmountNaira ?? MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA;
+  const maximumAmountNaira = input.maximumAmountNaira ?? MAX_CRYPTO_FUNDING_NAIRA;
   if (!Number.isSafeInteger(input.amountNaira) || input.amountNaira < 100 || input.amountNaira > maximumAmountNaira) {
-    throw new NowPaymentsError(`Live crypto test quotes are limited to ₦${maximumAmountNaira.toLocaleString("en-NG")} or less.`);
+    throw new NowPaymentsError(`Crypto payments are limited to ₦${maximumAmountNaira.toLocaleString("en-NG")} or less.`);
   }
   if (!/^accrypto_[a-z0-9]{16,32}$/.test(input.reference)) throw new NowPaymentsError("The crypto funding reference is invalid.");
   const payCurrency = input.payCurrency.toLowerCase();
@@ -109,7 +109,7 @@ export async function createControlledNowPaymentsQuote(input: { reference: strin
       price_currency: "ngn",
       pay_currency: payCurrency,
       order_id: input.reference,
-      order_description: input.orderDescription ?? "Alpha Market controlled crypto wallet test",
+      order_description: input.orderDescription ?? "Alpha Market crypto wallet payment",
       ipn_callback_url: input.ipnCallbackUrl,
       is_fixed_rate: true,
     }),

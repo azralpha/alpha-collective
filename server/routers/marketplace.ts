@@ -129,7 +129,7 @@ import { isWithdrawalOtpEmailDeliveryConfigured } from "../withdrawalOtpEmail";
 import { processCjFulfilmentQueue } from "../fulfilmentQueue";
 import { createHeartbeatJob } from "../_core/heartbeat";
 import { COOKIE_NAME } from "@shared/const";
-import { createControlledNowPaymentsQuote, MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA, MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA, NowPaymentsError } from "../nowpayments";
+import { createControlledNowPaymentsQuote, MAX_CRYPTO_CHECKOUT_NAIRA, MAX_CRYPTO_FUNDING_NAIRA, NowPaymentsError } from "../nowpayments";
 import { cartRewardUpsellInputSchema, getCartRewardUpsells } from "../cartRewardUpsell";
 import { hashSpinClaimToken } from "../spinPromotion";
 import { getNewsletterDraftForPreview } from "../newsletter";
@@ -516,8 +516,8 @@ export const marketplaceRouter = router({
           throw paystackErrorToTrpc(error, "Funding could not be initialized. Please try again.");
         }
       }),
-    createCryptoTestQuote: walletKycProcedure
-      .input(z.object({ amount: z.number().int().min(100).max(MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA), payCurrency: z.enum(SUPPORTED_CRYPTO_TICKERS) }))
+    createCryptoFundingQuote: walletKycProcedure
+      .input(z.object({ amount: z.number().int().min(100).max(MAX_CRYPTO_FUNDING_NAIRA), payCurrency: z.enum(SUPPORTED_CRYPTO_TICKERS) }))
       .mutation(async ({ ctx, input }) => {
         const wallet = await ensureWalletForUser(ctx.user.id);
         const reference = newCryptoFundingReference();
@@ -530,13 +530,12 @@ export const marketplaceRouter = router({
         } catch (error) {
           await markCryptoFundingAttemptStatus({ reference, status: "failed" });
           if (error instanceof NowPaymentsError) throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The controlled crypto test quote could not be created." });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The crypto payment could not be created. Please try again." });
         }
       }),
-    createCryptoCheckoutQuote: sensitiveProtectedProcedure
+    createCryptoCheckoutQuote: walletKycProcedure
       .input(cryptoCheckoutInputSchema)
       .mutation(async ({ ctx, input }) => {
-        if (!hasAdministratorTestAccess(ctx.user.role)) throw new TRPCError({ code: "FORBIDDEN", message: "Controlled crypto checkout testing is available to the administrator only." });
         validateNigerianState(input.deliveryAddress.state);
         if (!isNigerianLga(input.deliveryAddress.state, input.deliveryAddress.lga)) throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a valid local government area for the selected state." });
         const deliveryQuote = calculateDeliveryQuote({ destinationState: input.deliveryAddress.state, weightKg: input.packageWeightKg, serviceTier: input.deliveryTier });
@@ -545,7 +544,7 @@ export const marketplaceRouter = router({
         if (resolvedLines.length === 0) throw new TRPCError({ code: "BAD_REQUEST", message: "Your cart does not contain a valid product." });
         const subtotal = getCartSubtotal(input.items, catalog);
         const total = subtotal + deliveryQuote.deliveryFee;
-        if (total > MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA) throw new TRPCError({ code: "BAD_REQUEST", message: `Controlled crypto checkout testing is limited to ₦${MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA.toLocaleString("en-NG")} per order.` });
+        if (total > MAX_CRYPTO_CHECKOUT_NAIRA) throw new TRPCError({ code: "BAD_REQUEST", message: `Crypto payments are limited to ₦${MAX_CRYPTO_CHECKOUT_NAIRA.toLocaleString("en-NG")} per order.` });
         const orderReference = newOrderReference();
         const cryptoReference = newCryptoFundingReference();
         const quoteExpiresAt = new Date(Date.now() + 15 * 60 * 1000);
@@ -553,14 +552,14 @@ export const marketplaceRouter = router({
         const wallet = await ensureWalletForUser(ctx.user.id);
         await createCryptoFundingAttempt({ walletId: wallet.id, userId: ctx.user.id, reference: cryptoReference, amountNaira: total, payCurrency: input.payCurrency, quoteExpiresAt, orderReference });
         try {
-          const quote = await createControlledNowPaymentsQuote({ reference: cryptoReference, amountNaira: total, payCurrency: input.payCurrency, ipnCallbackUrl: nowPaymentsIpnCallbackUrl(), maximumAmountNaira: MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA, orderDescription: `Alpha Market administrator checkout ${orderReference}` });
+          const quote = await createControlledNowPaymentsQuote({ reference: cryptoReference, amountNaira: total, payCurrency: input.payCurrency, ipnCallbackUrl: nowPaymentsIpnCallbackUrl(), maximumAmountNaira: MAX_CRYPTO_CHECKOUT_NAIRA, orderDescription: `Alpha Market order ${orderReference}` });
           await saveCryptoFundingQuote({ reference: cryptoReference, providerPaymentId: quote.paymentId, quotedPayAmount: quote.payAmount, payAddress: quote.payAddress });
           const spinReward = input.spinClaimToken ? await reserveSpinRewardForCheckout({ tokenHash: hashSpinClaimToken(input.spinClaimToken), userId: ctx.user.id, orderReference, items: input.items }) : { eligible: false as const };
           return { orderReference, cryptoReference, paymentId: quote.paymentId, payAddress: quote.payAddress, payAmount: quote.payAmount, payCurrency: quote.payCurrency, quoteExpiresAt, total, deliveryFee: deliveryQuote.deliveryFee, spinRewardReserved: spinReward.eligible };
         } catch (error) {
           await markCryptoFundingAttemptStatus({ reference: cryptoReference, status: "failed" });
           if (error instanceof NowPaymentsError) throw new TRPCError({ code: "BAD_REQUEST", message: error.message });
-          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The controlled crypto checkout quote could not be created." });
+          throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "The crypto payment could not be created. Please try again." });
         }
       }),
     getWithdrawalQuote: walletKycProcedure

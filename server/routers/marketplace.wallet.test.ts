@@ -144,8 +144,9 @@ describe("marketplace wallet escrow release", () => {
     expect(mocks.createWithdrawalOtpChallenge).not.toHaveBeenCalled();
   });
 
-  it("denies a non-administrator before any controlled crypto checkout quote or order can be created", async () => {
-    await expect(buyerCaller().wallet.createCryptoCheckoutQuote({ buyerName: "Ada Okafor", buyerPhone: "08000000000", deliveryAddress: checkoutBase.deliveryAddress, packageWeightKg: 1, deliveryTier: "standard", items: [{ productId: MARKETPLACE_PRODUCTS[0].id, quantity: 1 }], payCurrency: "usdttrc20" })).rejects.toMatchObject({ code: "FORBIDDEN", message: "Controlled crypto checkout testing is available to the administrator only." });
+  it("requires verified KYC before a crypto checkout quote or order can be created", async () => {
+    mocks.ensureKycProfileForUser.mockResolvedValue({ status: "identity_pending" });
+    await expect(buyerCaller().wallet.createCryptoCheckoutQuote({ buyerName: "Ada Okafor", buyerPhone: "08000000000", deliveryAddress: checkoutBase.deliveryAddress, packageWeightKg: 1, deliveryTier: "standard", items: [{ productId: MARKETPLACE_PRODUCTS[0].id, quantity: 1 }], payCurrency: "usdttrc20" })).rejects.toMatchObject({ code: "PRECONDITION_FAILED", message: "Complete KYC Verification before accessing or using Alpha Wallet." });
     expect(mocks.createOrder).not.toHaveBeenCalled();
     expect(mocks.createCryptoFundingAttempt).not.toHaveBeenCalled();
   });
