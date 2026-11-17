@@ -1,8 +1,10 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
+import { isSupportedCryptoTicker, SUPPORTED_CRYPTO_TICKERS } from "../shared/crypto";
 
 const PRODUCTION_NOWPAYMENTS_API_BASE = "https://api.nowpayments.io/v1";
 export const MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA = 500;
 export const MAX_ADMIN_CRYPTO_CHECKOUT_NAIRA = 50_000;
+export { SUPPORTED_CRYPTO_TICKERS };
 
 export class NowPaymentsError extends Error {}
 
@@ -88,7 +90,7 @@ async function nowPaymentsRequest(path: string, init?: RequestInit) {
 export async function listNowPaymentsCurrencies() {
   const body = await nowPaymentsRequest("/currencies") as { currencies?: unknown };
   if (!Array.isArray(body.currencies)) throw new NowPaymentsError("NOWPayments returned an invalid currency list.");
-  return body.currencies.filter((currency): currency is string => typeof currency === "string" && /^[a-z0-9_-]{2,24}$/i.test(currency)).map(currency => currency.toLowerCase());
+  return body.currencies.filter((currency): currency is string => typeof currency === "string" && isSupportedCryptoTicker(currency.toLowerCase())).map(currency => currency.toLowerCase());
 }
 
 export async function createControlledNowPaymentsQuote(input: { reference: string; amountNaira: number; payCurrency: string; ipnCallbackUrl: string; maximumAmountNaira?: number; orderDescription?: string }) {
@@ -97,21 +99,22 @@ export async function createControlledNowPaymentsQuote(input: { reference: strin
     throw new NowPaymentsError(`Live crypto test quotes are limited to ₦${maximumAmountNaira.toLocaleString("en-NG")} or less.`);
   }
   if (!/^accrypto_[a-z0-9]{16,32}$/.test(input.reference)) throw new NowPaymentsError("The crypto funding reference is invalid.");
-  if (!/^[a-z0-9_-]{2,24}$/i.test(input.payCurrency)) throw new NowPaymentsError("Choose a valid crypto asset.");
+  const payCurrency = input.payCurrency.toLowerCase();
+  if (!isSupportedCryptoTicker(payCurrency)) throw new NowPaymentsError("Only USDT (TRX) and USDT (TRC20) are supported crypto assets.");
   const payment = normalizePayment(await nowPaymentsRequest("/payment", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       price_amount: input.amountNaira,
       price_currency: "ngn",
-      pay_currency: input.payCurrency.toLowerCase(),
+      pay_currency: payCurrency,
       order_id: input.reference,
       order_description: input.orderDescription ?? "Alpha Market controlled crypto wallet test",
       ipn_callback_url: input.ipnCallbackUrl,
       is_fixed_rate: true,
     }),
   }));
-  if (payment.orderId !== input.reference || payment.priceCurrency !== "ngn" || Math.round(payment.priceAmount) !== input.amountNaira || payment.payCurrency !== input.payCurrency.toLowerCase()) {
+  if (payment.orderId !== input.reference || payment.priceCurrency !== "ngn" || Math.round(payment.priceAmount) !== input.amountNaira || payment.payCurrency !== payCurrency) {
     throw new NowPaymentsError("NOWPayments quote did not match the protected wallet funding request.");
   }
   return payment;

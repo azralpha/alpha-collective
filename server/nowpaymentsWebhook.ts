@@ -3,6 +3,7 @@ import express from "express";
 import { creditVerifiedCryptoFunding, getCryptoFundingAttemptByReference, markCryptoFundingAttemptStatus, settleCartRewardClaimAfterVerifiedPayment, settleSpinRewardAfterVerifiedPayment } from "./db";
 import { getVerifiedNowPaymentsPayment, verifyNowPaymentsIpn } from "./nowpayments";
 import { notifyAdminPaymentEvent } from "./paymentNotifications";
+import { isSupportedCryptoTicker } from "../shared/crypto";
 
 type NowPaymentsIpn = Record<string, unknown>;
 
@@ -18,6 +19,8 @@ export function verifiedNowPaymentsPaymentMatchesAttempt(input: {
   return input.payment.orderId === input.attempt.reference
     && input.payment.priceCurrency === "ngn"
     && Math.round(input.payment.priceAmount) === input.attempt.amountNaira
+    && isSupportedCryptoTicker(input.attempt.payCurrency.toLowerCase())
+    && isSupportedCryptoTicker(input.payment.payCurrency.toLowerCase())
     && input.payment.payCurrency === input.attempt.payCurrency.toLowerCase();
 }
 

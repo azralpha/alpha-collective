@@ -32,6 +32,14 @@ describe("controlled NOWPayments production quotes", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("rejects Bitcoin and permits the two supported USDT network tickers", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ payment_id: "payment_trx", payment_status: "waiting", pay_address: "TWalletAddress", pay_amount: "0.2", pay_currency: "usdttrx", price_amount: 500, price_currency: "ngn", order_id: "accrypto_abcdefghijklmnopqrst" }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(createControlledNowPaymentsQuote({ reference: "accrypto_abcdefghijklmnopqrst", amountNaira: 500, payCurrency: "btc", ipnCallbackUrl: "https://alphashop-3pdenj2y.manus.space/api/webhooks/nowpayments" })).rejects.toThrow("Only USDT");
+    expect(fetchMock).not.toHaveBeenCalled();
+    await expect(createControlledNowPaymentsQuote({ reference: "accrypto_abcdefghijklmnopqrst", amountNaira: 500, payCurrency: "usdttrx", ipnCallbackUrl: "https://alphashop-3pdenj2y.manus.space/api/webhooks/nowpayments" })).resolves.toMatchObject({ payCurrency: "usdttrx" });
+  });
+
   it("creates only an exact Naira-bound quote with the server callback URL", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({ payment_id: "payment_1", payment_status: "waiting", pay_address: "TWalletAddress", pay_amount: "0.2", pay_currency: "usdttrc20", price_amount: 500, price_currency: "ngn", order_id: "accrypto_abcdefghijklmnopqrst" }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -49,5 +57,6 @@ describe("NOWPayments independent callback match", () => {
     expect(verifiedNowPaymentsPaymentMatchesAttempt({ attempt, payment: { orderId: attempt.reference, priceCurrency: "ngn", priceAmount: 499, payCurrency: "usdttrc20" } })).toBe(false);
     expect(verifiedNowPaymentsPaymentMatchesAttempt({ attempt, payment: { orderId: "other", priceCurrency: "ngn", priceAmount: 500, payCurrency: "usdttrc20" } })).toBe(false);
     expect(verifiedNowPaymentsPaymentMatchesAttempt({ attempt, payment: { orderId: attempt.reference, priceCurrency: "ngn", priceAmount: 500, payCurrency: "btc" } })).toBe(false);
+    expect(verifiedNowPaymentsPaymentMatchesAttempt({ attempt: { ...attempt, payCurrency: "btc" }, payment: { orderId: attempt.reference, priceCurrency: "ngn", priceAmount: 500, payCurrency: "btc" } })).toBe(false);
   });
 });

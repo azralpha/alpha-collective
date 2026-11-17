@@ -134,6 +134,7 @@ import { cartRewardUpsellInputSchema, getCartRewardUpsells } from "../cartReward
 import { hashSpinClaimToken } from "../spinPromotion";
 import { getNewsletterDraftForPreview } from "../newsletter";
 import { nowPaymentsIpnCallbackUrl, paymentRedirectUrl } from "../cryptoFundingUrl";
+import { SUPPORTED_CRYPTO_TICKERS } from "../../shared/crypto";
 import { ENV } from "../_core/env";
 import { SUPPLIER_IDS } from "../supplierCatalog";
 import { getAliExpressConnectionStatus } from "../aliexpressOAuth";
@@ -185,7 +186,7 @@ const cryptoCheckoutInputSchema = z.object({
   packageWeightKg: z.number().positive().max(5000),
   deliveryTier: z.enum(DELIVERY_SERVICE_TIERS),
   items: z.array(cartLineSchema).min(1).max(12),
-  payCurrency: z.string().trim().toLowerCase().regex(/^[a-z0-9_-]{2,24}$/, "Choose a valid crypto asset."),
+  payCurrency: z.enum(SUPPORTED_CRYPTO_TICKERS),
   spinClaimToken: spinClaimTokenSchema,
 });
 const gatewayCheckoutInputSchema = z.object({
@@ -516,7 +517,7 @@ export const marketplaceRouter = router({
         }
       }),
     createCryptoTestQuote: walletKycProcedure
-      .input(z.object({ amount: z.number().int().min(100).max(MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA), payCurrency: z.string().trim().toLowerCase().regex(/^[a-z0-9_-]{2,24}$/, "Choose a valid crypto asset.") }))
+      .input(z.object({ amount: z.number().int().min(100).max(MAX_LIVE_TEST_CRYPTO_FUNDING_NAIRA), payCurrency: z.enum(SUPPORTED_CRYPTO_TICKERS) }))
       .mutation(async ({ ctx, input }) => {
         const wallet = await ensureWalletForUser(ctx.user.id);
         const reference = newCryptoFundingReference();
