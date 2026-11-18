@@ -55,6 +55,9 @@ async function startServer() {
   app.set("trust proxy", 1);
   registerCors(app);
   const server = createServer(app);
+  app.get("/api/health", (_req, res) => {
+    res.set("Access-Control-Allow-Origin", "*").status(200).json({ status: "ok" });
+  });
   registerNowPaymentsWebhook(app);
   app.use("/api/auth/google/callback", createExpressRateLimit({ scope: "google-auth-callback", limit: 20, windowMs: 60_000 }));
   registerPaystackWebhook(app);
