@@ -43,7 +43,7 @@ function requiredCredentials() {
 }
 
 function timestamp() {
-  return new Date().toISOString().replace("T", " ").replace(/\.\d{3}Z$/, "");
+  return String(Date.now());
 }
 
 function normalizedParams(params: AliExpressParams) {
