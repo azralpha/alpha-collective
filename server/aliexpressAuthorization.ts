@@ -8,5 +8,7 @@ export function buildAliExpressAuthorizationUrl(input: { appKey: string; callbac
   authorizationUrl.searchParams.set("client_id", input.appKey);
   authorizationUrl.searchParams.set("state", input.state);
   authorizationUrl.searchParams.set("redirect_auth", "true");
+  authorizationUrl.searchParams.set("sp", "ae");
+  authorizationUrl.searchParams.set("view", "web");
   return authorizationUrl.toString();
 }
