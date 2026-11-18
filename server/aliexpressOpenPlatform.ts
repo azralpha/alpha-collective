@@ -20,6 +20,21 @@ function safeProviderDiagnostic(error: Record<string, unknown>) {
   return { providerCode: providerCode || null, requestId: requestId || null };
 }
 
+function providerErrorFromPayload(payload: Record<string, unknown>) {
+  const nested = payload.error_response;
+  const candidate = nested && typeof nested === "object" ? nested as Record<string, unknown> : payload;
+  const rawCode = candidate.code ?? candidate.sub_code;
+  const hasErrorCode = rawCode !== undefined && rawCode !== null && String(rawCode) !== "0";
+  const rawMessage = candidate.msg ?? candidate.message ?? candidate.error_description ?? payload.msg ?? payload.message;
+  const message = typeof rawMessage === "string" ? rawMessage.trim().slice(0, 240) : "";
+  if (!hasErrorCode && !nested) return null;
+  const diagnostic = safeProviderDiagnostic(candidate);
+  return {
+    ...diagnostic,
+    message: message || "AliExpress rejected the request.",
+  };
+}
+
 function requiredCredentials() {
   const appKey = process.env.ALIEXPRESS_APP_KEY?.trim() ?? "";
   const appSecret = process.env.ALIEXPRESS_APP_SECRET?.trim() ?? "";
@@ -74,10 +89,9 @@ export async function callAliExpressSystemApi<T extends Record<string, unknown>>
     throw new AliExpressApiError("AliExpress could not be reached. Retry the request.", true);
   }
   const payload = await readResponse(response);
-  const error = payload.error_response as Record<string, unknown> | undefined;
-  if (error) {
-    const diagnostic = safeProviderDiagnostic(error);
-    throw new AliExpressApiError(`AliExpress rejected the OAuth token request${diagnostic.providerCode ? ` (code ${diagnostic.providerCode})` : ""}.`, false, diagnostic.providerCode, diagnostic.requestId);
+  const providerError = providerErrorFromPayload(payload);
+  if (providerError) {
+    throw new AliExpressApiError(`AliExpress rejected the OAuth token request: ${providerError.message}`, false, providerError.providerCode, providerError.requestId);
   }
   return payload as T;
 }

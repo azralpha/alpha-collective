@@ -196,7 +196,13 @@ export function registerAliExpressOAuthRoutes(app: Express) {
       const apiError = error instanceof Error && "providerCode" in error ? error as Error & { providerCode?: string | null; requestId?: string | null } : null;
       const providerCode = apiError?.providerCode?.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 80) || null;
       const requestId = apiError?.requestId?.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 100) || null;
-      console.error("[AliExpress OAuth] Callback failed.", { stage: callbackStage, providerCode, requestId, errorType: error instanceof Error ? error.name : "unknown" });
+      console.error("[AliExpress OAuth] Callback failed.", {
+        stage: callbackStage,
+        providerCode,
+        requestId,
+        errorType: error instanceof Error ? error.name : "unknown",
+        errorMessage: error instanceof Error ? error.message.slice(0, 240) : "Unknown AliExpress OAuth error.",
+      });
       return res.redirect(302, adminStatusUrl("failed", providerCode ? `${callbackStage}:${providerCode}` : `${callbackStage}:failed`));
     }
   });
