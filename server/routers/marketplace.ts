@@ -31,6 +31,8 @@ import {
   createWalletEscrowOrder,
   createVendorApplication,
   createVendorProduct,
+  deleteOfficialProductDrafts,
+  deleteVendorDraftProducts,
   ensureKycProfileForUser,
   createPendingWalletWithdrawal,
   createWalletFundingAttempt,
@@ -835,6 +837,12 @@ export const marketplaceRouter = router({
         const publicCatalogueRevision = revalidatePublicCataloguePaths();
         return { published, publicCatalogueRevision };
       }),
+    deleteOfficialProductDrafts: adminProcedure
+      .input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(100) }))
+      .mutation(async ({ input }) => {
+        const deleted = await deleteOfficialProductDrafts(input.ids);
+        return { deleted };
+      }),
     fulfilmentIntegration: adminProcedure.query(async () => {
       const integration = await getFulfilmentIntegration("cj_dropshipping");
       return integration
@@ -1136,6 +1144,14 @@ export const marketplaceRouter = router({
         }
         await updateVendorDraftProduct(product.id, { title: input.title, category: input.category, price: input.price, description: input.description, imageUrl: imageUrls[0], imageUrls });
         return { id: product.id, status: "draft" as const };
+      }),
+    deleteDraftProducts: protectedProcedure
+      .input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(100) }))
+      .mutation(async ({ ctx, input }) => {
+        const application = await getVendorApplicationForUser(ctx.user.id);
+        if (!application) throw new TRPCError({ code: "BAD_REQUEST", message: "Submit your seller application before managing product drafts." });
+        const deleted = await deleteVendorDraftProducts(input.ids, application.id);
+        return { deleted };
       }),
   }),
 });

@@ -1814,6 +1814,19 @@ export async function updateVendorProductStatus(id: number, status: "draft" | "a
   }).where(eq(vendorProducts.id, id));
 }
 
+export async function deleteVendorDraftProducts(ids: number[], vendorApplicationId: number) {
+  const normalizedIds = Array.from(new Set(ids.filter(id => Number.isSafeInteger(id) && id > 0)));
+  if (!normalizedIds.length) return 0;
+  if (normalizedIds.length > 100) throw new Error("Delete up to 100 selected drafts at a time.");
+  const db = await requireDb();
+  const result = await db.delete(vendorProducts).where(and(
+    inArray(vendorProducts.id, normalizedIds),
+    eq(vendorProducts.vendorApplicationId, vendorApplicationId),
+    eq(vendorProducts.status, "draft"),
+  ));
+  return affectedRows(result);
+}
+
 export type OfficialProductInput = {
   title: string;
   category: (typeof import("../shared/marketplace"))["MARKETPLACE_CATEGORIES"][number];
@@ -2093,6 +2106,24 @@ export async function bulkPublishOfficialProductDrafts(ids: number[]) {
     stockQuantity: sql`CASE WHEN ${officialProducts.stockQuantity} IS NULL THEN 1 ELSE ${officialProducts.stockQuantity} END`,
   }).where(and(inArray(officialProducts.id, publishableIds), eq(officialProducts.status, "draft")));
   return affectedRows(result);
+}
+
+export async function deleteOfficialProductDrafts(ids: number[]) {
+  const normalizedIds = Array.from(new Set(ids.filter(id => Number.isSafeInteger(id) && id > 0)));
+  if (!normalizedIds.length) return 0;
+  if (normalizedIds.length > 100) throw new Error("Delete up to 100 selected drafts at a time.");
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const draftIds = (await tx.select({ id: officialProducts.id })
+      .from(officialProducts)
+      .where(and(inArray(officialProducts.id, normalizedIds), eq(officialProducts.status, "draft"))))
+      .map(product => product.id);
+    if (!draftIds.length) return 0;
+    await tx.update(cjImportBatchItems).set({ officialProductId: null }).where(inArray(cjImportBatchItems.officialProductId, draftIds));
+    await tx.delete(officialProductSourcing).where(inArray(officialProductSourcing.officialProductId, draftIds));
+    const result = await tx.delete(officialProducts).where(and(inArray(officialProducts.id, draftIds), eq(officialProducts.status, "draft")));
+    return affectedRows(result);
+  });
 }
 
 export async function getSupplierOAuthCredential(provider: string) {
