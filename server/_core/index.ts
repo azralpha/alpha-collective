@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { mkdir } from "node:fs/promises";
 import { createServer } from "http";
+import path from "node:path";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerGoogleAuthRoute } from "../googleAuthRoute";
@@ -50,6 +51,18 @@ async function findAvailablePort(startPort: number = 3000): Promise<number> {
   throw new Error(`No available port found starting from ${startPort}`);
 }
 
+async function ensureUploadDirectory() {
+  try {
+    await mkdir(ENV.uploadsDir, { recursive: true });
+  } catch (error) {
+    if (!error || typeof error !== "object" || !("code" in error) || !["EACCES", "EPERM"].includes(String(error.code))) throw error;
+    const fallback = path.resolve(process.cwd(), "uploads");
+    await mkdir(fallback, { recursive: true });
+    ENV.uploadsDir = fallback;
+    console.warn(`[Storage] Configured upload directory was not writable; using ephemeral fallback ${fallback}. Configure a writable persistent disk or object storage for durable uploads.`);
+  }
+}
+
 async function startServer() {
   const app = express();
   app.set("trust proxy", 1);
@@ -73,7 +86,7 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   registerTelegramWebhook(app);
   registerAdminSupplierRoutes(app);
-  await mkdir(ENV.uploadsDir, { recursive: true });
+  await ensureUploadDirectory();
   app.use("/uploads", express.static(ENV.uploadsDir, { index: false, fallthrough: false, maxAge: "30d" }));
   app.use("/manus-storage", express.static(ENV.uploadsDir, { index: false, fallthrough: false, maxAge: "30d" }));
   registerStorageProxy(app);
