@@ -114,10 +114,14 @@ export async function callAliExpressBusinessApi<T extends Record<string, unknown
   }
   const methodResponse = payload[`${method.replaceAll(".", "_")}_response`] as Record<string, unknown> | undefined;
   const responseBody = methodResponse ?? payload;
-  const code = responseBody.code;
+  const code = responseBody.code ?? responseBody.rsp_code;
   if (code !== undefined && String(code) !== "0") {
-    const message = typeof responseBody.msg === "string" ? responseBody.msg : "AliExpress reported an API error.";
-    throw new AliExpressApiError(message.slice(0, 240), String(code) === "429" || String(code).startsWith("5"));
+    const message = typeof responseBody.msg === "string"
+      ? responseBody.msg
+      : typeof responseBody.rsp_msg === "string"
+        ? responseBody.rsp_msg
+        : "AliExpress reported an API error.";
+    throw new AliExpressApiError(`${message.slice(0, 200)}${code ? ` (code ${String(code).slice(0, 40)})` : ""}`, String(code) === "429" || String(code).startsWith("5"));
   }
   return responseBody as T;
 }

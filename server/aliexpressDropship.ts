@@ -1,7 +1,7 @@
 import { AliExpressApiError, callAliExpressBusinessApi } from "./aliexpressOpenPlatform";
 import { getAliExpressAccessToken } from "./aliexpressOAuth";
 
-const SEARCH_METHOD = "aliexpress.ds.text.search";
+const RECOMMEND_METHOD = "aliexpress.ds.recommend.feed.get";
 const DETAIL_METHOD = "aliexpress.ds.product.get";
 const PAGE_SIZE = 20;
 
@@ -70,8 +70,10 @@ function stripMarkup(value: unknown) {
 function collectImageUrls(value: unknown, result: string[] = [], depth = 0): string[] {
   if (depth > 7 || value == null) return result;
   if (typeof value === "string") {
-    const trimmed = value.trim();
-    if (/^https:\/\//i.test(trimmed) && /\.(?:jpe?g|png|webp)(?:[?#]|$)/i.test(trimmed)) result.push(trimmed);
+    for (const part of value.split(/[;,\s]+/)) {
+      const trimmed = part.trim();
+      if (/^https?:\/\//i.test(trimmed) && /\.(?:jpe?g|png|webp)(?:[?#]|$)/i.test(trimmed)) result.push(trimmed.replace(/^http:\/\//i, "https://"));
+    }
     return result;
   }
   if (Array.isArray(value)) {
@@ -137,26 +139,26 @@ export async function fetchAliExpressCatalogRefs(limit: number, keyword = ""): P
   const totalPages = Math.ceil(limit / PAGE_SIZE);
   for (let pageIndex = 1; pageIndex <= totalPages && refs.length < limit; pageIndex += 1) {
     const params: Record<string, string | number> = {
-      local: "en_US",
-      countryCode: "NG",
-      currency: "USD",
-      sortBy: "orders,desc",
-      pageSize: PAGE_SIZE,
-      pageIndex,
+      country: "NG",
+      target_currency: "USD",
+      target_language: "EN",
+      page_size: PAGE_SIZE,
+      page_no: pageIndex,
+      sort: "volumeDesc",
+      feed_name: "DS bestseller",
     };
-    if (keyword.trim()) params.keyWord = keyword.trim().slice(0, 100);
-    const payload = await callAliExpressBusinessApi<AnyRecord>(SEARCH_METHOD, params, accessToken);
+    const payload = await callAliExpressBusinessApi<AnyRecord>(RECOMMEND_METHOD, params, accessToken);
     const data = resultData(payload);
     const products = list(data.products);
     for (const value of products) {
       const product = record(value);
-      const productId = String(product.itemId ?? product.product_id ?? "").trim();
+      const productId = String(product.product_id ?? product.itemId ?? "").trim();
       if (!/^\d{6,24}$/.test(productId) || seen.has(productId)) continue;
       seen.add(productId);
-      refs.push({ productId, previewImageUrl: typeof product.itemMainPic === "string" ? product.itemMainPic : null });
+      refs.push({ productId, previewImageUrl: typeof product.product_main_image_url === "string" ? product.product_main_image_url : null });
       if (refs.length >= limit) break;
     }
-    const totalCount = Number(data.totalCount ?? 0);
+    const totalCount = Number(data.total_record_count ?? data.totalCount ?? 0);
     if (products.length < PAGE_SIZE || (totalCount > 0 && refs.length >= totalCount)) break;
   }
   return refs;
@@ -169,8 +171,7 @@ export async function fetchAliExpressProductForMassImport(productId: string, fal
     ship_to_country: "NG",
     product_id: productId,
     target_currency: "USD",
-    target_language: "en",
-    remove_personal_benefit: true,
+    target_language: "EN",
   }, accessToken);
   return normalizeAliExpressProductDetail({ productId, payload, fallbackImageUrl });
 }
