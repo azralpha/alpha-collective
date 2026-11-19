@@ -79,7 +79,7 @@ export async function createCjMassImportBatch(input: {
   if (manual.length > limit) throw new Error(`Import up to ${limit} unique products in this batch.`);
   let refs = manual.length
     ? manual.map(value => ({ id: normalizeSupplierReference(supplier, value), previewImageUrl: null as string | null }))
-    : await fetchSupplierCatalogRefs(supplier, limit);
+    : await fetchSupplierCatalogRefs(supplier, limit, "", input.category);
   refs = Array.from(new Map(refs.map(ref => [ref.id, ref])).values()).slice(0, limit);
   if (!refs.length) throw new Error("The supplier returned no catalog products.");
 

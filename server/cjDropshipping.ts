@@ -1,10 +1,12 @@
+import type { MarketplaceCategory } from "../shared/marketplace";
+
 const CJ_API_ROOT = "https://developers.cjdropshipping.com/api2.0/v1";
 
 type CjTokenResponse = { code?: number; result?: boolean; message?: string; data?: { accessToken?: string; accessTokenExpiryDate?: string; openId?: number } };
 type CjOrderResponse = { code?: number; result?: boolean; success?: boolean; message?: string; requestId?: string; data?: { orderId?: string; orderNumber?: string } };
-type CjProductCatalogCandidate = { id?: string; sku?: string; spu?: string; nameEn?: string; productNameEn?: string; bigImage?: string; productImage?: string; description?: string; sellPrice?: string | number; nowPrice?: string | number; discountPrice?: string | number };
+type CjProductCatalogCandidate = { id?: string; sku?: string; spu?: string; nameEn?: string; productNameEn?: string; bigImage?: string; productImage?: string; description?: string; sellPrice?: string | number; nowPrice?: string | number; discountPrice?: string | number; oneCategoryName?: string; twoCategoryName?: string; threeCategoryName?: string; categoryName?: string; category?: string };
 type CjProductListResponse = { code?: number; result?: boolean; message?: string; requestId?: string; data?: { content?: Array<{ productList?: CjProductCatalogCandidate[] }>; totalRecords?: number; totalPages?: number } };
-type CjProductFallbackResponse = { code?: number; result?: boolean; message?: string; data?: { list?: Array<{ pid?: string; productSku?: string; productNameEn?: string; productImage?: string; sellPrice?: string | number }> } };
+type CjProductFallbackResponse = { code?: number; result?: boolean; message?: string; data?: { list?: Array<{ pid?: string; productSku?: string; productNameEn?: string; productImage?: string; sellPrice?: string | number; category?: string; categoryName?: string }> } };
 type CjProductVariant = { vid?: string; variantSku?: string; variantSellPrice?: string | number; inventoryNum?: number | string; inventories?: Array<{ countryCode?: string; totalInventory?: number | string; cjInventory?: number | string; factoryInventory?: number | string }> };
 type CjProductQueryResponse = { code?: number; result?: boolean; message?: string; data?: { pid?: string; productSku?: string; sellPrice?: string | number; variants?: CjProductVariant[] } };
 type CjFreightResponse = { code?: number; result?: boolean; message?: string; data?: Array<{ logisticPrice?: string | number; totalPostageFee?: string | number }> };
@@ -65,6 +67,20 @@ export async function testCjCatalogAccess() {
   await accessToken();
   const products = await fetchCjProductCatalog(1);
   return { authenticated: true, catalogCount: products.length, sampleFetched: products.length > 0 };
+}
+
+const CJ_CATEGORY_TERMS: Record<MarketplaceCategory, RegExp> = {
+  Fashion: /fashion|apparel|cloth|clothing|dress|shirt|top|bottom|shoe|footwear|bag|handbag|jewelry|jewel|watch|lingerie|underwear|sweater|hoodie|pants|skirt|coat|jacket|sock|scarf|hat|cap/i,
+  Gadgets: /gadget|electronic|phone|mobile|computer|laptop|tablet|camera|audio|earbud|headphone|speaker|charger|cable|keyboard|mouse|game|smart.?watch|printer|projector|led|usb/i,
+  Beauty: /beauty|cosmetic|makeup|skin|skincare|hair care|haircare|shampoo|perfume|fragrance|lipstick|eyelash|nail|manicure|pedicure|face|cream|serum/i,
+  "Home & Furniture": /home|furniture|kitchen|cook|dining|table|chair|sofa|bed|bath|storage|organizer|decor|decoration|curtain|carpet|rug|lamp|lighting|garden|tool/i,
+  Vehicles: /vehicle|automotive|car|auto|motorcycle|motorbike|scooter|bicycle|bike|truck|trailer|tire|tyre|racing|car.?accessor/i,
+  "Animals & Pets": /pet|animal|dog|cat|puppy|kitten|bird|fish|aquarium|reptile|horse|livestock/i,
+};
+
+function matchesMarketplaceCategory(candidate: CjProductCatalogCandidate, category: MarketplaceCategory) {
+  const categoryText = [candidate.oneCategoryName, candidate.twoCategoryName, candidate.threeCategoryName, candidate.categoryName, candidate.category].filter(Boolean).join(" ");
+  return CJ_CATEGORY_TERMS[category].test(categoryText);
 }
 
 function uniqueImageUrls(values: Array<string | undefined>) {
@@ -244,14 +260,16 @@ export async function fetchCjProductForMassImport(sku: string, destinationCountr
 }
 
 /** Returns available CJ catalogue entries for an administrator-led bulk draft import. */
-export async function fetchCjProductCatalog(limit: number) {
+export async function fetchCjProductCatalog(limit: number, category?: MarketplaceCategory) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new CjDropshippingError("Choose between 1 and 500 CJ products.", 400, false);
   const token = await accessToken();
   const pageSize = Math.min(limit, 100);
   const candidates: CjProductCatalogCandidate[] = [];
   const seen = new Set<string>();
-  for (let page = 1; candidates.length < limit && page <= Math.ceil(limit / pageSize); page += 1) {
-    const payload = await cjFetch<CjProductListResponse>(`/product/listV2?page=${page}&size=${pageSize}&features=enable_description`, { method: "GET", headers: { "CJ-Access-Token": token } });
+  const maxPages = category ? 10 : Math.ceil(limit / pageSize);
+  for (let page = 1; (category || candidates.length < limit) && page <= maxPages; page += 1) {
+    const features = category ? "enable_description,enable_category" : "enable_description";
+    const payload = await cjFetch<CjProductListResponse>(`/product/listV2?page=${page}&size=${pageSize}&features=${features}`, { method: "GET", headers: { "CJ-Access-Token": token } });
     if (!payload?.result) throw new CjDropshippingError(`CJ catalogue response was incomplete${payload?.code ? ` (code ${payload.code})` : ""}${payload?.requestId ? `, request ${payload.requestId}` : ""}. Retry or verify CJ API access.`, 502, true, payload?.code === undefined ? null : String(payload.code), payload?.requestId ?? null);
     const pageProducts = payload?.data?.content?.flatMap(section => section.productList ?? []) ?? [];
     for (const candidate of pageProducts) {
@@ -259,11 +277,11 @@ export async function fetchCjProductCatalog(limit: number) {
       if (!reference || seen.has(reference)) continue;
       seen.add(reference);
       candidates.push(candidate);
-      if (candidates.length >= limit) break;
+      if (candidates.length >= limit && !category) break;
     }
     if (pageProducts.length < pageSize) break;
   }
-  let importableCandidates = candidates.filter(candidate => (candidate.sku || candidate.spu) && (candidate.nameEn || candidate.productNameEn) && uniqueImageUrls([candidate.bigImage, candidate.productImage, ...imageUrlsFromDescription(candidate.description)]).length > 0);
+  let importableCandidates = candidates.filter(candidate => (candidate.sku || candidate.spu) && (candidate.nameEn || candidate.productNameEn) && uniqueImageUrls([candidate.bigImage, candidate.productImage, ...imageUrlsFromDescription(candidate.description)]).length > 0 && (!category || matchesMarketplaceCategory(candidate, category)));
   if (!importableCandidates.length) {
     console.warn("[CJ API] V2 catalog query returned no importable products; trying the documented legacy list endpoint.", { requestedLimit: limit, returnedCandidates: candidates.length });
     const legacyPageSize = Math.min(limit, 200);
@@ -271,14 +289,14 @@ export async function fetchCjProductCatalog(limit: number) {
     for (let page = 1; legacyCandidates.length < limit && page <= Math.ceil(limit / legacyPageSize); page += 1) {
       const legacy = await cjFetch<CjProductFallbackResponse>(`/product/list?pageNum=${page}&pageSize=${legacyPageSize}&productType=SUPPLIER_PRODUCT`, { method: "GET", headers: { "CJ-Access-Token": token } });
       const legacyProducts = legacy?.data?.list ?? [];
-      legacyCandidates.push(...legacyProducts.map(product => ({ id: product.pid, sku: product.productSku, nameEn: product.productNameEn, productImage: product.productImage, sellPrice: product.sellPrice })));
+      legacyCandidates.push(...legacyProducts.map(product => ({ id: product.pid, sku: product.productSku, nameEn: product.productNameEn, productImage: product.productImage, sellPrice: product.sellPrice, category: product.category, categoryName: product.categoryName })));
       if (legacyProducts.length < legacyPageSize) break;
     }
-    importableCandidates = legacyCandidates.filter(candidate => (candidate.sku || candidate.spu) && (candidate.nameEn || candidate.productNameEn) && uniqueImageUrls([candidate.bigImage, candidate.productImage]).length > 0);
+    importableCandidates = legacyCandidates.filter(candidate => (candidate.sku || candidate.spu) && (candidate.nameEn || candidate.productNameEn) && uniqueImageUrls([candidate.bigImage, candidate.productImage]).length > 0 && (!category || matchesMarketplaceCategory(candidate, category)));
   }
   if (!importableCandidates.length) {
     console.warn("[CJ API] Both documented catalog endpoints returned no importable products.", { requestedLimit: limit, returnedV2Candidates: candidates.length });
-    throw new CjDropshippingError("CJ authenticated the request but both catalogue endpoints returned no importable products. Check the CJ account's API product-list permission and product availability.", 422, false);
+    throw new CjDropshippingError(category ? `CJ returned no products matching the ${category} category. Try another category or paste specific CJ product IDs.` : "CJ authenticated the request but both catalogue endpoints returned no importable products. Check the CJ account's API product-list permission and product availability.", 422, false);
   }
   return importableCandidates.slice(0, limit).map(candidate => {
     const imported = importableCjProduct(candidate, candidate.sku ?? candidate.spu ?? "CJ-CATALOG");

@@ -73,6 +73,21 @@ describe("CJ Dropshipping adapter", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it("filters blank catalogue imports by the selected marketplace category", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { content: [{ productList: [
+        { sku: "CJ-FASHION-001", nameEn: "Women's Low-Cut Socks", threeCategoryName: "Women's Clothing", nowPrice: "5.00", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/fashion.png" },
+        { sku: "CJ-GADGET-001", nameEn: "Wireless Bluetooth Earbuds", threeCategoryName: "Audio & Headphones", nowPrice: "8.00", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/gadget.png" },
+      ] }] } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductCatalog } = await import("./cjDropshipping");
+
+    await expect(fetchCjProductCatalog(10, "Gadgets")).resolves.toMatchObject([{ sku: "CJ-GADGET-001", title: "Wireless Bluetooth Earbuds" }]);
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("features=enable_description,enable_category");
+  });
+
   it("surfaces CJ business errors returned with HTTP 200 instead of reporting an empty catalog", async () => {
     process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
     const fetchMock = vi.fn()
