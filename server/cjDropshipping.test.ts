@@ -89,6 +89,28 @@ describe("CJ Dropshipping adapter", () => {
     expect(catalogUrl.searchParams.getAll("features")).toEqual(["enable_description", "enable_category"]);
   });
 
+  it("imports a matching catalogue product for every enabled Alpha Market category", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const samples = [
+      ["Fashion", "Women's Clothing"],
+      ["Gadgets", "Consumer Electronics"],
+      ["Beauty", "Skin Care"],
+      ["Home & Furniture", "Furniture"],
+      ["Vehicles", "Automobiles & Motorcycles"],
+      ["Animals & Pets", "Pet Supplies"],
+    ] as const;
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }));
+    for (const [, categoryName] of samples) {
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { content: [{ productList: [{ sku: `CJ-${categoryName.replace(/[^A-Z]/gi, "").toUpperCase()}`, nameEn: `${categoryName} sample`, threeCategoryName: categoryName, nowPrice: "8.00", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/category.png" }] }] } }), { status: 200 }));
+    }
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductCatalog } = await import("./cjDropshipping");
+
+    for (const [marketplaceCategory, categoryName] of samples) {
+      await expect(fetchCjProductCatalog(10, marketplaceCategory)).resolves.toHaveLength(1);
+    }
+  });
+
   it("surfaces CJ business errors returned with HTTP 200 instead of reporting an empty catalog", async () => {
     process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
     const fetchMock = vi.fn()
