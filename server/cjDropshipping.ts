@@ -76,8 +76,10 @@ function matchesMarketplaceCategory(candidate: CjProductCatalogCandidate, catego
 }
 
 function assertRequestedCjCategory(candidate: CjCategoryCandidate, category?: MarketplaceCategory) {
-  if (!category) return;
   try {
+    const decision = classifyCjCategory(candidate);
+    if (decision.kind === "blocked") throw new Error(`CJ product blocked: ${decision.reason}`);
+    if (!category) return;
     validateCjCategory(candidate, category);
   } catch (error) {
     throw new CjDropshippingError(error instanceof Error ? error.message : "CJ product category is not enabled for this Alpha Market category.", 422, false);
