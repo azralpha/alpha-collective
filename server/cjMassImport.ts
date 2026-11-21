@@ -179,7 +179,7 @@ export async function processNextCjMassImportItem(batchId: number, requestedByUs
   let productId = "";
   let externalSkuId = item.normalizedSku;
   try {
-    const imported = await fetchSupplierProductForImport(supplier, item.normalizedSku, item.previewImageUrl);
+    const imported = await fetchSupplierProductForImport(supplier, item.normalizedSku, item.previewImageUrl, batch.category as MarketplaceCategory);
     externalProductId = imported.externalProductId;
     externalSkuId = imported.sku;
     productId = imported.externalProductId.split(":").slice(1).join(":") || imported.sku;

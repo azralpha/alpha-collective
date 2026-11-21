@@ -43,10 +43,10 @@ export async function fetchSupplierCatalogRefs(supplier: SupplierId, limit: numb
   return products.filter(product => Boolean(product.sku)).slice(0, limit).map(product => ({ id: String(product.sku), previewImageUrl: product.imageUrls?.[0] ?? null }));
 }
 
-export async function fetchSupplierProductForImport(supplier: SupplierId, reference: string, previewImageUrl?: string | null): Promise<SupplierProduct> {
+export async function fetchSupplierProductForImport(supplier: SupplierId, reference: string, previewImageUrl?: string | null, category?: MarketplaceCategory): Promise<SupplierProduct> {
   const normalized = normalizeSupplierReference(supplier, reference);
   if (supplier === "aliexpress") return fetchAliExpressProductForMassImport(normalized, previewImageUrl);
-  const product = await fetchCjProductForMassImport(normalized);
+  const product = await fetchCjProductForMassImport(normalized, "NG", category);
   return {
     sku: product.sku,
     externalProductId: `cj_dropshipping:${product.externalProductId}`,
