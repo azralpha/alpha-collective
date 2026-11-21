@@ -278,8 +278,10 @@ export async function fetchCjProductCatalog(limit: number, category?: Marketplac
   const seen = new Set<string>();
   const maxPages = category ? 10 : Math.ceil(limit / pageSize);
   for (let page = 1; (category || candidates.length < limit) && page <= maxPages; page += 1) {
-    const features = category ? "enable_description,enable_category" : "enable_description";
-    const payload = await cjFetch<CjProductListResponse>(`/product/listV2?page=${page}&size=${pageSize}&features=${features}`, { method: "GET", headers: { "CJ-Access-Token": token } });
+    const query = new URLSearchParams({ page: String(page), size: String(pageSize) });
+    query.append("features", "enable_description");
+    if (category) query.append("features", "enable_category");
+    const payload = await cjFetch<CjProductListResponse>(`/product/listV2?${query.toString()}`, { method: "GET", headers: { "CJ-Access-Token": token } });
     if (!payload?.result) throw new CjDropshippingError(`CJ catalogue response was incomplete${payload?.code ? ` (code ${payload.code})` : ""}${payload?.requestId ? `, request ${payload.requestId}` : ""}. Retry or verify CJ API access.`, 502, true, payload?.code === undefined ? null : String(payload.code), payload?.requestId ?? null);
     const pageProducts = payload?.data?.content?.flatMap(section => section.productList ?? []) ?? [];
     for (const candidate of pageProducts) {

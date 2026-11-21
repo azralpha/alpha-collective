@@ -85,7 +85,8 @@ describe("CJ Dropshipping adapter", () => {
     const { fetchCjProductCatalog } = await import("./cjDropshipping");
 
     await expect(fetchCjProductCatalog(10, "Gadgets")).resolves.toMatchObject([{ sku: "CJ-GADGET-001", title: "Wireless Bluetooth Earbuds" }]);
-    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("features=enable_description,enable_category");
+    const catalogUrl = new URL(String(fetchMock.mock.calls[1]?.[0]));
+    expect(catalogUrl.searchParams.getAll("features")).toEqual(["enable_description", "enable_category"]);
   });
 
   it("surfaces CJ business errors returned with HTTP 200 instead of reporting an empty catalog", async () => {
