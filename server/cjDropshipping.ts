@@ -32,7 +32,13 @@ async function cjFetch<T>(path: string, init: RequestInit) {
     throw new CjDropshippingError("CJ Dropshipping did not respond in time.", 503, true);
   }
   const payload = await response.json().catch(() => null) as T | null;
-  if (!response.ok) throw new CjDropshippingError("CJ Dropshipping rejected the request.", response.status, response.status >= 500 || response.status === 429);
+  if (!response.ok) {
+    const details = payload && typeof payload === "object" ? payload as { code?: string | number; message?: string; requestId?: string } : {};
+    const providerCode = details.code === undefined ? null : String(details.code).replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 80);
+    const requestId = typeof details.requestId === "string" ? details.requestId.replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 100) : null;
+    const message = typeof details.message === "string" ? details.message.replace(/[\u0000-\u001f\u007f]/g, " ").trim().slice(0, 180) : "The supplier rejected the request.";
+    throw new CjDropshippingError(`CJ API rejected ${path.split("?")[0]}${providerCode ? ` ${providerCode}` : ""}: ${message}${requestId ? ` (request ${requestId})` : ""}`, response.status, response.status >= 500 || response.status === 429, providerCode, requestId);
+  }
   if (payload && typeof payload === "object" && "result" in payload && payload.result === false) {
     const details = payload as { code?: string | number; message?: string; requestId?: string };
     const providerCode = details.code === undefined ? null : String(details.code).replace(/[^a-zA-Z0-9_.-]/g, "").slice(0, 80);
@@ -281,7 +287,16 @@ export async function fetchCjProductCatalog(limit: number, category?: Marketplac
     const query = new URLSearchParams({ page: String(page), size: String(pageSize) });
     query.append("features", "enable_description");
     if (category) query.append("features", "enable_category");
-    const payload = await cjFetch<CjProductListResponse>(`/product/listV2?${query.toString()}`, { method: "GET", headers: { "CJ-Access-Token": token } });
+    let payload: CjProductListResponse | null;
+    try {
+      payload = await cjFetch<CjProductListResponse>(`/product/listV2?${query.toString()}`, { method: "GET", headers: { "CJ-Access-Token": token } });
+    } catch (error) {
+      if (!category || !(error instanceof CjDropshippingError) || error.statusCode !== 400) throw error;
+      const categoryOnlyQuery = new URLSearchParams({ page: String(page), size: String(pageSize) });
+      categoryOnlyQuery.append("features", "enable_category");
+      console.warn("[CJ API] Combined catalogue features were rejected; retrying with category metadata only.", { page, providerCode: error.providerCode, requestId: error.requestId });
+      payload = await cjFetch<CjProductListResponse>(`/product/listV2?${categoryOnlyQuery.toString()}`, { method: "GET", headers: { "CJ-Access-Token": token } });
+    }
     if (!payload?.result) throw new CjDropshippingError(`CJ catalogue response was incomplete${payload?.code ? ` (code ${payload.code})` : ""}${payload?.requestId ? `, request ${payload.requestId}` : ""}. Retry or verify CJ API access.`, 502, true, payload?.code === undefined ? null : String(payload.code), payload?.requestId ?? null);
     const pageProducts = payload?.data?.content?.flatMap(section => section.productList ?? []) ?? [];
     for (const candidate of pageProducts) {
