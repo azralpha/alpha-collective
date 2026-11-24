@@ -398,3 +398,29 @@
 - [x] Verify why alphacorp.name.ng still fails OAuth after managed-host sign-in succeeds, including current DNS target and served deployment
 
 - [x] Build the secure Profile & Dashboard workspace with editable public identity, one-time locked legal identity, loyalty, followed sellers, orders/receipts, addresses, and support actions
+
+
+## Soft-launch critical fixes (requested order)
+
+- [ ] Fix all missing and wrong product images; store product images permanently on the newly created Cloudflare R2 bucket; make sure images display correctly on product pages. The replacement bucket `alpha-market-product-images`, public host `https://images.alphamarket.name.ng`, and Render-side credentials are configured; the local R2 code still needs deployment, and existing-image repair plus public-page verification remain pending.
+- [ ] Replace the WhatsApp support placeholder with the official number `+234-9022143401`.
+- [ ] Restore “Ask about this product” on product pages, link each inquiry to the correct vendor on Telegram, and verify inquiry delivery end-to-end.
+- [ ] Set Cloudflare minimum TLS version to 1.2 or higher and enable HSTS.
+
+
+## Soft-launch product-image remediation (2026-11-23)
+
+- [ ] Unpublish exactly the 101 Alpha Collective Official products whose primary and gallery image URLs returned 404; preserve product/order records and do not remove the seven built-in showcase listings.
+- [ ] Import only from the connected CJ Dropshipping catalogue, targeting 100 products per existing category with the product ID/SKU/URL field blank to import top available products.
+- [ ] Apply 5% global profit markup and ₦1,400 per USD when calculating imported Naira prices; do not create supplier orders.
+- [ ] Store every distinct imported primary/gallery image permanently in the configured Cloudflare R2 bucket and serve buyer-visible images from the configured public R2 hostname.
+- [ ] Keep imports unpublished until their complete galleries are stored; activation requires current positive stock, a consistent current price, and every public R2 image reachable. Products that fail activation remain drafts; never create CJ supplier orders.
+- [ ] Verify the deployed active product pages render every imported product image; do not proceed to WhatsApp, Telegram inquiry routing, or zone TLS/HSTS until product images are resolved.
+
+
+### Product-image remediation status (2026-11-24)
+- [x] Add durable Cloudflare R2 image storage, complete-gallery import checks, and draft-first CJ batch activation that revalidates current price, positive stock, and public R2 image reachability.
+- [x] Tighten unpublishing to verify that exactly 101 currently published official-product records have complete legacy primary/gallery image sets and every URL returns HTTP 404; recheck product status and image snapshots transactionally before changing listing visibility.
+- [x] Validate latest changes with TypeScript, 24 focused tests, production build, and local Preview HTTP checks; representative live legacy image still returns HTTP 404.
+- [ ] Deploy the tested changes to the production Render service and verify the deployed admin workflow.
+- [ ] After deployment, run the guarded unpublish and CJ imports from the authenticated admin account; verify every imported image on public product pages before proceeding to WhatsApp, Telegram, or TLS/HSTS work.

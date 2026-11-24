@@ -30,7 +30,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("../db", () => mocks);
-vi.mock("../storage", () => ({ storagePut: mocks.storagePut }));
+vi.mock("../storage", async importOriginal => ({ ...await importOriginal<typeof import("../storage")>(), storagePut: mocks.storagePut }));
 vi.mock("../geminiProductEnhancer", () => ({ generateGeminiProductEnhancement: mocks.generateGeminiProductEnhancement, tryGenerateGeminiProductEnhancement: mocks.tryGenerateGeminiProductEnhancement }));
 vi.mock("../productImageProcessing", async importOriginal => {
   const actual = await importOriginal<typeof import("../productImageProcessing")>();

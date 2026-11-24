@@ -18,6 +18,7 @@ import { formatNigerianDeliveryAddress, isNigerianLga, isNigerianState } from ".
 import {
   createOfficialProduct,
   bulkPublishOfficialProductDrafts,
+  unpublishAuditedBrokenOfficialProducts,
   createCartRewardTier,
   createPendingCartRewardClaim,
   getOfficialProductForGeminiEnhancement,
@@ -113,10 +114,10 @@ import {
   settleSpinRewardAfterVerifiedPayment,
 } from "../db";
 import { extractClientIp, normalizeDeviceId } from "../referralFraud";
-import { storagePut } from "../storage";
+import { isProductImageUrl, isProductImageUrlUnderPrefix, storagePut } from "../storage";
 import { decodeProductImageDataUrl, importCjProductImage, ProductImageProcessingError, storeProcessedProductImage } from "../productImageProcessing";
 import { CjDropshippingError, fetchCjProductForImport, testCjCatalogAccess } from "../cjDropshipping";
-import { createCjMassImportBatch, getCjMassImportBatch, processCjMassImportChunk, processNextCjMassImportItem } from "../cjMassImport";
+import { activateCjMassImportBatch, createCjMassImportBatch, getCjMassImportBatch, processCjMassImportChunk, processNextCjMassImportItem } from "../cjMassImport";
 import { notifyAdminPaymentEvent } from "../paymentNotifications";
 import { adminProcedure, protectedProcedure, publicProcedure, router, sensitiveProtectedProcedure } from "../_core/trpc";
 import { hashTransactionPin, validateTransactionPin, verifyTransactionPin } from "../walletSecurity";
@@ -204,7 +205,7 @@ const gatewayCheckoutInputSchema = z.object({
 });
 
 const supplierImportInputSchema = z.object({
-  supplier: z.enum(SUPPLIER_IDS),
+  supplier: z.enum(SUPPLIER_IDS).refine(supplier => supplier === "cj_dropshipping", "Only CJ Dropshipping imports are authorized for this catalogue workflow."),
   skuText: z.string().max(64_000),
   limit: z.number().int().min(10).max(500),
   markupPercent: z.number().min(0).max(500),
@@ -331,8 +332,8 @@ function createOfficialCatalog(products: Awaited<ReturnType<typeof listActiveOff
 }
 
 const productImageDataUrlSchema = z.string().max(7_000_000);
-const uploadUrlSchema = z.string().max(500).refine(value => value.startsWith("/uploads/") || value.startsWith(`${ENV.apiOrigin}/uploads/`), "Upload images through the seller image uploader.");
-const officialProductImageUrlSchema = z.string().max(500).refine(value => value.startsWith("/uploads/official-products/") || value.startsWith(`${ENV.apiOrigin}/uploads/official-products/`), "Upload official product images through the administrator image uploader.");
+const uploadUrlSchema = z.string().max(2000).refine(isProductImageUrl, "Upload images through the seller image uploader.");
+const officialProductImageUrlSchema = z.string().max(2000).refine(value => isProductImageUrlUnderPrefix(value, "official-products"), "Upload official product images through the administrator image uploader.");
 const vendorProductInputSchema = z.object({ title: z.string().trim().min(2).max(180).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid product title."), category: z.enum(MARKETPLACE_CATEGORIES), price: z.number().int().min(500).max(5000000), description: z.string().trim().min(12).max(1200).transform(sanitizePlainText).refine(value => value.length >= 12, "Enter a valid product description."), imageUrls: z.array(uploadUrlSchema).min(1).max(5) });
 const officialProductInputSchema = z.object({
   title: z.string().trim().min(2).max(180).transform(sanitizePlainText).refine(value => value.length >= 2, "Enter a valid product title."),
@@ -800,6 +801,18 @@ export const marketplaceRouter = router({
         if (!batch) throw new TRPCError({ code: "NOT_FOUND", message: "That supplier import batch was not found." });
         return batch;
       }),
+    activateCjMassImportBatch: adminProcedure
+      .input(z.object({ batchId: z.number().int().positive() }))
+      .mutation(async ({ ctx, input }) => {
+        try {
+          const result = await activateCjMassImportBatch(input.batchId, ctx.user.id);
+          if (!result) throw new TRPCError({ code: "NOT_FOUND", message: "That CJ import batch was not found." });
+          return { ...result, publicCatalogueRevision: result.published ? revalidatePublicCataloguePaths() : null };
+        } catch (error) {
+          if (error instanceof TRPCError) throw error;
+          throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "The CJ batch could not be validated for activation." });
+        }
+      }),
     generateGeminiProductEnhancement: adminProcedure
       .input(z.object({ title: z.string().trim().min(2).max(180).transform(sanitizePlainText), description: z.string().trim().min(12).max(1600).transform(sanitizePlainText), specifications: z.string().trim().max(1600).transform(sanitizePlainText).nullable().optional() }))
       .mutation(async ({ input }) => generateGeminiProductEnhancement(input)),
@@ -836,6 +849,15 @@ export const marketplaceRouter = router({
         const published = await bulkPublishOfficialProductDrafts(input.ids);
         const publicCatalogueRevision = revalidatePublicCataloguePaths();
         return { published, publicCatalogueRevision };
+      }),
+    unpublishAuditedBrokenOfficialProducts: adminProcedure
+      .mutation(async () => {
+        try {
+          const unpublished = await unpublishAuditedBrokenOfficialProducts();
+          return { unpublished, publicCatalogueRevision: revalidatePublicCataloguePaths() };
+        } catch (error) {
+          throw new TRPCError({ code: "PRECONDITION_FAILED", message: error instanceof Error ? error.message : "The audited legacy-image listings could not be safely unpublished." });
+        }
       }),
     deleteOfficialProductDrafts: adminProcedure
       .input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(100) }))
@@ -1124,7 +1146,7 @@ export const marketplaceRouter = router({
       .mutation(async ({ ctx, input }) => {
         const application = await getVendorApplicationForUser(ctx.user.id);
         if (!application) throw new TRPCError({ code: "BAD_REQUEST", message: "Submit your seller application before adding a product." });
-        if (input.imageUrls.some(imageUrl => !imageUrl.replace(`${ENV.apiOrigin}`, "").startsWith(`/uploads/vendor-products/${ctx.user.id}/`))) {
+        if (input.imageUrls.some(imageUrl => !isProductImageUrlUnderPrefix(imageUrl, `vendor-products/${ctx.user.id}`))) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Upload all product images from your seller account first." });
         }
         const id = await createVendorProduct({ vendorApplicationId: application.id, title: input.title, category: input.category, price: input.price, description: input.description, imageUrl: input.imageUrls[0], imageUrls: input.imageUrls, status: "draft" });
@@ -1139,7 +1161,7 @@ export const marketplaceRouter = router({
         if (!product) throw new TRPCError({ code: "NOT_FOUND", message: "This product draft was not found in your seller catalogue." });
         if (product.status !== "draft") throw new TRPCError({ code: "BAD_REQUEST", message: "Published products cannot be edited here. A paid change request is required." });
         const imageUrls = input.imageUrls ?? product.imageUrls ?? (product.imageUrl ? [product.imageUrl] : []);
-        if (!imageUrls.length || imageUrls.some(imageUrl => !imageUrl.replace(`${ENV.apiOrigin}`, "").startsWith(`/uploads/vendor-products/${ctx.user.id}/`))) {
+        if (!imageUrls.length || imageUrls.some(imageUrl => !isProductImageUrlUnderPrefix(imageUrl, `vendor-products/${ctx.user.id}`))) {
           throw new TRPCError({ code: "FORBIDDEN", message: "Use only product images uploaded from your seller account." });
         }
         await updateVendorDraftProduct(product.id, { title: input.title, category: input.category, price: input.price, description: input.description, imageUrl: imageUrls[0], imageUrls });

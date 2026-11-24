@@ -1,16 +1,21 @@
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { cjImportBatchItems, cjImportBatches, officialProductSourcing, officialProducts } from "../drizzle/schema";
 import { MARKETPLACE_CATEGORIES, type MarketplaceCategory } from "../shared/marketplace";
 import { AliExpressApiError } from "./aliexpressOpenPlatform";
 import { CjDropshippingError } from "./cjDropshipping";
-import { createOfficialProduct, getDb } from "./db";
-import { importSupplierProductImage, ProductImageProcessingError } from "./productImageProcessing";
+import { createOfficialProduct, getDb, publishCjImportBatchDrafts } from "./db";
+import { importSupplierProductImageGallery, ProductImageProcessingError } from "./productImageProcessing";
 import { fetchSupplierCatalogRefs, fetchSupplierProductForImport, normalizeSupplierReference, SUPPLIER_IDS, type SupplierId } from "./supplierCatalog";
+import { isR2ProductImageUrl } from "./storage";
 
 export const MAX_CJ_MASS_IMPORT_SKUS = 500;
 export const MAX_SUPPLIER_MASS_IMPORT_PRODUCTS = 500;
 export const CJ_MASS_IMPORT_CONCURRENCY = 4;
 type BatchStatus = "queued" | "processing" | "completed" | "completed_with_errors" | "failed";
+
+export function hasConfirmedPositiveSupplierInventory(inventoryKnown: boolean, stockQuantity: number | null) {
+  return inventoryKnown && stockQuantity !== null && Number.isSafeInteger(stockQuantity) && stockQuantity > 0;
+}
 
 function requireDbForBatch() {
   return getDb().then(db => { if (!db) throw new Error("The marketplace database is not available."); return db; });
@@ -116,6 +121,85 @@ export async function getCjMassImportBatch(batchId: number, requestedByUserId: n
   return summarizeBatch(batch, items);
 }
 
+async function isPublicR2ImageReachable(url: string) {
+  if (!isR2ProductImageUrl(url)) return false;
+  try {
+    const response = await fetch(url, { method: "HEAD", redirect: "manual", signal: AbortSignal.timeout(10_000) });
+    return response.ok && (response.headers.get("content-type") ?? "").toLowerCase().startsWith("image/");
+  } catch {
+    return false;
+  }
+}
+
+async function mapWithConcurrency<T, R>(values: T[], concurrency: number, worker: (value: T) => Promise<R>) {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  await Promise.all(Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex++;
+      results[index] = await worker(values[index]);
+    }
+  }));
+  return results;
+}
+
+/** Revalidates a completed CJ batch against current supplier stock, live cost, and reachable R2 galleries before publishing. */
+export async function activateCjMassImportBatch(batchId: number, requestedByUserId: number) {
+  const db = await requireDbForBatch();
+  const batch = (await db.select().from(cjImportBatches).where(and(eq(cjImportBatches.id, batchId), eq(cjImportBatches.requestedByUserId, requestedByUserId))).limit(1))[0];
+  if (!batch) return null;
+  if (batch.supplierId !== "cj_dropshipping" || !["completed", "completed_with_errors"].includes(batch.status)) {
+    throw new Error("Only completed CJ Dropshipping batches can be activated.");
+  }
+  const items = await db.select({ id: cjImportBatchItems.id, submittedSku: cjImportBatchItems.submittedSku, normalizedSku: cjImportBatchItems.normalizedSku, officialProductId: cjImportBatchItems.officialProductId })
+    .from(cjImportBatchItems).where(and(eq(cjImportBatchItems.batchId, batchId), eq(cjImportBatchItems.status, "imported")));
+  const productIds = items.flatMap(item => item.officialProductId ? [item.officialProductId] : []);
+  if (!productIds.length) return { batchId, reviewed: 0, published: 0, skipped: 0, failures: [] as Array<{ sku: string; reason: string }> };
+  const products = await db.select({
+    id: officialProducts.id,
+    status: officialProducts.status,
+    title: officialProducts.title,
+    price: officialProducts.price,
+    imageUrl: officialProducts.imageUrl,
+    imageUrls: officialProducts.imageUrls,
+    stockQuantity: officialProducts.stockQuantity,
+    fulfillmentProvider: officialProductSourcing.fulfillmentProvider,
+    externalSkuId: officialProductSourcing.externalSkuId,
+    externalProductId: officialProductSourcing.externalProductId,
+    externalVariantId: officialProductSourcing.externalVariantId,
+    supplierCost: officialProductSourcing.supplierCost,
+    supplierCurrency: officialProductSourcing.supplierCurrency,
+  }).from(officialProducts).innerJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id))
+    .where(inArray(officialProducts.id, productIds));
+  const productById = new Map(products.map(product => [product.id, product]));
+  const itemByProductId = new Map(items.flatMap(item => item.officialProductId ? [[item.officialProductId, item] as const] : []));
+  const snapshots: Array<{ officialProductId: number; stockQuantity: number; inventoryCountryCode: string | null }> = [];
+  const failures = await mapWithConcurrency(productIds, CJ_MASS_IMPORT_CONCURRENCY, async productId => {
+    const product = productById.get(productId);
+    const item = itemByProductId.get(productId);
+    if (!product || !item) return { sku: String(productId), reason: "The imported product record could not be found." };
+    if (product.status !== "draft") return { sku: item.submittedSku, reason: "The product is no longer an unpublished draft." };
+    if (product.fulfillmentProvider !== "auto_fulfill_api" || !product.externalSkuId || !product.externalProductId) return { sku: item.submittedSku, reason: "CJ sourcing details are incomplete." };
+    try {
+      const current = await fetchSupplierProductForImport("cj_dropshipping", product.externalSkuId, null, batch.category as MarketplaceCategory);
+      if (!hasConfirmedPositiveSupplierInventory(current.inventoryKnown, current.stockQuantity)) return { sku: item.submittedSku, reason: "CJ did not confirm positive current stock; the product remains a draft." };
+      if (current.externalProductId !== product.externalProductId || current.externalVariantId !== product.externalVariantId) return { sku: item.submittedSku, reason: "CJ's currently selected product or variant differs from the imported listing; review and re-import it." };
+      const price = calculateMassImportNairaPrice({ landedUsdCost: current.supplierCost, currency: current.supplierCurrency, markupPercent: Number(batch.markupPercent), exchangeRateNgnPerUsd: Number(batch.exchangeRateNgnPerUsd) });
+      if (price !== product.price) return { sku: item.submittedSku, reason: "The current landed supplier cost changes the selected retail price; review and re-import this draft." };
+      const images = Array.from(new Set([product.imageUrl, ...(product.imageUrls ?? [])].map(url => url?.trim()).filter((url): url is string => Boolean(url))));
+      if (!images.length || images.length !== (product.imageUrls?.length ?? (product.imageUrl ? 1 : 0)) || images.some(url => !isR2ProductImageUrl(url))) return { sku: item.submittedSku, reason: "The complete product gallery is not stored on the configured R2 host." };
+      const imageChecks = await Promise.all(images.map(isPublicR2ImageReachable));
+      if (imageChecks.some(reachable => !reachable)) return { sku: item.submittedSku, reason: "One or more R2 gallery images are not publicly reachable as images." };
+      snapshots.push({ officialProductId: product.id, stockQuantity: current.stockQuantity!, inventoryCountryCode: current.inventoryCountryCode ?? null });
+      return null;
+    } catch {
+      return { sku: item.submittedSku, reason: "Live CJ stock, price, or image validation failed; the product remains a draft." };
+    }
+  });
+  const published = snapshots.length ? await publishCjImportBatchDrafts({ batchId, requestedByUserId, inventorySnapshots: snapshots }) : 0;
+  return { batchId, reviewed: productIds.length, published, skipped: productIds.length - published, failures: failures.filter((failure): failure is { sku: string; reason: string } => failure !== null) };
+}
+
 async function claimBatchItem(batchId: number) {
   const db = await requireDbForBatch();
   return db.transaction(async tx => {
@@ -182,6 +266,10 @@ export async function processNextCjMassImportItem(batchId: number, requestedByUs
     const imported = await fetchSupplierProductForImport(supplier, item.normalizedSku, item.previewImageUrl, batch.category as MarketplaceCategory);
     externalProductId = imported.externalProductId;
     externalSkuId = imported.sku;
+    if (!hasConfirmedPositiveSupplierInventory(imported.inventoryKnown, imported.stockQuantity)) {
+      throw new CjDropshippingError("CJ stock could not be confirmed as available, so the product was not imported.", 422, false);
+    }
+    const price = calculateMassImportNairaPrice({ landedUsdCost: imported.supplierCost, markupPercent: Number(batch.markupPercent), exchangeRateNgnPerUsd: Number(batch.exchangeRateNgnPerUsd), currency: imported.supplierCurrency });
     productId = imported.externalProductId.split(":").slice(1).join(":") || imported.sku;
     identity = createSupplierProductIdentity(supplier, imported.externalProductId);
     const existing = await findExistingSupplierProduct({ identity, externalProductId: imported.externalProductId, supplier, productId, sku: imported.sku });
@@ -189,13 +277,8 @@ export async function processNextCjMassImportItem(batchId: number, requestedByUs
       await finishBatchItem({ batchId, itemId: item.id, status: "skipped", officialProductId: existing.id, errorSummary: "This supplier product is already mapped to an official product." });
       return getCjMassImportBatch(batchId, requestedByUserId);
     }
-    const imageResults = await Promise.allSettled(imported.imageUrls.map((imageUrl, index) => importSupplierProductImage({ supplier, imageUrl, storagePrefix: `official-products/${requestedByUserId}/${supplier}-batch/${batchId}-${item.id}-${index}` }).then(result => result.url)));
-    const imageUrls = imageResults.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
-    if (!imageUrls.length) {
-      const firstImageError = imageResults.find(result => result.status === "rejected")?.reason;
-      throw firstImageError instanceof Error ? firstImageError : new ProductImageProcessingError("The supplier returned no usable product images.");
-    }
-    const price = calculateMassImportNairaPrice({ landedUsdCost: imported.supplierCost, markupPercent: Number(batch.markupPercent), exchangeRateNgnPerUsd: Number(batch.exchangeRateNgnPerUsd), currency: imported.supplierCurrency });
+    const images = await importSupplierProductImageGallery({ supplier, imageUrls: imported.imageUrls, storagePrefix: `official-products/${requestedByUserId}/${supplier}-batch/${batchId}-${item.id}` });
+    const imageUrls = images.map(image => image.url);
     const officialProductId = await createOfficialProduct({
       title: imported.title,
       category: batch.category,

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateMassImportNairaPrice, createSupplierProductIdentity, normalizeCjSkuList } from "./cjMassImport";
+import { calculateMassImportNairaPrice, createSupplierProductIdentity, hasConfirmedPositiveSupplierInventory, normalizeCjSkuList } from "./cjMassImport";
 import { normalizeAliExpressProductReference } from "./aliexpressDropship";
 
 describe("supplier mass import safeguards", () => {
@@ -33,6 +33,18 @@ describe("supplier mass import safeguards", () => {
 
   it("calculates a rounded Naira draft price from landed USD cost and markup", () => {
     expect(calculateMassImportNairaPrice({ landedUsdCost: 10, exchangeRateNgnPerUsd: 1_500, markupPercent: 50 })).toBe(22_500);
+  });
+
+  it("calculates the screenshot-selected price using 5% markup and ₦1,400 per USD", () => {
+    expect(calculateMassImportNairaPrice({ landedUsdCost: 10, exchangeRateNgnPerUsd: 1_400, markupPercent: 5 })).toBe(14_700);
+  });
+
+  it("requires explicitly confirmed positive supplier inventory for activation eligibility", () => {
+    expect(hasConfirmedPositiveSupplierInventory(true, 1)).toBe(true);
+    expect(hasConfirmedPositiveSupplierInventory(true, 0)).toBe(false);
+    expect(hasConfirmedPositiveSupplierInventory(false, 20)).toBe(false);
+    expect(hasConfirmedPositiveSupplierInventory(true, null)).toBe(false);
+    expect(hasConfirmedPositiveSupplierInventory(true, 1.5)).toBe(false);
   });
 
   it("fails closed when pricing inputs would produce an unsafe draft price", () => {

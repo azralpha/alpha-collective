@@ -1,5 +1,5 @@
 import sharp, { type Metadata } from "sharp";
-import { storagePut } from "./storage";
+import { storageDeleteProductImage, storagePutProductImage } from "./storage";
 
 const MAX_PRODUCT_IMAGE_BYTES = 5 * 1024 * 1024;
 
@@ -44,7 +44,7 @@ export async function watermarkAndConvertToWebp(source: Buffer) {
 
 export async function storeProcessedProductImage(input: { source: Buffer; storagePrefix: string }) {
   const processed = await watermarkAndConvertToWebp(input.source);
-  return storagePut(`${input.storagePrefix}.webp`, processed, "image/webp");
+  return storagePutProductImage(`${input.storagePrefix}.webp`, processed, "image/webp");
 }
 
 async function readSupplierImageWithinLimit(response: Response, supplier: SupplierImageProvider) {
@@ -99,6 +99,26 @@ export async function importSupplierProductImage(input: { supplier: SupplierImag
   const declaredLength = Number(response.headers.get("content-length") ?? 0);
   if (!response.ok || declaredLength > MAX_PRODUCT_IMAGE_BYTES) throw new ProductImageProcessingError(`${label} returned an unsupported or oversized product image.`);
   return storeProcessedProductImage({ source: await readSupplierImageWithinLimit(response, input.supplier), storagePrefix: input.storagePrefix });
+}
+
+/** Imports the complete distinct supplier gallery or removes partial uploads. */
+export async function importSupplierProductImageGallery(input: { supplier: SupplierImageProvider; imageUrls: string[]; storagePrefix: string }) {
+  const imageUrls = Array.from(new Set(input.imageUrls.map(url => url.trim()).filter(Boolean)));
+  if (!imageUrls.length) throw new ProductImageProcessingError("The supplier returned no usable product images.");
+
+  const results = await Promise.allSettled(imageUrls.map((imageUrl, index) => importSupplierProductImage({
+    supplier: input.supplier,
+    imageUrl,
+    storagePrefix: `${input.storagePrefix}-${index}`,
+  })));
+  const uploaded = results.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
+  const failure = results.find(result => result.status === "rejected");
+  if (failure?.status === "rejected") {
+    await Promise.allSettled(uploaded.map(image => storageDeleteProductImage(image.key)));
+    if (failure.reason instanceof ProductImageProcessingError) throw failure.reason;
+    throw new ProductImageProcessingError("The complete supplier product gallery could not be stored.");
+  }
+  return uploaded;
 }
 
 export async function importCjProductImage(input: { imageUrl: string; storagePrefix: string }) {

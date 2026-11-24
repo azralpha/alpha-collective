@@ -52,6 +52,7 @@ import {
   withdrawalRequests,
 } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { getProductGalleryUrls, selectAuditedBrokenOfficialProducts } from "./brokenOfficialProductAudit";
 import { hashSecuritySignal, normalizeDeviceId } from "./referralFraud";
 import { splitWalletPayment } from "./walletBalanceSplit";
 import { fundingCreditDisposition, withdrawalPaidDisposition, withdrawalRestoreDisposition } from "./walletReconciliation";
@@ -2090,13 +2091,51 @@ export async function updateOfficialProductStatus(id: number, status: "draft" | 
   });
 }
 
+/** Unpublishes only 101 currently published official records whose complete legacy image galleries still return HTTP 404. */
+export async function unpublishAuditedBrokenOfficialProducts() {
+  const db = await requireDb();
+  const allowedOrigins = new Set([ENV.apiOrigin, ENV.publicAppUrl, "https://alphamarket.name.ng"].map(origin => new URL(origin).origin));
+  const products = await db.select({
+    id: officialProducts.id,
+    status: officialProducts.status,
+    isPublished: officialProducts.isPublished,
+    publicationStatus: officialProducts.publicationStatus,
+    imageUrl: officialProducts.imageUrl,
+    imageUrls: officialProducts.imageUrls,
+  }).from(officialProducts);
+  const candidates = await selectAuditedBrokenOfficialProducts(products, { allowedOrigins, baseOrigin: ENV.publicAppUrl });
+  const ids = candidates.map(product => product.id);
+  return db.transaction(async tx => {
+    const current = await tx.select({
+      id: officialProducts.id,
+      status: officialProducts.status,
+      isPublished: officialProducts.isPublished,
+      publicationStatus: officialProducts.publicationStatus,
+      imageUrl: officialProducts.imageUrl,
+      imageUrls: officialProducts.imageUrls,
+    }).from(officialProducts).where(inArray(officialProducts.id, ids));
+    const snapshotIsCurrent = current.length === candidates.length && candidates.every(candidate => {
+      const latest = current.find(product => product.id === candidate.id);
+      return Boolean(latest && latest.status === "active" && latest.isPublished === 1 && latest.publicationStatus === "APPROVED" &&
+        JSON.stringify(getProductGalleryUrls(latest).sort()) === JSON.stringify(getProductGalleryUrls(candidate).sort()));
+    });
+    if (!snapshotIsCurrent) throw new Error("Safety check stopped: one or more audited listings changed during verification. No products were changed.");
+    const result = await tx.update(officialProducts)
+      .set({ status: "draft", isPublished: 0, publicationStatus: "DRAFT", inStock: 0 })
+      .where(and(inArray(officialProducts.id, ids), eq(officialProducts.status, "active"), eq(officialProducts.isPublished, 1), eq(officialProducts.publicationStatus, "APPROVED")));
+    const unpublished = affectedRows(result);
+    if (unpublished !== candidates.length) throw new Error(`Safety check stopped: expected to unpublish ${candidates.length} verified listings, changed ${unpublished}. Transaction rolled back.`);
+    return unpublished;
+  });
+}
+
 export async function bulkPublishOfficialProductDrafts(ids: number[]) {
   const normalizedIds = Array.from(new Set(ids.filter(id => Number.isSafeInteger(id) && id > 0)));
   if (!normalizedIds.length) return 0;
   if (normalizedIds.length > 100) throw new Error("Publish up to 100 selected drafts at a time.");
   const db = await requireDb();
-  const candidates = await db.select({ id: officialProducts.id, imageUrl: officialProducts.imageUrl, imageUrls: officialProducts.imageUrls }).from(officialProducts).where(and(inArray(officialProducts.id, normalizedIds), eq(officialProducts.status, "draft")));
-  const publishableIds = candidates.filter(product => Boolean(product.imageUrl?.trim() || product.imageUrls?.some(imageUrl => imageUrl.trim()))).map(product => product.id);
+  const candidates = await db.select({ id: officialProducts.id, imageUrl: officialProducts.imageUrl, imageUrls: officialProducts.imageUrls, fulfillmentProvider: officialProductSourcing.fulfillmentProvider }).from(officialProducts).leftJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id)).where(and(inArray(officialProducts.id, normalizedIds), eq(officialProducts.status, "draft")));
+  const publishableIds = candidates.filter(product => product.fulfillmentProvider !== "auto_fulfill_api" && Boolean(product.imageUrl?.trim() || product.imageUrls?.some(imageUrl => imageUrl.trim()))).map(product => product.id);
   if (!publishableIds.length) return 0;
   const result = await db.update(officialProducts).set({
     status: "active",
@@ -2106,6 +2145,41 @@ export async function bulkPublishOfficialProductDrafts(ids: number[]) {
     stockQuantity: sql`CASE WHEN ${officialProducts.stockQuantity} IS NULL THEN 1 ELSE ${officialProducts.stockQuantity} END`,
   }).where(and(inArray(officialProducts.id, publishableIds), eq(officialProducts.status, "draft")));
   return affectedRows(result);
+}
+
+/** Activates only eligible drafts referenced by imported items in the caller-owned CJ batch. */
+export async function publishCjImportBatchDrafts(input: { batchId: number; requestedByUserId: number; inventorySnapshots: Array<{ officialProductId: number; stockQuantity: number; inventoryCountryCode: string | null }> }) {
+  const snapshots = Array.from(new Map(input.inventorySnapshots.filter(snapshot => Number.isSafeInteger(snapshot.officialProductId) && snapshot.officialProductId > 0 && Number.isSafeInteger(snapshot.stockQuantity) && snapshot.stockQuantity > 0).map(snapshot => [snapshot.officialProductId, snapshot])).values());
+  const ids = snapshots.map(snapshot => snapshot.officialProductId);
+  if (!ids.length) return 0;
+  const db = await requireDb();
+  return db.transaction(async tx => {
+    const batch = (await tx.select({ id: cjImportBatches.id, supplierId: cjImportBatches.supplierId, requestedByUserId: cjImportBatches.requestedByUserId, status: cjImportBatches.status }).from(cjImportBatches).where(and(eq(cjImportBatches.id, input.batchId), eq(cjImportBatches.requestedByUserId, input.requestedByUserId))).limit(1))[0];
+    if (!batch || batch.supplierId !== "cj_dropshipping" || !["completed", "completed_with_errors"].includes(batch.status)) throw new Error("Only a completed, caller-owned CJ import batch can be activated.");
+    const batchItems = await tx.select({ officialProductId: cjImportBatchItems.officialProductId }).from(cjImportBatchItems).where(and(eq(cjImportBatchItems.batchId, batch.id), eq(cjImportBatchItems.status, "imported"), inArray(cjImportBatchItems.officialProductId, ids)));
+    const batchProductIds = Array.from(new Set(batchItems.flatMap(item => item.officialProductId ? [item.officialProductId] : [])));
+    if (batchProductIds.length !== ids.length) throw new Error("One or more requested products do not belong to this CJ batch.");
+    for (const snapshot of snapshots) {
+      const product = (await tx.select({ id: officialProducts.id }).from(officialProducts).where(and(eq(officialProducts.id, snapshot.officialProductId), eq(officialProducts.status, "draft"))).limit(1))[0];
+      if (!product) continue;
+      await tx.update(officialProducts).set({ stockQuantity: snapshot.stockQuantity, inventorySyncedAt: new Date(), inventorySyncStatus: "current", inStock: 0 }).where(and(eq(officialProducts.id, snapshot.officialProductId), eq(officialProducts.status, "draft")));
+      await tx.update(officialProductSourcing).set({ supplierInventoryQuantity: snapshot.stockQuantity, supplierInventoryCountryCode: snapshot.inventoryCountryCode }).where(eq(officialProductSourcing.officialProductId, snapshot.officialProductId));
+    }
+    const eligible = await tx.select({ id: officialProducts.id }).from(officialProducts)
+      .innerJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id))
+      .where(and(
+        inArray(officialProducts.id, ids),
+        eq(officialProducts.status, "draft"),
+        eq(officialProducts.inventorySyncStatus, "current"),
+        gt(officialProducts.stockQuantity, 0),
+        gt(officialProductSourcing.supplierInventoryQuantity, 0),
+        eq(officialProductSourcing.fulfillmentProvider, "auto_fulfill_api"),
+      ));
+    const eligibleIds = eligible.map(product => product.id);
+    if (!eligibleIds.length) return 0;
+    const result = await tx.update(officialProducts).set({ status: "active", isPublished: 1, publicationStatus: "APPROVED", inStock: 1 }).where(and(inArray(officialProducts.id, eligibleIds), eq(officialProducts.status, "draft"), eq(officialProducts.inventorySyncStatus, "current"), gt(officialProducts.stockQuantity, 0)));
+    return affectedRows(result);
+  });
 }
 
 export async function deleteOfficialProductDrafts(ids: number[]) {
