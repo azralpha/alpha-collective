@@ -78,9 +78,20 @@ class AuthService {
 
   async authenticateAdminApiKey(req: Request): Promise<AuthenticatedUser | null> {
     const candidate = extractAdminApiKey(req);
-    if (!verifyAdminApiKey(candidate, ENV.adminApiKeySha256) || !ENV.ownerOpenId.trim()) return null;
+    if (!verifyAdminApiKey(candidate, ENV.adminApiKeySha256)) return null;
+    if (!ENV.ownerOpenId.trim()) {
+      console.error("[Admin API] A digest-matching key was rejected because OWNER_OPEN_ID is not configured.");
+      return null;
+    }
     const owner = await db.getUserByOpenId(ENV.ownerOpenId.trim());
-    if (owner?.role !== "admin") return null;
+    if (!owner) {
+      console.error("[Admin API] A digest-matching key was rejected because OWNER_OPEN_ID did not resolve to a user.");
+      return null;
+    }
+    if (owner.role !== "admin") {
+      console.error("[Admin API] A digest-matching key was rejected because its configured owner is not an administrator.");
+      return null;
+    }
     console.info("[Admin API] Key authentication accepted", {
       route: (req.originalUrl || req.path || "unknown").split("?")[0],
       actorUserId: owner.id,
