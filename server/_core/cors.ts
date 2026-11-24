@@ -25,7 +25,7 @@ export function registerCors(app: Express) {
       res.setHeader("Access-Control-Allow-Origin", origin!);
       res.setHeader("Access-Control-Allow-Credentials", "true");
       res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,PATCH,DELETE,OPTIONS");
-      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Alpha-Device-Id");
+      res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Alpha-Device-Id, X-Admin-API-Key");
       res.setHeader("Vary", "Origin");
     }
 

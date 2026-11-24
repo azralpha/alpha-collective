@@ -12,9 +12,7 @@ const adminActionSchema = z.discriminatedUnion("action", [
 ]);
 
 async function requireAdmin(req: Request) {
-  const user = await sdk.authenticateRequest(req);
-  if (user.role !== "admin") throw new Error("Administrator access required.");
-  return user;
+  return sdk.authenticateAdminRequest(req);
 }
 
 function unsubscribeHtml(message: string) {

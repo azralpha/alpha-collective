@@ -68,6 +68,8 @@ services:
         sync: false
       - key: OWNER_OPEN_ID
         sync: false
+      - key: ADMIN_API_KEY_SHA256
+        sync: false
       - key: OWNER_NAME
         sync: false
       - key: BUILT_IN_FORGE_API_URL

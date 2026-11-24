@@ -12,6 +12,7 @@ const t = initTRPC.context<TrpcContext>().create({
 export const router = t.router;
 export const publicProcedure = t.procedure;
 const sensitiveMutationLimiter = new FixedWindowRateLimiter();
+const adminApiKeyFailureLimiter = new FixedWindowRateLimiter();
 
 const requireUser = t.middleware(async opts => {
   const { ctx, next } = opts;
@@ -49,14 +50,23 @@ export const adminProcedure = t.procedure.use(
   t.middleware(async opts => {
     const { ctx, next } = opts;
 
-    if (!ctx.user || ctx.user.role !== 'admin') {
+    const adminUser = ctx.user?.role === "admin" ? ctx.user : ctx.adminApiUser?.role === "admin" ? ctx.adminApiUser : null;
+    if (!adminUser) {
+      const headers = ctx.req?.headers;
+      const explicitApiKey = Boolean(headers?.["x-admin-api-key"]);
+      const bearerKeyWithoutSession = !ctx.user && /^Bearer\s+\S+/i.test(headers?.authorization ?? "");
+      if (explicitApiKey || bearerKeyWithoutSession) {
+        const ip = ctx.req ? extractClientIp(ctx.req) ?? "unknown" : "unknown";
+        const attempt = adminApiKeyFailureLimiter.consume({ key: `admin-api-key:${ip}`, limit: 10, windowMs: 60_000 });
+        if (!attempt.allowed) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: `Too many invalid administrator credentials. Try again in about ${attempt.retryAfterSeconds} seconds.` });
+      }
       throw new TRPCError({ code: "FORBIDDEN", message: NOT_ADMIN_ERR_MSG });
     }
 
     return next({
       ctx: {
         ...ctx,
-        user: ctx.user,
+        user: adminUser,
       },
     });
   }),

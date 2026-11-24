@@ -135,14 +135,10 @@ function adminStatusUrl(result: "connected" | "cancelled" | "failed", reason?: s
 
 async function requireAdmin(req: Request, res: Response) {
   try {
-    const user = await sdk.authenticateRequest(req);
-    if (user.role !== "admin") {
-      res.status(403).set("Cache-Control", "no-store").send("Administrator access required.");
-      return false;
-    }
+    await sdk.authenticateAdminRequest(req);
     return true;
   } catch {
-    res.status(401).set("Cache-Control", "no-store").send("Administrator sign-in is required.");
+    res.status(401).set("Cache-Control", "no-store").send("Administrator authentication is required.");
     return false;
   }
 }

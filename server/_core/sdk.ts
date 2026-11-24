@@ -6,6 +6,7 @@ import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { extractClientIp, normalizeDeviceId } from "../referralFraud";
+import { extractAdminApiKey, verifyAdminApiKey } from "./adminApiKey";
 import { ENV } from "./env";
 
 export type SessionPayload = {
@@ -73,6 +74,32 @@ class AuthService {
       console.warn("[Auth] Security signal recording skipped", String(error));
     }
     return user;
+  }
+
+  async authenticateAdminApiKey(req: Request): Promise<AuthenticatedUser | null> {
+    const candidate = extractAdminApiKey(req);
+    if (!verifyAdminApiKey(candidate, ENV.adminApiKeySha256) || !ENV.ownerOpenId.trim()) return null;
+    const owner = await db.getUserByOpenId(ENV.ownerOpenId.trim());
+    if (owner?.role !== "admin") return null;
+    console.info("[Admin API] Key authentication accepted", {
+      route: (req.originalUrl || req.path || "unknown").split("?")[0],
+      actorUserId: owner.id,
+      ip: extractClientIp(req) ?? "unknown",
+    });
+    return owner;
+  }
+
+  async authenticateAdminRequest(req: Request): Promise<AuthenticatedUser> {
+    try {
+      const sessionUser = await this.authenticateRequest(req);
+      if (sessionUser.role === "admin") return sessionUser;
+    } catch {
+      // Continue to the dedicated admin key check; never treat an invalid session as a valid key.
+    }
+
+    const apiUser = await this.authenticateAdminApiKey(req);
+    if (apiUser) return apiUser;
+    throw new Error("Administrator access required.");
   }
 }
 

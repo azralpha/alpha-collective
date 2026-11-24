@@ -6,12 +6,14 @@ export type TrpcContext = {
   req: CreateExpressContextOptions["req"];
   res: CreateExpressContextOptions["res"];
   user: User | null;
+  adminApiUser: User | null;
 };
 
 export async function createContext(
   opts: CreateExpressContextOptions
 ): Promise<TrpcContext> {
   let user: User | null = null;
+  let adminApiUser: User | null = null;
 
   try {
     user = await sdk.authenticateRequest(opts.req);
@@ -20,9 +22,20 @@ export async function createContext(
     user = null;
   }
 
+  const explicitApiKey = opts.req.headers["x-admin-api-key"] !== undefined;
+  const bearerWithoutSession = !user && /^Bearer\s+\S+/i.test(opts.req.headers.authorization ?? "");
+  if (explicitApiKey || bearerWithoutSession) {
+    try {
+      adminApiUser = await sdk.authenticateAdminApiKey(opts.req);
+    } catch {
+      adminApiUser = null;
+    }
+  }
+
   return {
     req: opts.req,
     res: opts.res,
     user,
+    adminApiUser,
   };
 }
