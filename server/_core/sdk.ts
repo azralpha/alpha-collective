@@ -6,8 +6,10 @@ import { SignJWT, jwtVerify } from "jose";
 import type { User } from "../../drizzle/schema";
 import * as db from "../db";
 import { extractClientIp, normalizeDeviceId } from "../referralFraud";
-import { extractAdminApiKey, verifyAdminApiKey } from "./adminApiKey";
+import { extractAdminApiKey, hasAdminApiKeyHeader, verifyAdminApiKey } from "./adminApiKey";
 import { ENV } from "./env";
+
+let adminApiKeyVerifierStatusLogged = false;
 
 export type SessionPayload = {
   openId: string;
@@ -78,7 +80,17 @@ class AuthService {
 
   async authenticateAdminApiKey(req: Request): Promise<AuthenticatedUser | null> {
     const candidate = extractAdminApiKey(req);
-    if (!verifyAdminApiKey(candidate, ENV.adminApiKeySha256)) return null;
+    if (!verifyAdminApiKey(candidate, ENV.adminApiKeySha256)) {
+      if (hasAdminApiKeyHeader(req) && !adminApiKeyVerifierStatusLogged) {
+        console.warn("[Admin API] Key verifier mismatch diagnostics", {
+          digestConfigured: Boolean(ENV.adminApiKeySha256),
+          digestLength: ENV.adminApiKeySha256.length,
+          candidateExtracted: Boolean(candidate),
+        });
+        adminApiKeyVerifierStatusLogged = true;
+      }
+      return null;
+    }
     if (!ENV.ownerOpenId.trim()) {
       console.error("[Admin API] A digest-matching key was rejected because OWNER_OPEN_ID is not configured.");
       return null;
