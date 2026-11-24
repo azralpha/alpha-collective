@@ -12,6 +12,7 @@ export const ENV = {
   googleClientSecret: envValue("GOOGLE_CLIENT_SECRET"),
   googleRedirectUri: envValue("GOOGLE_REDIRECT_URI"),
   adminApiKeySha256: envValue("ADMIN_API_KEY_SHA256"),
+  adminApiKeyOwnerEmail: envValue("ADMIN_API_KEY_OWNER_EMAIL").toLowerCase(),
   turnstileSiteKey: envValue("TURNSTILE_SITE_KEY"),
   turnstileSecretKey: envValue("TURNSTILE_SECRET_KEY"),
   publicAppUrl: (envValue("PUBLIC_APP_URL") || "https://alphamarket.name.ng").replace(/\/+$/, ""),

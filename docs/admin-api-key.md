@@ -1,6 +1,6 @@
 # Alpha Market admin API key
 
-Alpha Market accepts a server-configured bearer key as an alternative credential for administrator routes. The key is bound to the existing `OWNER_OPEN_ID` account and works only while that account exists with the `admin` role.
+Alpha Market accepts a server-configured bearer key as an alternative credential for administrator routes. The key is bound to the `OWNER_OPEN_ID` account, or to `ADMIN_API_KEY_OWNER_EMAIL` when the open ID is unset, and works only while the resolved account exists with the `admin` role.
 
 ## Request headers
 

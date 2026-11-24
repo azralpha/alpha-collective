@@ -91,13 +91,15 @@ class AuthService {
       }
       return null;
     }
-    if (!ENV.ownerOpenId.trim()) {
-      console.error("[Admin API] A digest-matching key was rejected because OWNER_OPEN_ID is not configured.");
+    const ownerOpenId = ENV.ownerOpenId.trim();
+    const ownerEmail = ENV.adminApiKeyOwnerEmail.trim().toLowerCase();
+    if (!ownerOpenId && !ownerEmail) {
+      console.error("[Admin API] A digest-matching key was rejected because no owner identity is configured.");
       return null;
     }
-    const owner = await db.getUserByOpenId(ENV.ownerOpenId.trim());
+    const owner = ownerOpenId ? await db.getUserByOpenId(ownerOpenId) : await db.getUserByEmail(ownerEmail);
     if (!owner) {
-      console.error("[Admin API] A digest-matching key was rejected because OWNER_OPEN_ID did not resolve to a user.");
+      console.error("[Admin API] A digest-matching key was rejected because the configured owner identity did not resolve to a user.");
       return null;
     }
     if (owner.role !== "admin") {
