@@ -860,7 +860,7 @@ export const marketplaceRouter = router({
         }
       }),
     deleteOfficialProductDrafts: adminProcedure
-      .input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(100) }))
+      .input(z.object({ ids: z.array(z.number().int().positive()).min(1).max(101) }))
       .mutation(async ({ input }) => {
         const deleted = await deleteOfficialProductDrafts(input.ids);
         return { deleted };

@@ -2091,7 +2091,7 @@ export async function updateOfficialProductStatus(id: number, status: "draft" | 
   });
 }
 
-/** Unpublishes only 101 currently published official records whose complete legacy image galleries still return HTTP 404. */
+/** Unpublishes only the 101 active official records whose complete legacy image galleries still return HTTP 404. */
 export async function unpublishAuditedBrokenOfficialProducts() {
   const db = await requireDb();
   const allowedOrigins = new Set([ENV.apiOrigin, ENV.publicAppUrl, "https://alphamarket.name.ng"].map(origin => new URL(origin).origin));
@@ -2116,13 +2116,13 @@ export async function unpublishAuditedBrokenOfficialProducts() {
     }).from(officialProducts).where(inArray(officialProducts.id, ids));
     const snapshotIsCurrent = current.length === candidates.length && candidates.every(candidate => {
       const latest = current.find(product => product.id === candidate.id);
-      return Boolean(latest && latest.status === "active" && latest.isPublished === 1 && latest.publicationStatus === "APPROVED" &&
+      return Boolean(latest && latest.status === "active" &&
         JSON.stringify(getProductGalleryUrls(latest).sort()) === JSON.stringify(getProductGalleryUrls(candidate).sort()));
     });
     if (!snapshotIsCurrent) throw new Error("Safety check stopped: one or more audited listings changed during verification. No products were changed.");
     const result = await tx.update(officialProducts)
       .set({ status: "draft", isPublished: 0, publicationStatus: "DRAFT", inStock: 0 })
-      .where(and(inArray(officialProducts.id, ids), eq(officialProducts.status, "active"), eq(officialProducts.isPublished, 1), eq(officialProducts.publicationStatus, "APPROVED")));
+      .where(and(inArray(officialProducts.id, ids), eq(officialProducts.status, "active")));
     const unpublished = affectedRows(result);
     if (unpublished !== candidates.length) throw new Error(`Safety check stopped: expected to unpublish ${candidates.length} verified listings, changed ${unpublished}. Transaction rolled back.`);
     return unpublished;
@@ -2185,7 +2185,7 @@ export async function publishCjImportBatchDrafts(input: { batchId: number; reque
 export async function deleteOfficialProductDrafts(ids: number[]) {
   const normalizedIds = Array.from(new Set(ids.filter(id => Number.isSafeInteger(id) && id > 0)));
   if (!normalizedIds.length) return 0;
-  if (normalizedIds.length > 100) throw new Error("Delete up to 100 selected drafts at a time.");
+  if (normalizedIds.length > 101) throw new Error("Delete up to 101 selected drafts at a time.");
   const db = await requireDb();
   return db.transaction(async tx => {
     const draftIds = (await tx.select({ id: officialProducts.id })
@@ -2193,6 +2193,16 @@ export async function deleteOfficialProductDrafts(ids: number[]) {
       .where(and(inArray(officialProducts.id, normalizedIds), eq(officialProducts.status, "draft"))))
       .map(product => product.id);
     if (!draftIds.length) return 0;
+    const [fulfilmentReferences, rewardTierReferences, cartClaimReferences, spinClaimReferences] = await Promise.all([
+      tx.select({ id: fulfilmentJobs.id }).from(fulfilmentJobs).where(inArray(fulfilmentJobs.officialProductId, draftIds)).limit(1),
+      tx.select({ id: cartRewardTiers.id }).from(cartRewardTiers).where(inArray(cartRewardTiers.giftOfficialProductId, draftIds)).limit(1),
+      tx.select({ id: cartRewardClaims.id }).from(cartRewardClaims).where(inArray(cartRewardClaims.giftOfficialProductId, draftIds)).limit(1),
+      tx.select({ id: spinRewardClaims.id }).from(spinRewardClaims).where(inArray(spinRewardClaims.rewardOfficialProductId, draftIds)).limit(1),
+    ]);
+    if (fulfilmentReferences.length || rewardTierReferences.length || cartClaimReferences.length || spinClaimReferences.length) {
+      throw new Error("Safety check stopped: one or more selected drafts are referenced by fulfilment history or gift claims. No products were deleted.");
+    }
+    // Order lines are immutable JSON snapshots (title, price, and quantity); they are intentionally left untouched.
     await tx.update(cjImportBatchItems).set({ officialProductId: null }).where(inArray(cjImportBatchItems.officialProductId, draftIds));
     await tx.delete(officialProductSourcing).where(inArray(officialProductSourcing.officialProductId, draftIds));
     const result = await tx.delete(officialProducts).where(and(inArray(officialProducts.id, draftIds), eq(officialProducts.status, "draft")));

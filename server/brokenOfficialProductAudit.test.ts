@@ -54,17 +54,18 @@ describe("audited broken official product image selection", () => {
     )).rejects.toThrow("found 100");
   });
 
-  it("excludes drafts, unpublished records, and URLs outside the exact legacy image path", async () => {
+  it("excludes drafts and non-legacy paths but uses active status when duplicate publication flags are stale", async () => {
     const fetchImpl = fetchWithStatus(404);
     const records = [
       product(1, { status: "draft" }),
       product(2, { isPublished: 0 }),
       product(3, { imageUrl: `${origin}/uploads/vendor-products/3/photo.webp` }),
-      ...Array.from({ length: 101 }, (_, index) => product(index + 4)),
+      ...Array.from({ length: 100 }, (_, index) => product(index + 4)),
     ];
     const candidates = await selectAuditedBrokenOfficialProducts(records, { allowedOrigins, baseOrigin: origin, fetchImpl });
     expect(candidates).toHaveLength(101);
-    expect(candidates.some(item => item.id < 4)).toBe(false);
+    expect(candidates.some(item => item.id === 2)).toBe(true);
+    expect(candidates.some(item => item.id === 1 || item.id === 3)).toBe(false);
   });
 
   it("does not treat redirects, timeouts, or other HTTP errors as confirmed 404s", async () => {

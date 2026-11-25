@@ -51,7 +51,7 @@ async function mapWithConcurrency<T, R>(values: T[], concurrency: number, worker
   return results;
 }
 
-/** Returns the exact currently published 101 official listings only when all their image URLs are confirmed 404s. */
+/** Returns the exact 101 active public-catalogue listings only when all their image URLs are confirmed 404s. */
 export async function selectAuditedBrokenOfficialProducts(
   products: AuditedOfficialProduct[],
   options: {
@@ -63,7 +63,8 @@ export async function selectAuditedBrokenOfficialProducts(
 ) {
   const fetchImpl = options.fetchImpl ?? fetch;
   const publishedLegacyProducts = products.filter(product => {
-    if (product.status !== "active" || product.isPublished !== 1 || product.publicationStatus !== "APPROVED") return false;
+    // The public catalogue itself filters on status=active; the duplicated publication flags may be stale.
+    if (product.status !== "active") return false;
     const urls = getProductGalleryUrls(product);
     const primary = product.imageUrl?.trim() || product.imageUrls?.[0]?.trim();
     return Boolean(primary) && urls.length > 0 && urls.every(url =>
