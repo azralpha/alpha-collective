@@ -54,6 +54,19 @@ describe("CJ Dropshipping adapter", () => {
     expect(String(fetchMock.mock.calls[1]?.[0])).not.toContain("createOrder");
   });
 
+  it("requests CJ category metadata during item lookup so Fashion subcategories validate consistently", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { content: [{ productList: [{ sku: "CJ-FASHION-001", nameEn: "Women's Lightweight Jacket", threeCategoryName: "Women's Clothing", nowPrice: "12.00", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/jacket.png", description: "A lightweight jacket for everyday wear." }] }] } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductForImport } = await import("./cjDropshipping");
+
+    await expect(fetchCjProductForImport("CJ-FASHION-001", "Fashion")).resolves.toMatchObject({ sku: "CJ-FASHION-001", title: "Women's Lightweight Jacket" });
+    const productUrl = new URL(String(fetchMock.mock.calls[1]?.[0]));
+    expect(productUrl.searchParams.getAll("features")).toEqual(["enable_description", "enable_category"]);
+  });
+
   it("paginates the CJ catalog to the requested product limit", async () => {
     process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
     const requestedPages: number[] = [];

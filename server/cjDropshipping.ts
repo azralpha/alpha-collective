@@ -17,6 +17,21 @@ export class CjDropshippingError extends Error {
 }
 
 let tokenCache: { accessToken: string; expiresAt: number } | null = null;
+let cjRequestQueue: Promise<void> = Promise.resolve();
+let nextCjRequestAt = 0;
+
+/** CJ limits this integration to about one API request per second. Serialize requests per server process. */
+function scheduleCjRequest<T>(operation: () => Promise<T>): Promise<T> {
+  const scheduled = cjRequestQueue.then(async () => {
+    const intervalMs = process.env.NODE_ENV === "test" ? 0 : 1_100;
+    const delayMs = Math.max(0, nextCjRequestAt - Date.now());
+    if (delayMs) await new Promise(resolve => setTimeout(resolve, delayMs));
+    nextCjRequestAt = Date.now() + intervalMs;
+    return operation();
+  });
+  cjRequestQueue = scheduled.then(() => undefined, () => undefined);
+  return scheduled;
+}
 
 function apiKey() {
   const value = process.env.CJ_DROPSHIPPING_API_KEY?.trim();
@@ -25,12 +40,19 @@ function apiKey() {
 }
 
 async function cjFetch<T>(path: string, init: RequestInit) {
-  let response: Response;
-  try {
-    response = await fetch(`${CJ_API_ROOT}${path}`, { ...init, signal: AbortSignal.timeout(15_000) });
-  } catch {
-    throw new CjDropshippingError("CJ Dropshipping did not respond in time.", 503, true);
+  let response: Response | undefined;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    try {
+      response = await scheduleCjRequest(() => fetch(`${CJ_API_ROOT}${path}`, { ...init, signal: AbortSignal.timeout(15_000) }));
+    } catch {
+      throw new CjDropshippingError("CJ Dropshipping did not respond in time.", 503, true);
+    }
+    if (response.status !== 429 || attempt === 2) break;
+    const retryAfter = Number(response.headers.get("retry-after"));
+    const backoffMs = Number.isFinite(retryAfter) && retryAfter > 0 ? Math.max(1_100, retryAfter * 1_000) : 2_000 * (attempt + 1);
+    await new Promise(resolve => setTimeout(resolve, backoffMs));
   }
+  if (!response) throw new CjDropshippingError("CJ Dropshipping did not respond in time.", 503, true);
   const payload = await response.json().catch(() => null) as T | null;
   if (!response.ok) {
     const details = payload && typeof payload === "object" ? payload as { code?: string | number; message?: string; requestId?: string } : {};
@@ -212,7 +234,10 @@ function importableCjProduct(product: { sku?: string; spu?: string; nameEn?: str
 export async function fetchCjProductForImport(sku: string, requestedCategory?: MarketplaceCategory) {
   const token = await accessToken();
   const normalizedSku = sku.trim().toUpperCase();
-  const payload = await cjFetch<CjProductListResponse>(`/product/listV2?page=1&size=100&keyWord=${encodeURIComponent(normalizedSku)}&features=enable_description`, {
+  const query = new URLSearchParams({ page: "1", size: "100", keyWord: normalizedSku });
+  query.append("features", "enable_description");
+  query.append("features", "enable_category");
+  const payload = await cjFetch<CjProductListResponse>(`/product/listV2?${query.toString()}`, {
     method: "GET",
     headers: { "CJ-Access-Token": token },
   });
