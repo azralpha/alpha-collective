@@ -10,6 +10,7 @@ type CjProductListResponse = { code?: number; result?: boolean; message?: string
 type CjProductFallbackResponse = { code?: number; result?: boolean; message?: string; data?: { list?: Array<{ pid?: string; productSku?: string; productNameEn?: string; productImage?: string; sellPrice?: string | number; category?: string; categoryName?: string; oneCategoryName?: string; twoCategoryName?: string; threeCategoryName?: string }> } };
 type CjProductVariant = { vid?: string; variantSku?: string; variantSellPrice?: string | number; inventoryNum?: number | string; inventories?: Array<{ countryCode?: string; totalInventory?: number | string; cjInventory?: number | string; factoryInventory?: number | string }> };
 type CjProductQueryResponse = { code?: number; result?: boolean; message?: string; data?: { pid?: string; productSku?: string; sellPrice?: string | number; variants?: CjProductVariant[] } };
+type CjProductStockResponse = { code?: number; result?: boolean; success?: boolean; message?: string; data?: { variantInventories?: Array<{ vid?: string; inventory?: Array<{ countryCode?: string; totalInventory?: number | string; cjInventory?: number | string; factoryInventory?: number | string }> | null }> } };
 type CjFreightResponse = { code?: number; result?: boolean; message?: string; data?: Array<{ logisticPrice?: string | number; totalPostageFee?: string | number }> };
 
 export class CjDropshippingError extends Error {
@@ -215,10 +216,28 @@ function selectCjAvailableVariant(variants: CjProductVariant[] | undefined, pref
   return chooseFrom(candidates);
 }
 
-async function queryCjProductDetail(token: string, productSku: string) {
+async function queryCjProductDetail(token: string, productSku: string): Promise<NonNullable<CjProductQueryResponse["data"]> & { pid: string }> {
   const detail = await cjFetch<CjProductQueryResponse>(`/product/query?productSku=${encodeURIComponent(productSku)}`, { method: "GET", headers: { "CJ-Access-Token": token } });
   if (!detail?.result || !detail.data?.pid) throw new CjDropshippingError("CJ could not retrieve current inventory for this product.", 422, false);
-  return detail.data;
+  return detail.data as NonNullable<CjProductQueryResponse["data"]> & { pid: string };
+}
+
+async function queryCjProductVariantInventories(token: string, productId: string) {
+  const stock = await cjFetch<CjProductStockResponse>(`/product/stock/getInventoryByPid?pid=${encodeURIComponent(productId)}`, { method: "GET", headers: { "CJ-Access-Token": token } });
+  if (!(stock?.result || stock?.success || stock?.code === 200) || !stock.data) {
+    throw new CjDropshippingError("CJ did not return a current product inventory snapshot.", 502, true);
+  }
+  const inventoryByVariant = new Map((stock.data.variantInventories ?? []).flatMap(variant => {
+    if (!variant.vid) return [];
+    const rows = (variant.inventory ?? []).map(inventory => ({
+      countryCode: inventory.countryCode,
+      totalInventory: inventory.totalInventory,
+      cjInventory: inventory.cjInventory,
+      factoryInventory: inventory.factoryInventory,
+    }));
+    return [[variant.vid, rows] as const];
+  }));
+  return inventoryByVariant;
 }
 
 function importableCjProduct(product: { sku?: string; spu?: string; nameEn?: string; productNameEn?: string; bigImage?: string; productImage?: string; description?: string; sellPrice?: string | number; nowPrice?: string | number; discountPrice?: string | number }, fallbackIdentifier: string) {
@@ -270,7 +289,12 @@ export async function fetchCjProductForMassImport(sku: string, destinationCountr
   const imported = await fetchCjProductForImport(sku, requestedCategory);
   const token = await accessToken();
   const detail = await queryCjProductDetail(token, imported.sku);
-  const selected = selectCjAvailableVariant(detail.variants, undefined, sku);
+  const currentInventories = await queryCjProductVariantInventories(token, detail.pid);
+  const variants = (detail.variants ?? []).map(variant => {
+    const inventory = variant.vid ? currentInventories.get(variant.vid) : undefined;
+    return inventory ? { ...variant, inventories: inventory } : variant;
+  });
+  const selected = selectCjAvailableVariant(variants, undefined, sku);
   if (!selected) throw new CjDropshippingError("CJ reports this product as out of stock, so no draft was created.", 422, false);
 
   const freight = await cjFetch<CjFreightResponse>("/logistic/freightCalculate", {

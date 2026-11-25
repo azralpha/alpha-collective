@@ -225,13 +225,15 @@ describe("CJ Dropshipping adapter", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { content: [{ productList: [{ sku: "CJ-LANDED", nameEn: "Landed Cost Product", sellPrice: "15.25", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/landed.png", description: "<p>Inventory and shipping test product.</p>" }] }] } }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { pid: "cj-product-id", sellPrice: 15.25, variants: [{ vid: "cj-variant-id", variantSku: "CJ-LANDED-BLUE", variantSellPrice: 15.25, inventories: [{ countryCode: "CN", totalInventory: 17 }] }] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { pid: "cj-product-id", sellPrice: 15.25, variants: [{ vid: "cj-variant-id", variantSku: "CJ-LANDED-BLUE", variantSellPrice: 15.25, inventories: [] }] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, code: 200, data: { variantInventories: [{ vid: "cj-variant-id", inventory: [{ countryCode: "CN", totalInventory: 17 }] }] } }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: [{ logisticPrice: 4.75 }] }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const { fetchCjProductForMassImport } = await import("./cjDropshipping");
 
     await expect(fetchCjProductForMassImport("CJ-LANDED")).resolves.toMatchObject({ sku: "CJ-LANDED-BLUE", externalProductId: "cj-product-id", externalVariantId: "cj-variant-id", stockQuantity: 17, inventoryCountryCode: "CN", supplierProductCost: 15.25, supplierShippingCost: 4.75, supplierCost: 20 });
-    expect(JSON.parse(fetchMock.mock.calls[3]?.[1].body)).toEqual({ startCountryCode: "CN", endCountryCode: "NG", products: [{ quantity: 1, vid: "cj-variant-id" }] });
+    expect(String(fetchMock.mock.calls[3]?.[0])).toContain("/product/stock/getInventoryByPid?pid=cj-product-id");
+    expect(JSON.parse(fetchMock.mock.calls[4]?.[1].body)).toEqual({ startCountryCode: "CN", endCountryCode: "NG", products: [{ quantity: 1, vid: "cj-variant-id" }] });
     expect(fetchMock.mock.calls.map(call => String(call[0])).join(" ")).not.toContain("createOrder");
   });
 
@@ -240,13 +242,14 @@ describe("CJ Dropshipping adapter", () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { content: [{ productList: [{ sku: "CJBASE1234", nameEn: "Inventory Pending Product", sellPrice: "11.00", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/pending.png", description: "<p>Inventory pending supplier product.</p>" }] }] } }), { status: 200 }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { pid: "cj-product-id", sellPrice: 11, variants: [{ vid: "cj-variant-id", variantSku: "CJBASE123408HS", variantSellPrice: 11, inventories: [] }] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { pid: "cj-product-id", sellPrice: 11, variants: [{ vid: "cj-variant-id", variantSku: "CJBASE123408HS", inventories: [] }] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ success: true, code: 200, data: { variantInventories: [{ vid: "cj-variant-id", inventory: [] }] } }), { status: 200 }))
       .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: [{ logisticPrice: 3.5 }] }), { status: 200 }));
     vi.stubGlobal("fetch", fetchMock);
     const { fetchCjProductForMassImport } = await import("./cjDropshipping");
 
     await expect(fetchCjProductForMassImport("CJBASE123408HS")).resolves.toMatchObject({ sku: "CJBASE123408HS", externalVariantId: "cj-variant-id", stockQuantity: 0, inventoryKnown: false, inventoryCountryCode: "CN", supplierCost: 14.5 });
-    expect(JSON.parse(fetchMock.mock.calls[3]?.[1].body)).toEqual({ startCountryCode: "CN", endCountryCode: "NG", products: [{ quantity: 1, vid: "cj-variant-id" }] });
+    expect(JSON.parse(fetchMock.mock.calls[4]?.[1].body)).toEqual({ startCountryCode: "CN", endCountryCode: "NG", products: [{ quantity: 1, vid: "cj-variant-id" }] });
     expect(fetchMock.mock.calls.map(call => String(call[0])).join(" ")).not.toContain("createOrder");
   });
 
