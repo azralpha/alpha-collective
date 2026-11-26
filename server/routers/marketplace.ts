@@ -114,7 +114,7 @@ import {
   settleSpinRewardAfterVerifiedPayment,
 } from "../db";
 import { extractClientIp, normalizeDeviceId } from "../referralFraud";
-import { isProductImageUrl, isProductImageUrlUnderPrefix, storagePut } from "../storage";
+import { checkProductImageStorage, isProductImageUrl, isProductImageUrlUnderPrefix, storagePut } from "../storage";
 import { decodeProductImageDataUrl, importCjProductImage, ProductImageProcessingError, storeProcessedProductImage } from "../productImageProcessing";
 import { CjDropshippingError, fetchCjProductForImport, testCjCatalogAccess } from "../cjDropshipping";
 import { activateCjMassImportBatch, createCjMassImportBatch, getCjMassImportBatch, processCjMassImportChunk, processNextCjMassImportItem } from "../cjMassImport";
@@ -745,6 +745,10 @@ export const marketplaceRouter = router({
         throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof CjDropshippingError ? error.message : "CJ catalogue access could not be verified." });
       }
     }),
+    r2ProductImageStorageStatus: adminProcedure.query(async () => ({
+      ...await checkProductImageStorage(),
+      runtimeNodeVersion: process.version,
+    })),
     uploadOfficialProductImage: adminProcedure
       .input(z.object({ dataUrl: productImageDataUrlSchema }))
       .mutation(async ({ ctx, input }) => {

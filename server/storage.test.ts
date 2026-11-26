@@ -1,17 +1,19 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { send, clientConstructor, putCommandConstructor, deleteCommandConstructor } = vi.hoisted(() => {
+const { send, clientConstructor, putCommandConstructor, deleteCommandConstructor, headBucketCommandConstructor } = vi.hoisted(() => {
   const send = vi.fn();
   const clientConstructor = vi.fn(function (this: unknown) { return { send }; });
   const putCommandConstructor = vi.fn(function (this: unknown, input: unknown) { return { input }; });
   const deleteCommandConstructor = vi.fn(function (this: unknown, input: unknown) { return { input }; });
-  return { send, clientConstructor, putCommandConstructor, deleteCommandConstructor };
+  const headBucketCommandConstructor = vi.fn(function (this: unknown, input: unknown) { return { input }; });
+  return { send, clientConstructor, putCommandConstructor, deleteCommandConstructor, headBucketCommandConstructor };
 });
 
 vi.mock("@aws-sdk/client-s3", () => ({
   S3Client: clientConstructor,
   PutObjectCommand: putCommandConstructor,
   DeleteObjectCommand: deleteCommandConstructor,
+  HeadBucketCommand: headBucketCommandConstructor,
 }));
 
 afterEach(() => {
@@ -25,6 +27,37 @@ beforeEach(() => {
 });
 
 describe("product image storage", () => {
+  it("checks R2 bucket connectivity without exposing credential values", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("R2_ACCOUNT_ID", "0123456789abcdef0123456789abcdef");
+    vi.stubEnv("R2_ACCESS_KEY_ID", "test-access-key");
+    vi.stubEnv("R2_SECRET_ACCESS_KEY", "test-secret-key");
+    vi.stubEnv("R2_BUCKET_NAME", "alpha-market-product-images");
+
+    const { checkProductImageStorage } = await import("./storage");
+    const result = await checkProductImageStorage();
+
+    expect(result).toMatchObject({ ok: true, bucket: "alpha-market-product-images", endpointHost: "0123456789abcdef0123456789abcdef.r2.cloudflarestorage.com", credentialsPresent: true });
+    expect(result).not.toHaveProperty("accessKeyId");
+    expect(result).not.toHaveProperty("secretAccessKey");
+    expect(headBucketCommandConstructor).toHaveBeenCalledWith({ Bucket: "alpha-market-product-images" });
+  });
+
+  it("classifies R2 TLS failures without returning the raw error message", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("R2_ACCOUNT_ID", "0123456789abcdef0123456789abcdef");
+    vi.stubEnv("R2_ACCESS_KEY_ID", "test-access-key");
+    vi.stubEnv("R2_SECRET_ACCESS_KEY", "test-secret-key");
+    vi.stubEnv("R2_BUCKET_NAME", "alpha-market-product-images");
+    send.mockRejectedValueOnce(Object.assign(new Error("TLS handshake failed"), { code: "EPROTO" }));
+
+    const { checkProductImageStorage } = await import("./storage");
+    const result = await checkProductImageStorage();
+
+    expect(result).toMatchObject({ ok: false, errorClass: "tls-handshake", errorCode: "EPROTO", httpStatus: null });
+    expect(result).not.toHaveProperty("message");
+  });
+
   it("uploads processed product bytes to the configured R2 bucket with public immutable metadata", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("R2_ACCOUNT_ID", "0123456789abcdef0123456789abcdef");

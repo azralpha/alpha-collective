@@ -1,7 +1,7 @@
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
-import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { DeleteObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { ENV } from "./_core/env";
 
 function normalizeKey(relKey: string) {
@@ -62,6 +62,52 @@ function getProductImageR2Client() {
     },
   });
   return productImageR2Client;
+}
+
+export async function checkProductImageStorage() {
+  let endpointHost: string | null = null;
+  try {
+    endpointHost = new URL(ENV.r2S3Endpoint).host;
+  } catch {
+    endpointHost = null;
+  }
+
+  const resultBase = {
+    bucket: ENV.r2BucketName,
+    endpointHost,
+    credentialsPresent: Boolean(ENV.r2AccessKeyId && ENV.r2SecretAccessKey),
+  };
+  const startedAt = Date.now();
+
+  try {
+    const client = getProductImageR2Client();
+    if (!client) {
+      return { ...resultBase, ok: false, errorClass: "configuration", errorCode: "R2_NOT_CONFIGURED", httpStatus: null, latencyMs: Date.now() - startedAt };
+    }
+    await client.send(new HeadBucketCommand({ Bucket: ENV.r2BucketName }));
+    return { ...resultBase, ok: true, errorClass: null, errorCode: null, httpStatus: 200, latencyMs: Date.now() - startedAt };
+  } catch (error) {
+    const candidate = error as { code?: unknown; Code?: unknown; $metadata?: { httpStatusCode?: unknown } };
+    const message = error instanceof Error ? error.message : "";
+    const httpStatus = typeof candidate.$metadata?.httpStatusCode === "number" ? candidate.$metadata.httpStatusCode : null;
+    const rawCode = typeof candidate.code === "string"
+      ? candidate.code
+      : typeof candidate.Code === "string"
+        ? candidate.Code
+        : httpStatus ? `HTTP_${httpStatus}` : "UNKNOWN";
+    const isConfigurationError = /Durable product image storage|Both R2_ACCESS_KEY_ID|R2_S3_ENDPOINT and R2_BUCKET_NAME/.test(message);
+    const isTlsError = /^(EPROTO|ERR_SSL_)/.test(rawCode) || /TLS|SSL|handshake/i.test(message);
+    const safeErrorCode = /^[A-Za-z0-9_.-]{1,64}$/.test(rawCode) ? rawCode : "UNKNOWN";
+
+    return {
+      ...resultBase,
+      ok: false,
+      errorClass: isConfigurationError ? "configuration" : isTlsError ? "tls-handshake" : httpStatus ? "service-response" : "network",
+      errorCode: safeErrorCode,
+      httpStatus,
+      latencyMs: Date.now() - startedAt,
+    };
+  }
 }
 
 /**
