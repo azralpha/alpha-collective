@@ -1,4 +1,4 @@
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, lt, or, sql } from "drizzle-orm";
 import { cjImportBatchItems, cjImportBatches, officialProductSourcing, officialProducts } from "../drizzle/schema";
 import { MARKETPLACE_CATEGORIES, type MarketplaceCategory } from "../shared/marketplace";
 import { AliExpressApiError } from "./aliexpressOpenPlatform";
@@ -6,12 +6,17 @@ import { CjDropshippingError } from "./cjDropshipping";
 import { createOfficialProduct, getDb, publishCjImportBatchDrafts } from "./db";
 import { importSupplierProductImageGallery, ProductImageProcessingError } from "./productImageProcessing";
 import { fetchSupplierCatalogRefs, fetchSupplierProductForImport, normalizeSupplierReference, SUPPLIER_IDS, type SupplierId } from "./supplierCatalog";
-import { isR2ProductImageUrl } from "./storage";
+import { isR2ProductImageUrl, productImageStorageKey } from "./storage";
 
 export const MAX_CJ_MASS_IMPORT_SKUS = 500;
 export const MAX_SUPPLIER_MASS_IMPORT_PRODUCTS = 500;
-export const CJ_MASS_IMPORT_CONCURRENCY = 4;
+export const CJ_MASS_IMPORT_CONCURRENCY = 1;
+export const CJ_MASS_IMPORT_STALE_ITEM_RECOVERY_MS = 5 * 60 * 1000;
 type BatchStatus = "queued" | "processing" | "completed" | "completed_with_errors" | "failed";
+
+export function isStaleCjMassImportItem(startedAt: Date | null | undefined, now = Date.now()) {
+  return startedAt instanceof Date && startedAt.getTime() < now - CJ_MASS_IMPORT_STALE_ITEM_RECOVERY_MS;
+}
 
 export function hasConfirmedPositiveSupplierInventory(inventoryKnown: boolean, stockQuantity: number | null) {
   return inventoryKnown && stockQuantity !== null && Number.isSafeInteger(stockQuantity) && stockQuantity > 0;
@@ -48,6 +53,31 @@ export function createSupplierProductIdentity(supplier: SupplierId, externalProd
   return `${supplier}:${productId.toLowerCase()}`;
 }
 
+export function isRecoverableCjBatchDraft(input: {
+  status: string;
+  category: string;
+  fulfillmentProvider: string | null;
+  externalSkuId: string | null;
+  externalProductId: string | null;
+  externalVariantId: string | null;
+  supplierIdentity: string | null;
+  expected: { category: string; externalSkuId: string; externalProductId: string; externalVariantId: string | null; supplierIdentity: string };
+  completeR2Gallery: boolean;
+  imageKeys: Array<string | null>;
+  imageKeyPrefix: string;
+}) {
+  return input.status === "draft"
+    && input.category === input.expected.category
+    && input.fulfillmentProvider === "auto_fulfill_api"
+    && input.externalSkuId === input.expected.externalSkuId
+    && input.externalProductId === input.expected.externalProductId
+    && input.externalVariantId === input.expected.externalVariantId
+    && input.supplierIdentity === input.expected.supplierIdentity
+    && input.completeR2Gallery
+    && input.imageKeys.length > 0
+    && input.imageKeys.every(key => typeof key === "string" && key.startsWith(input.imageKeyPrefix));
+}
+
 function summarizeBatch(batch: typeof cjImportBatches.$inferSelect, items: Array<{ id: number; submittedSku: string; status: string; officialProductId: number | null; errorSummary: string | null }>) {
   return {
     id: batch.id,
@@ -71,6 +101,7 @@ export async function createCjMassImportBatch(input: {
   markupPercent: number;
   exchangeRateNgnPerUsd: number;
   category: MarketplaceCategory;
+  startPage?: number;
 }) {
   const supplier = input.supplier ?? "cj_dropshipping";
   if (!(SUPPLIER_IDS as readonly string[]).includes(supplier)) throw new Error("Choose CJ Dropshipping or AliExpress.");
@@ -79,12 +110,14 @@ export async function createCjMassImportBatch(input: {
   if (!Number.isFinite(input.markupPercent) || input.markupPercent < 0 || input.markupPercent > 500) throw new Error("Enter a markup from 0% to 500%.");
   if (!Number.isFinite(input.exchangeRateNgnPerUsd) || input.exchangeRateNgnPerUsd < 100 || input.exchangeRateNgnPerUsd > 10_000) throw new Error("Enter a realistic USD-to-Naira exchange rate.");
   if (!MARKETPLACE_CATEGORIES.includes(input.category)) throw new Error("Select a valid marketplace category.");
+  const startPage = input.startPage ?? 1;
+  if (!Number.isInteger(startPage) || startPage < 1 || startPage > 9_991) throw new Error("Choose a CJ catalogue start page between 1 and 9,991.");
 
   const manual = Array.from(new Set(input.skuText.split(/[\n,]+/).map(value => value.trim()).filter(Boolean)));
   if (manual.length > limit) throw new Error(`Import up to ${limit} unique products in this batch.`);
   let refs = manual.length
     ? manual.map(value => ({ id: normalizeSupplierReference(supplier, value), previewImageUrl: null as string | null }))
-    : await fetchSupplierCatalogRefs(supplier, limit, "", input.category);
+    : await fetchSupplierCatalogRefs(supplier, limit, "", input.category, startPage);
   refs = Array.from(new Map(refs.map(ref => [ref.id, ref])).values()).slice(0, limit);
   if (!refs.length) throw new Error("The supplier returned no catalog products.");
 
@@ -203,6 +236,12 @@ export async function activateCjMassImportBatch(batchId: number, requestedByUser
 async function claimBatchItem(batchId: number) {
   const db = await requireDbForBatch();
   return db.transaction(async tx => {
+    const staleCutoff = new Date(Date.now() - CJ_MASS_IMPORT_STALE_ITEM_RECOVERY_MS);
+    const staleItem = (await tx.select().from(cjImportBatchItems).where(and(eq(cjImportBatchItems.batchId, batchId), eq(cjImportBatchItems.status, "processing"), lt(cjImportBatchItems.startedAt, staleCutoff))).orderBy(cjImportBatchItems.id).limit(1))[0];
+    if (staleItem?.startedAt && isStaleCjMassImportItem(staleItem.startedAt)) {
+      const reclaimed = await tx.update(cjImportBatchItems).set({ startedAt: new Date() }).where(and(eq(cjImportBatchItems.id, staleItem.id), eq(cjImportBatchItems.status, "processing"), eq(cjImportBatchItems.startedAt, staleItem.startedAt)));
+      if (affectedRows(reclaimed) === 1) return staleItem;
+    }
     const item = (await tx.select().from(cjImportBatchItems).where(and(eq(cjImportBatchItems.batchId, batchId), eq(cjImportBatchItems.status, "queued"))).orderBy(cjImportBatchItems.id).limit(1))[0];
     if (!item) return null;
     const claim = await tx.update(cjImportBatchItems).set({ status: "processing", startedAt: new Date() }).where(and(eq(cjImportBatchItems.id, item.id), eq(cjImportBatchItems.status, "queued")));
@@ -241,6 +280,54 @@ async function findExistingSupplierProduct(input: { identity: string; externalPr
     )).limit(1))[0];
 }
 
+async function isRecoverableBatchItemProduct(input: {
+  officialProductId: number;
+  expected: Parameters<typeof isRecoverableCjBatchDraft>[0]["expected"];
+  imageKeyPrefix: string;
+}) {
+  const db = await requireDbForBatch();
+  const product = (await db.select({
+    status: officialProducts.status,
+    category: officialProducts.category,
+    imageUrls: officialProducts.imageUrls,
+    fulfillmentProvider: officialProductSourcing.fulfillmentProvider,
+    externalSkuId: officialProductSourcing.externalSkuId,
+    externalProductId: officialProductSourcing.externalProductId,
+    externalVariantId: officialProductSourcing.externalVariantId,
+    supplierIdentity: officialProductSourcing.supplierIdentity,
+  }).from(officialProducts)
+    .innerJoin(officialProductSourcing, eq(officialProductSourcing.officialProductId, officialProducts.id))
+    .where(eq(officialProducts.id, input.officialProductId)).limit(1))[0];
+  if (!product) return false;
+  const imageUrls = product.imageUrls ?? [];
+  const imageKeys = imageUrls.map(productImageStorageKey);
+  return isRecoverableCjBatchDraft({
+    ...product,
+    expected: input.expected,
+    completeR2Gallery: imageUrls.length > 0 && imageUrls.every(isR2ProductImageUrl) && imageKeys.every(key => key !== null),
+    imageKeys,
+    imageKeyPrefix: input.imageKeyPrefix,
+  });
+}
+
+async function finishExistingBatchProduct(input: {
+  batchId: number;
+  itemId: number;
+  officialProductId: number;
+  expected: Parameters<typeof isRecoverableCjBatchDraft>[0]["expected"];
+  imageKeyPrefix: string;
+}) {
+  const recovered = await isRecoverableBatchItemProduct(input);
+  await finishBatchItem({
+    batchId: input.batchId,
+    itemId: input.itemId,
+    status: recovered ? "imported" : "skipped",
+    officialProductId: input.officialProductId,
+    errorSummary: recovered ? undefined : "This supplier product is already mapped to an official product.",
+  });
+  return recovered;
+}
+
 function safeAdminImportError(error: unknown) {
   if (error instanceof CjDropshippingError || error instanceof AliExpressApiError || error instanceof ProductImageProcessingError) return error.message;
   return "This supplier product could not be imported. Review it individually and try again.";
@@ -258,14 +345,18 @@ export async function processNextCjMassImportItem(batchId: number, requestedByUs
     await finishBatchItem({ batchId, itemId: item.id, status: "failed", errorSummary: "This supplier is no longer supported." });
     return getCjMassImportBatch(batchId, requestedByUserId);
   }
+  const imageStoragePrefix = `official-products/${requestedByUserId}/${supplier}-batch/${batchId}-${item.id}`;
+  const imageKeyPrefix = `${imageStoragePrefix}-`;
   let identity: string | null = null;
   let externalProductId = "";
   let productId = "";
   let externalSkuId = item.normalizedSku;
+  let externalVariantId: string | null = null;
   try {
     const imported = await fetchSupplierProductForImport(supplier, item.normalizedSku, item.previewImageUrl, batch.category as MarketplaceCategory);
     externalProductId = imported.externalProductId;
     externalSkuId = imported.sku;
+    externalVariantId = imported.externalVariantId;
     if (!hasConfirmedPositiveSupplierInventory(imported.inventoryKnown, imported.stockQuantity)) {
       throw new CjDropshippingError("CJ stock could not be confirmed as available, so the product was not imported.", 422, false);
     }
@@ -274,10 +365,10 @@ export async function processNextCjMassImportItem(batchId: number, requestedByUs
     identity = createSupplierProductIdentity(supplier, imported.externalProductId);
     const existing = await findExistingSupplierProduct({ identity, externalProductId: imported.externalProductId, supplier, productId, sku: imported.sku });
     if (existing) {
-      await finishBatchItem({ batchId, itemId: item.id, status: "skipped", officialProductId: existing.id, errorSummary: "This supplier product is already mapped to an official product." });
+      await finishExistingBatchProduct({ batchId, itemId: item.id, officialProductId: existing.id, expected: { category: batch.category, externalSkuId: imported.sku, externalProductId: imported.externalProductId, externalVariantId: imported.externalVariantId, supplierIdentity: identity }, imageKeyPrefix });
       return getCjMassImportBatch(batchId, requestedByUserId);
     }
-    const images = await importSupplierProductImageGallery({ supplier, imageUrls: imported.imageUrls, storagePrefix: `official-products/${requestedByUserId}/${supplier}-batch/${batchId}-${item.id}` });
+    const images = await importSupplierProductImageGallery({ supplier, imageUrls: imported.imageUrls, storagePrefix: imageStoragePrefix });
     const imageUrls = images.map(image => image.url);
     const officialProductId = await createOfficialProduct({
       title: imported.title,
@@ -309,8 +400,8 @@ export async function processNextCjMassImportItem(batchId: number, requestedByUs
     await finishBatchItem({ batchId, itemId: item.id, status: "imported", officialProductId });
   } catch (error) {
     const duplicate = identity && productId ? await findExistingSupplierProduct({ identity, externalProductId, supplier, productId, sku: externalSkuId }).catch(() => null) : null;
-    if (duplicate && error instanceof Error && /duplicate|unique|supplierIdentity|1062/i.test(error.message)) {
-      await finishBatchItem({ batchId, itemId: item.id, status: "skipped", officialProductId: duplicate.id, errorSummary: "Another import already created this supplier product." });
+    if (duplicate && identity && error instanceof Error && /duplicate|unique|supplierIdentity|1062/i.test(error.message)) {
+      await finishExistingBatchProduct({ batchId, itemId: item.id, officialProductId: duplicate.id, expected: { category: batch.category, externalSkuId, externalProductId, externalVariantId, supplierIdentity: identity }, imageKeyPrefix });
       return getCjMassImportBatch(batchId, requestedByUserId);
     }
     await finishBatchItem({ batchId, itemId: item.id, status: "failed", errorSummary: safeAdminImportError(error) });

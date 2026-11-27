@@ -60,18 +60,26 @@ describe("product image processing", () => {
     const fetchMock = vi.fn(async () => new Response(source, { status: 200, headers: { "content-type": "image/jpeg" } }));
     vi.stubGlobal("fetch", fetchMock);
     const storage = await import("./storage");
-    vi.mocked(storage.storagePutProductImage)
-      .mockResolvedValueOnce({ key: "official-products/1/photo-0.webp", url: "https://images.alphamarket.name.ng/official-products/1/photo-0.webp" })
-      .mockResolvedValueOnce({ key: "official-products/1/photo-1.webp", url: "https://images.alphamarket.name.ng/official-products/1/photo-1.webp" });
+    let activeUploads = 0;
+    let peakUploads = 0;
+    vi.mocked(storage.storagePutProductImage).mockImplementation(async key => {
+      activeUploads += 1;
+      peakUploads = Math.max(peakUploads, activeUploads);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      activeUploads -= 1;
+      return { key, url: `https://images.alphamarket.name.ng/${key}` };
+    });
     const { importSupplierProductImageGallery } = await import("./productImageProcessing");
 
-    await expect(importSupplierProductImageGallery({ supplier: "cj_dropshipping", imageUrls: [
+    const gallery = await importSupplierProductImageGallery({ supplier: "cj_dropshipping", imageUrls: [
       "https://cc-west-usa.oss-us-west-1.aliyuncs.com/one.jpg",
       "https://cc-west-usa.oss-us-west-1.aliyuncs.com/two.jpg",
       "https://cc-west-usa.oss-us-west-1.aliyuncs.com/one.jpg",
-    ], storagePrefix: "official-products/1/gallery" })).resolves.toHaveLength(2);
+    ], storagePrefix: "official-products/1/gallery" });
+    expect(gallery.map(image => image.key)).toEqual(["official-products/1/gallery-0.webp", "official-products/1/gallery-1.webp"]);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(storage.storagePutProductImage).toHaveBeenCalledTimes(2);
+    expect(peakUploads).toBe(1);
     expect(storage.storageDeleteProductImage).not.toHaveBeenCalled();
   });
 

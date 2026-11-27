@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateMassImportNairaPrice, createSupplierProductIdentity, hasConfirmedPositiveSupplierInventory, normalizeCjSkuList } from "./cjMassImport";
+import { calculateMassImportNairaPrice, createSupplierProductIdentity, hasConfirmedPositiveSupplierInventory, isRecoverableCjBatchDraft, isStaleCjMassImportItem, normalizeCjSkuList } from "./cjMassImport";
 import { normalizeAliExpressProductReference } from "./aliexpressDropship";
 
 describe("supplier mass import safeguards", () => {
@@ -29,6 +29,35 @@ describe("supplier mass import safeguards", () => {
     expect(createSupplierProductIdentity("cj_dropshipping", "cj_dropshipping:CJ-123")).toBe("cj_dropshipping:cj-123");
     expect(createSupplierProductIdentity("aliexpress", "aliexpress:1005001234567890")).toBe("aliexpress:1005001234567890");
     expect(createSupplierProductIdentity("cj_dropshipping", "cj_dropshipping:CJ-123")).not.toBe(createSupplierProductIdentity("aliexpress", "aliexpress:CJ-123"));
+  });
+
+  it("reclaims only processing items older than the five-minute lease", () => {
+    const startedAt = new Date("2026-11-27T12:00:00.000Z");
+    expect(isStaleCjMassImportItem(null, startedAt.getTime() + 10 * 60_000)).toBe(false);
+    expect(isStaleCjMassImportItem(startedAt, startedAt.getTime() + 5 * 60_000)).toBe(false);
+    expect(isStaleCjMassImportItem(startedAt, startedAt.getTime() + 5 * 60_000 + 1)).toBe(true);
+  });
+
+  it("reconciles only the exact already-committed draft for the same batch item and complete R2 gallery", () => {
+    const prefix = "official-products/13/cj_dropshipping-batch/17-728-";
+    const valid = {
+      status: "draft",
+      category: "Gadgets",
+      fulfillmentProvider: "auto_fulfill_api",
+      externalSkuId: "CJ-GADGET-001",
+      externalProductId: "cj_dropshipping:product-001",
+      externalVariantId: "variant-001",
+      supplierIdentity: "cj_dropshipping:product-001",
+      expected: { category: "Gadgets", externalSkuId: "CJ-GADGET-001", externalProductId: "cj_dropshipping:product-001", externalVariantId: "variant-001", supplierIdentity: "cj_dropshipping:product-001" },
+      completeR2Gallery: true,
+      imageKeys: [`${prefix}0_a1b2c3d4.webp`, `${prefix}1_b2c3d4e5.webp`],
+      imageKeyPrefix: prefix,
+    };
+    expect(isRecoverableCjBatchDraft(valid)).toBe(true);
+    expect(isRecoverableCjBatchDraft({ ...valid, status: "active" })).toBe(false);
+    expect(isRecoverableCjBatchDraft({ ...valid, completeR2Gallery: false })).toBe(false);
+    expect(isRecoverableCjBatchDraft({ ...valid, imageKeyPrefix: "official-products/13/cj_dropshipping-batch/17-729-" })).toBe(false);
+    expect(isRecoverableCjBatchDraft({ ...valid, externalVariantId: "different-variant" })).toBe(false);
   });
 
   it("calculates a rounded Naira draft price from landed USD cost and markup", () => {

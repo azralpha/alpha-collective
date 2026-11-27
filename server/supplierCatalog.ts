@@ -33,13 +33,13 @@ export function normalizeSupplierReference(supplier: SupplierId, value: string) 
   return sku;
 }
 
-export async function fetchSupplierCatalogRefs(supplier: SupplierId, limit: number, keyword = "", category?: MarketplaceCategory): Promise<SupplierCatalogRef[]> {
+export async function fetchSupplierCatalogRefs(supplier: SupplierId, limit: number, keyword = "", category?: MarketplaceCategory, startPage = 1): Promise<SupplierCatalogRef[]> {
   if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error("Choose between 1 and 500 supplier products.");
   if (supplier === "aliexpress") {
     const refs = await fetchAliExpressCatalogRefs(limit, keyword);
     return refs.map(ref => ({ id: ref.productId, previewImageUrl: ref.previewImageUrl }));
   }
-  const products = await fetchCjProductCatalog(limit, category);
+  const products = await fetchCjProductCatalog(limit, category, startPage);
   return products.filter(product => Boolean(product.sku)).slice(0, limit).map(product => ({ id: String(product.sku), previewImageUrl: product.imageUrls?.[0] ?? null }));
 }
 

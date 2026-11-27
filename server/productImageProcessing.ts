@@ -106,19 +106,22 @@ export async function importSupplierProductImageGallery(input: { supplier: Suppl
   const imageUrls = Array.from(new Set(input.imageUrls.map(url => url.trim()).filter(Boolean)));
   if (!imageUrls.length) throw new ProductImageProcessingError("The supplier returned no usable product images.");
 
-  const results = await Promise.allSettled(imageUrls.map((imageUrl, index) => importSupplierProductImage({
-    supplier: input.supplier,
-    imageUrl,
-    storagePrefix: `${input.storagePrefix}-${index}`,
-  })));
-  const uploaded = results.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
-  const failure = results.find(result => result.status === "rejected");
-  if (failure?.status === "rejected") {
+  const uploaded: Array<Awaited<ReturnType<typeof importSupplierProductImage>>> = [];
+  try {
+    for (let index = 0; index < imageUrls.length; index += 1) {
+      const imageUrl = imageUrls[index];
+      uploaded.push(await importSupplierProductImage({
+        supplier: input.supplier,
+        imageUrl,
+        storagePrefix: `${input.storagePrefix}-${index}`,
+      }));
+    }
+    return uploaded;
+  } catch (error) {
     await Promise.allSettled(uploaded.map(image => storageDeleteProductImage(image.key)));
-    if (failure.reason instanceof ProductImageProcessingError) throw failure.reason;
+    if (error instanceof ProductImageProcessingError) throw error;
     throw new ProductImageProcessingError("The complete supplier product gallery could not be stored.");
   }
-  return uploaded;
 }
 
 export async function importCjProductImage(input: { imageUrl: string; storagePrefix: string }) {

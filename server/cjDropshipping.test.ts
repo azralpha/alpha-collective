@@ -86,6 +86,35 @@ describe("CJ Dropshipping adapter", () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  it("scans a bounded ten-page category window starting at the requested page", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const requestedPages: number[] = [];
+    const fetchMock = vi.fn().mockImplementation(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes("/authentication/getAccessToken")) return new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 });
+      const page = Number(new URL(url).searchParams.get("page"));
+      requestedPages.push(page);
+      const productList = Array.from({ length: 100 }, (_, index) => ({ sku: `CJ-GADGET-${page}-${index}`, nameEn: `Wireless Audio Product ${page}-${index}`, threeCategoryName: "Audio & Headphones", nowPrice: "5.00", bigImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/item.png", description: "Category page-window test product description." }));
+      return new Response(JSON.stringify({ result: true, data: { content: [{ productList }] } }), { status: 200 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductCatalog } = await import("./cjDropshipping");
+
+    await expect(fetchCjProductCatalog(500, "Gadgets", 11)).resolves.toHaveLength(500);
+    expect(requestedPages).toEqual(Array.from({ length: 10 }, (_, index) => 11 + index));
+    expect(fetchMock).toHaveBeenCalledTimes(11);
+  });
+
+  it("rejects a category page window that would extend past page 10,000 before authenticating", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductCatalog } = await import("./cjDropshipping");
+
+    await expect(fetchCjProductCatalog(10, "Gadgets", 9_992)).rejects.toMatchObject({ statusCode: 400 });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("filters blank catalogue imports by the selected marketplace category", async () => {
     process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
     const fetchMock = vi.fn()
@@ -159,6 +188,22 @@ describe("CJ Dropshipping adapter", () => {
 
     await expect(fetchCjProductCatalog(10)).resolves.toMatchObject([{ sku: "CJ-LEGACY-001", title: "Legacy Catalog Product", externalProductId: "cj-legacy-id" }]);
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/product/list?pageNum=1&pageSize=10&productType=SUPPLIER_PRODUCT");
+  });
+
+  it("starts the legacy category fallback at the requested CJ page", async () => {
+    process.env.CJ_DROPSHIPPING_API_KEY = "cj-test-key";
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ result: true, data: { accessToken: "access-token", accessTokenExpiryDate: "2099-01-01T00:00:00.000Z" } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 200, result: true, data: { totalRecords: 0, content: [] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 200, result: true, data: { list: Array.from({ length: 10 }, (_, index) => ({ pid: `cj-fashion-legacy-${index}`, productSku: `CJ-FASHION-LEGACY-${index}`, productNameEn: `Legacy Fashion Product ${index}`, threeCategoryName: "Women's Clothing", productImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/legacy-fashion.png", sellPrice: 7.5 })) } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ code: 200, result: true, data: { list: [{ pid: "cj-gadget-legacy-id", productSku: "CJ-GADGET-LEGACY", productNameEn: "Legacy Audio Product", threeCategoryName: "Audio & Headphones", productImage: "https://cc-west-usa.oss-us-west-1.aliyuncs.com/legacy-gadget.png", sellPrice: 7.5 }] } }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { fetchCjProductCatalog } = await import("./cjDropshipping");
+
+    await expect(fetchCjProductCatalog(10, "Gadgets", 11)).resolves.toMatchObject([{ sku: "CJ-GADGET-LEGACY", title: "Legacy Audio Product", externalProductId: "cj-gadget-legacy-id" }]);
+    expect(new URL(String(fetchMock.mock.calls[1]?.[0])).searchParams.get("page")).toBe("11");
+    expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/product/list?pageNum=11&pageSize=10&productType=SUPPLIER_PRODUCT");
+    expect(String(fetchMock.mock.calls[3]?.[0])).toContain("/product/list?pageNum=12&pageSize=10&productType=SUPPLIER_PRODUCT");
   });
 
   it("accepts a CJ SPU when the catalogue response has a distinct fulfilment SKU", async () => {

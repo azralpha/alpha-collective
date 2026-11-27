@@ -211,6 +211,7 @@ const supplierImportInputSchema = z.object({
   markupPercent: z.number().min(0).max(500),
   exchangeRateNgnPerUsd: z.number().min(100).max(10_000),
   category: z.enum(MARKETPLACE_CATEGORIES),
+  startPage: z.number().int().min(1).max(9_991).optional(),
 });
 const savedProductListInputSchema = z.object({
   status: z.enum(["draft", "active", "rejected"]).optional(),

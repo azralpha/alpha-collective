@@ -325,14 +325,17 @@ export async function fetchCjProductForMassImport(sku: string, destinationCountr
 }
 
 /** Returns available CJ catalogue entries for an administrator-led bulk draft import. */
-export async function fetchCjProductCatalog(limit: number, category?: MarketplaceCategory) {
+export async function fetchCjProductCatalog(limit: number, category?: MarketplaceCategory, startPage = 1) {
   if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new CjDropshippingError("Choose between 1 and 500 CJ products.", 400, false);
+  if (!Number.isInteger(startPage) || startPage < 1 || startPage > 9_991) throw new CjDropshippingError("Choose a CJ catalogue start page between 1 and 9,991.", 400, false);
   const token = await accessToken();
   const pageSize = Math.min(limit, 100);
   const candidates: CjProductCatalogCandidate[] = [];
   const seen = new Set<string>();
+  const catalogStartPage = category ? startPage : 1;
   const maxPages = category ? 10 : Math.ceil(limit / pageSize);
-  for (let page = 1; (category || candidates.length < limit) && page <= maxPages; page += 1) {
+  for (let pageOffset = 0; (category || candidates.length < limit) && pageOffset < maxPages; pageOffset += 1) {
+    const page = catalogStartPage + pageOffset;
     const query = new URLSearchParams({ page: String(page), size: String(pageSize) });
     query.append("features", "enable_description");
     if (category) query.append("features", "enable_category");
@@ -362,7 +365,9 @@ export async function fetchCjProductCatalog(limit: number, category?: Marketplac
     console.warn("[CJ API] V2 catalog query returned no importable products; trying the documented legacy list endpoint.", { requestedLimit: limit, returnedCandidates: candidates.length });
     const legacyPageSize = Math.min(limit, 200);
     const legacyCandidates: CjProductCatalogCandidate[] = [];
-    for (let page = 1; legacyCandidates.length < limit && page <= Math.ceil(limit / legacyPageSize); page += 1) {
+    const legacyMaxPages = category ? 10 : Math.ceil(limit / legacyPageSize);
+    for (let pageOffset = 0; (category || legacyCandidates.length < limit) && pageOffset < legacyMaxPages; pageOffset += 1) {
+      const page = catalogStartPage + pageOffset;
       const legacy = await cjFetch<CjProductFallbackResponse>(`/product/list?pageNum=${page}&pageSize=${legacyPageSize}&productType=SUPPLIER_PRODUCT`, { method: "GET", headers: { "CJ-Access-Token": token } });
       const legacyProducts = legacy?.data?.list ?? [];
       legacyCandidates.push(...legacyProducts.map(product => ({ id: product.pid, sku: product.productSku, nameEn: product.productNameEn, productImage: product.productImage, sellPrice: product.sellPrice, category: product.category, categoryName: product.categoryName, oneCategoryName: product.oneCategoryName, twoCategoryName: product.twoCategoryName, threeCategoryName: product.threeCategoryName })));
